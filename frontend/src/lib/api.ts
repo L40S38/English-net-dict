@@ -6,13 +6,19 @@ import type {
   Definition,
   Derivation,
   EtymologyComponentCache,
+  EtymologyComponentListResponse,
   EtymologyComponentSearchResponse,
   Etymology,
+  GroupSuggestResponse,
+  GroupImage,
   RelatedWord,
   Word,
   WordForms,
   WordImage,
   WordListResponse,
+  WordGroup,
+  WordGroupItem,
+  WordGroupListResponse,
   WordSortBy,
   SortOrder,
 } from "../types";
@@ -200,7 +206,34 @@ export const componentChatApi = {
   },
 };
 
+export const groupChatApi = {
+  async sessions(groupId: number) {
+    const { data } = await api.get<ChatSession[]>(`/api/groups/${groupId}/chat/sessions`);
+    return data;
+  },
+  async createSession(groupId: number, title?: string) {
+    const { data } = await api.post<ChatSession>(`/api/groups/${groupId}/chat/sessions`, { title });
+    return data;
+  },
+};
+
 export const componentApi = {
+  async list(params?: { q?: string; page?: number; page_size?: number }) {
+    const { data } = await api.get<EtymologyComponentListResponse>("/api/etymology-components", {
+      params: {
+        q: params?.q,
+        page: params?.page ?? 1,
+        page_size: params?.page_size ?? 20,
+      },
+    });
+    return data;
+  },
+  async create(componentText: string) {
+    const { data } = await api.post<EtymologyComponentCache>(
+      `/api/etymology-components/${encodeURIComponent(componentText)}`,
+    );
+    return data;
+  },
   async get(componentText: string) {
     const { data } = await api.get<EtymologyComponentCache>(
       `/api/etymology-components/${encodeURIComponent(componentText)}`,
@@ -212,6 +245,65 @@ export const componentApi = {
       `/api/etymology-components/${encodeURIComponent(componentText)}/rescrape`,
     );
     return data;
+  },
+};
+
+export const groupApi = {
+  async list(params?: { q?: string; page?: number; page_size?: number }) {
+    const { data } = await api.get<WordGroupListResponse>("/api/groups", {
+      params: {
+        q: params?.q,
+        page: params?.page ?? 1,
+        page_size: params?.page_size ?? 20,
+      },
+    });
+    return data;
+  },
+  async create(payload: { name: string; description?: string }) {
+    const { data } = await api.post<WordGroup>("/api/groups", payload);
+    return data;
+  },
+  async get(groupId: number) {
+    const { data } = await api.get<WordGroup>(`/api/groups/${groupId}`);
+    return data;
+  },
+  async update(groupId: number, payload: { name: string; description?: string }) {
+    const { data } = await api.put<WordGroup>(`/api/groups/${groupId}`, payload);
+    return data;
+  },
+  async delete(groupId: number) {
+    await api.delete(`/api/groups/${groupId}`);
+  },
+  async addItem(
+    groupId: number,
+    payload: {
+      item_type: "word" | "phrase" | "example";
+      word_id?: number | null;
+      definition_id?: number | null;
+      phrase_text?: string | null;
+      phrase_meaning?: string | null;
+      sort_order?: number;
+    },
+  ) {
+    const { data } = await api.post<WordGroupItem>(`/api/groups/${groupId}/items`, payload);
+    return data;
+  },
+  async removeItem(groupId: number, itemId: number) {
+    await api.delete(`/api/groups/${groupId}/items/${itemId}`);
+  },
+  async suggest(groupId: number, payload: { keywords: string[]; limit?: number }) {
+    const { data } = await api.post<GroupSuggestResponse>(`/api/groups/${groupId}/suggest`, payload);
+    return data;
+  },
+  async generateImage(groupId: number, prompt?: string) {
+    const { data } = await api.post<GroupImage>(`/api/groups/${groupId}/generate-image`, {
+      prompt: prompt ?? null,
+    });
+    return data;
+  },
+  async getDefaultImagePrompt(groupId: number) {
+    const { data } = await api.get<{ prompt: string }>(`/api/groups/${groupId}/default-image-prompt`);
+    return data.prompt;
   },
 };
 

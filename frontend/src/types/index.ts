@@ -152,12 +152,24 @@ export interface EtymologyComponentSearchResponse {
 }
 
 export interface EtymologyComponentCache {
-  text: string;
-  meanings?: string[];
-  related_terms?: string[];
-  derived_terms?: string[];
-  source_url?: string | null;
+  id: number;
+  component_text: string;
+  resolved_meaning?: string | null;
+  wiktionary_meanings?: string[];
+  wiktionary_related_terms?: string[];
+  wiktionary_derived_terms?: string[];
+  wiktionary_source_url?: string | null;
   updated_at?: string;
+  created_at?: string;
+}
+
+export interface EtymologyComponentListItem extends EtymologyComponentCache {
+  word_count: number;
+}
+
+export interface EtymologyComponentListResponse {
+  items: EtymologyComponentListItem[];
+  total: number;
 }
 
 export interface ChatSession {
@@ -165,6 +177,7 @@ export interface ChatSession {
   word_id?: number | null;
   component_text?: string | null;
   component_id?: number | null;
+  group_id?: number | null;
   title: string;
   created_at: string;
   updated_at: string;
@@ -182,4 +195,66 @@ export interface ChatMessage {
 export interface ChatReply {
   user_message: ChatMessage;
   assistant_message: ChatMessage;
+}
+
+export type GroupItemType = "word" | "phrase" | "example";
+
+export interface WordGroupItem {
+  id: number;
+  item_type: GroupItemType;
+  word_id?: number | null;
+  definition_id?: number | null;
+  phrase_text?: string | null;
+  phrase_meaning?: string | null;
+  sort_order: number;
+  created_at: string;
+  word?: string | null;
+  definition_part_of_speech?: string | null;
+  definition_meaning_ja?: string | null;
+  example_en?: string | null;
+  example_ja?: string | null;
+}
+
+export interface WordGroup {
+  id: number;
+  name: string;
+  description: string;
+  item_count: number;
+  created_at: string;
+  updated_at: string;
+  items: WordGroupItem[];
+  images: GroupImage[];
+}
+
+export interface GroupImage {
+  id: number;
+  group_id: number;
+  file_path: string;
+  prompt: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface WordGroupListResponse {
+  items: WordGroup[];
+  total: number;
+}
+
+export interface GroupSuggestCandidate {
+  item_type: GroupItemType;
+  word_id?: number | null;
+  definition_id?: number | null;
+  phrase_text?: string | null;
+  phrase_meaning?: string | null;
+  word?: string | null;
+  definition_part_of_speech?: string | null;
+  definition_meaning_ja?: string | null;
+  example_en?: string | null;
+  example_ja?: string | null;
+  score: number;
+}
+
+export interface GroupSuggestResponse {
+  keywords: string[];
+  candidates: GroupSuggestCandidate[];
 }

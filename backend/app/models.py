@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import JSON, Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -81,14 +81,20 @@ class Etymology(Base):
         back_populates="etymology_ref",
         cascade="all, delete-orphan",
         order_by="EtymologyLanguageChainLink.sort_order, EtymologyLanguageChainLink.id",
-        primaryjoin="and_(EtymologyLanguageChainLink.etymology_id==Etymology.id, EtymologyLanguageChainLink.variant_id==None)",
+        primaryjoin=(
+            "and_(EtymologyLanguageChainLink.etymology_id==Etymology.id, "
+            "EtymologyLanguageChainLink.variant_id==None)"
+        ),
         foreign_keys="[EtymologyLanguageChainLink.etymology_id]",
     )
     component_meanings: Mapped[list["EtymologyComponentMeaning"]] = relationship(
         back_populates="etymology_ref",
         cascade="all, delete-orphan",
         order_by="EtymologyComponentMeaning.sort_order, EtymologyComponentMeaning.id",
-        primaryjoin="and_(EtymologyComponentMeaning.etymology_id==Etymology.id, EtymologyComponentMeaning.variant_id==None)",
+        primaryjoin=(
+            "and_(EtymologyComponentMeaning.etymology_id==Etymology.id, "
+            "EtymologyComponentMeaning.variant_id==None)"
+        ),
         foreign_keys="[EtymologyComponentMeaning.etymology_id]",
     )
 
@@ -267,12 +273,60 @@ class EtymologyComponentItem(Base):
     component_ref: Mapped[EtymologyComponent | None] = relationship(back_populates="component_items")
 
 
+class WordGroup(Base, TimestampMixin):
+    __tablename__ = "word_groups"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(128), index=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    items: Mapped[list["WordGroupItem"]] = relationship(
+        back_populates="group_ref",
+        cascade="all, delete-orphan",
+        order_by="WordGroupItem.sort_order, WordGroupItem.id",
+    )
+    images: Mapped[list["GroupImage"]] = relationship(back_populates="group_ref", cascade="all, delete-orphan")
+
+
+class WordGroupItem(Base):
+    __tablename__ = "word_group_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    group_id: Mapped[int] = mapped_column(ForeignKey("word_groups.id", ondelete="CASCADE"), index=True)
+    item_type: Mapped[str] = mapped_column(String(16), default="word")
+    word_id: Mapped[int | None] = mapped_column(ForeignKey("words.id", ondelete="CASCADE"), index=True, nullable=True)
+    definition_id: Mapped[int | None] = mapped_column(
+        ForeignKey("definitions.id", ondelete="CASCADE"), index=True, nullable=True
+    )
+    phrase_text: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    phrase_meaning: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    group_ref: Mapped[WordGroup] = relationship(back_populates="items")
+    word_ref: Mapped[Word | None] = relationship(foreign_keys=[word_id])
+    definition_ref: Mapped[Definition | None] = relationship(foreign_keys=[definition_id])
+
+
+class GroupImage(Base):
+    __tablename__ = "group_images"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    group_id: Mapped[int] = mapped_column(ForeignKey("word_groups.id", ondelete="CASCADE"), index=True)
+    file_path: Mapped[str] = mapped_column(String(512))
+    prompt: Mapped[str] = mapped_column(Text)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    group_ref: Mapped[WordGroup] = relationship(back_populates="images")
+
+
 class ChatSession(Base):
     __tablename__ = "chat_sessions"
     __table_args__ = (
         CheckConstraint(
-            "(word_id IS NOT NULL AND component_text IS NULL AND component_id IS NULL) OR "
-            "(word_id IS NULL AND (component_text IS NOT NULL OR component_id IS NOT NULL))",
+            "(word_id IS NOT NULL AND component_text IS NULL AND component_id IS NULL AND group_id IS NULL) OR "
+            "(word_id IS NULL AND group_id IS NULL AND (component_text IS NOT NULL OR component_id IS NOT NULL)) OR "
+            "(group_id IS NOT NULL AND word_id IS NULL AND component_text IS NULL AND component_id IS NULL)",
             name="ck_chat_sessions_scope",
         ),
     )
@@ -283,12 +337,16 @@ class ChatSession(Base):
     component_id: Mapped[int | None] = mapped_column(
         ForeignKey("etymology_components.id", ondelete="SET NULL"), index=True, nullable=True
     )
+    group_id: Mapped[int | None] = mapped_column(
+        ForeignKey("word_groups.id", ondelete="CASCADE"), index=True, nullable=True
+    )
     title: Mapped[str] = mapped_column(String(255), default="Word Chat")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     word_ref: Mapped[Word | None] = relationship(back_populates="chat_sessions")
     component_ref: Mapped[EtymologyComponent | None] = relationship()
+    group_ref: Mapped[WordGroup | None] = relationship()
     messages: Mapped[list["ChatMessage"]] = relationship(back_populates="session_ref", cascade="all, delete-orphan")
 
 

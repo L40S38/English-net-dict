@@ -10,7 +10,16 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from app.config import settings
-from app.models import ChatMessage, ChatSession, Etymology, EtymologyComponent, EtymologyVariant, Word
+from app.models import (
+    ChatMessage,
+    ChatSession,
+    Etymology,
+    EtymologyComponent,
+    EtymologyVariant,
+    Word,
+    WordGroup,
+    WordGroupItem,
+)
 from app.services.chat_tools import TOOL_DEFINITIONS, execute_tool
 from app.services.etymology_component_service import get_component_cache, normalize_component_text
 from app.utils.prompt_loader import load_prompt
@@ -137,6 +146,39 @@ def build_component_context(
     }
 
 
+def build_group_context(group: WordGroup) -> dict[str, Any]:
+    items: list[dict[str, Any]] = []
+    for item in sorted(group.items, key=lambda x: (x.sort_order, x.id)):
+        if item.item_type == "word" and item.word_ref:
+            items.append({"type": "word", "word": item.word_ref.word})
+        elif item.item_type == "phrase" and item.phrase_text:
+            items.append(
+                {
+                    "type": "phrase",
+                    "phrase": item.phrase_text,
+                    "meaning": item.phrase_meaning or "",
+                }
+            )
+        elif item.item_type == "example" and item.definition_ref and item.word_ref:
+            items.append(
+                {
+                    "type": "example",
+                    "word": item.word_ref.word,
+                    "example_en": item.definition_ref.example_en,
+                    "example_ja": item.definition_ref.example_ja,
+                    "meaning_ja": item.definition_ref.meaning_ja,
+                }
+            )
+    return {
+        "group": {
+            "id": group.id,
+            "name": group.name,
+            "description": group.description,
+        },
+        "items": items[:120],
+    }
+
+
 # ---------------------------------------------------------------------------
 # Session CRUD
 # ---------------------------------------------------------------------------
@@ -161,6 +203,24 @@ def list_component_sessions(db: Session, component_text: str) -> list[ChatSessio
         .order_by(ChatSession.updated_at.desc())
     )
     return list(db.scalars(stmt))
+
+
+def list_group_sessions(db: Session, group_id: int) -> list[ChatSession]:
+    stmt = select(ChatSession).where(ChatSession.group_id == group_id).order_by(ChatSession.updated_at.desc())
+    return list(db.scalars(stmt))
+
+
+def create_group_session(db: Session, group_id: int, title: str | None) -> ChatSession:
+    session = ChatSession(
+        word_id=None,
+        component_text=None,
+        component_id=None,
+        group_id=group_id,
+        title=title or f"Group Chat: {group_id}",
+    )
+    db.add(session)
+    db.flush()
+    return session
 
 
 def create_component_session(db: Session, component_text: str, title: str | None) -> ChatSession:
@@ -340,11 +400,17 @@ def _run_agent_loop(
                 "call_id": tc.call_id,
                 "output": result,
             })
-            citations.append({"source": tc.name, "query": args.get("queries") or args.get("patterns") or args.get("word")})
+            citations.append({
+                "source": tc.name,
+                "query": args.get("queries") or args.get("patterns") or args.get("word"),
+            })
 
     assistant_content = _format_markdown_for_readability(response.output_text.strip())
     if has_suspected_mojibake(assistant_content):
-        assistant_content = "回答テキストに文字エンコード異常が検出されました。もう一度質問するか、データ再取得を実行してください。"
+        assistant_content = (
+            "回答テキストに文字エンコード異常が検出されました。"
+            "もう一度質問するか、データ再取得を実行してください。"
+        )
     return assistant_content, citations
 
 
@@ -356,7 +422,20 @@ def answer_in_session(db: Session, session: ChatSession, user_input: str) -> tup
     db.add(user_msg)
     db.flush()
 
-    if session.component_text:
+    if session.group_id:
+        group_stmt = (
+            select(WordGroup)
+            .where(WordGroup.id == session.group_id)
+            .options(
+                joinedload(WordGroup.items).joinedload(WordGroupItem.word_ref),
+                joinedload(WordGroup.items).joinedload(WordGroupItem.definition_ref),
+            )
+        )
+        group = db.scalar(group_stmt)
+        if not group:
+            raise ValueError("Group not found")
+        context_json = json.dumps(build_group_context(group), ensure_ascii=False)
+    elif session.component_text:
         component_text = normalize_component_text(session.component_text)
         word_stmt = select(Word).options(
             joinedload(Word.definitions),
@@ -374,7 +453,12 @@ def answer_in_session(db: Session, session: ChatSession, user_input: str) -> tup
             if not etymology:
                 continue
             def _component_text(item) -> str:
-                return str(getattr(item, "component_text", item.get("text", "") if isinstance(item, dict) else "")).strip().lower()
+                value = getattr(
+                    item,
+                    "component_text",
+                    item.get("text", "") if isinstance(item, dict) else "",
+                )
+                return str(value).strip().lower()
 
             items: list = list(etymology.component_items or []) + list(etymology.component_meanings or [])
             for v in (etymology.variants or []):
@@ -385,7 +469,10 @@ def answer_in_session(db: Session, session: ChatSession, user_input: str) -> tup
                     matched_words.append(word)
                     break
         component_cache = get_component_cache(db, component_text)
-        context_json = json.dumps(build_component_context(component_text, matched_words, component_cache), ensure_ascii=False)
+        context_json = json.dumps(
+            build_component_context(component_text, matched_words, component_cache),
+            ensure_ascii=False,
+        )
     else:
         word_stmt = (
             select(Word)
@@ -416,7 +503,9 @@ def answer_in_session(db: Session, session: ChatSession, user_input: str) -> tup
         except Exception:  # noqa: BLE001
             logger.exception("Agent loop failed")
             if session.component_text:
-                assistant_content, citations = _fallback_component_answer(normalize_component_text(session.component_text))
+                assistant_content, citations = _fallback_component_answer(
+                    normalize_component_text(session.component_text)
+                )
             else:
                 assistant_content, citations = _fallback_answer(word, safe_user_input)
     else:
@@ -425,7 +514,10 @@ def answer_in_session(db: Session, session: ChatSession, user_input: str) -> tup
         else:
             assistant_content, citations = _fallback_answer(word, safe_user_input)
         if has_suspected_mojibake(assistant_content):
-            assistant_content = "回答テキストに文字エンコード異常が検出されました。もう一度質問するか、データ再取得を実行してください。"
+            assistant_content = (
+                "回答テキストに文字エンコード異常が検出されました。"
+                "もう一度質問するか、データ再取得を実行してください。"
+            )
 
     assistant_content = _format_markdown_for_readability(assistant_content)
 

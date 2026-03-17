@@ -16,3 +16,4 @@ Return **strict JSON only**, no markdown or explanation:
 - Each sentence must use the target word (or a common inflected form) and illustrate the given meaning.
 - Use simple, natural English. One short sentence per definition.
 - Do not repeat the same example; each must match its corresponding definition sense.
+

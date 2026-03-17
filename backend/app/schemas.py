@@ -166,6 +166,16 @@ class WordImageRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class GroupImageRead(BaseModel):
+    id: int
+    group_id: int
+    file_path: str
+    prompt: str
+    is_active: bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
 class WordCreateRequest(BaseModel):
     word: str
 
@@ -248,6 +258,92 @@ class EtymologyComponentRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class EtymologyComponentListItem(EtymologyComponentRead):
+    word_count: int = 0
+
+
+class EtymologyComponentListResponse(BaseModel):
+    items: list[EtymologyComponentListItem]
+    total: int
+
+
+class WordGroupCreate(BaseModel):
+    name: str
+    description: str = ""
+
+
+class WordGroupUpdate(BaseModel):
+    name: str
+    description: str = ""
+
+
+class WordGroupItemCreate(BaseModel):
+    item_type: Literal["word", "phrase", "example"]
+    word_id: int | None = None
+    definition_id: int | None = None
+    phrase_text: str | None = None
+    phrase_meaning: str | None = None
+    sort_order: int = 0
+
+
+class WordGroupItemRead(BaseModel):
+    id: int
+    item_type: Literal["word", "phrase", "example"]
+    word_id: int | None = None
+    definition_id: int | None = None
+    phrase_text: str | None = None
+    phrase_meaning: str | None = None
+    sort_order: int
+    created_at: datetime
+    word: str | None = None
+    definition_part_of_speech: str | None = None
+    definition_meaning_ja: str | None = None
+    example_en: str | None = None
+    example_ja: str | None = None
+
+
+class WordGroupRead(BaseModel):
+    id: int
+    name: str
+    description: str = ""
+    item_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+    items: list[WordGroupItemRead] = Field(default_factory=list)
+    images: list[GroupImageRead] = Field(default_factory=list)
+
+    model_config = {"from_attributes": True}
+
+
+class WordGroupListResponse(BaseModel):
+    items: list[WordGroupRead]
+    total: int
+
+
+class GroupSuggestRequest(BaseModel):
+    keywords: list[str] = Field(default_factory=list)
+    limit: int = 20
+
+
+class GroupSuggestCandidate(BaseModel):
+    item_type: Literal["word", "phrase", "example"]
+    word_id: int | None = None
+    definition_id: int | None = None
+    phrase_text: str | None = None
+    phrase_meaning: str | None = None
+    word: str | None = None
+    definition_part_of_speech: str | None = None
+    definition_meaning_ja: str | None = None
+    example_en: str | None = None
+    example_ja: str | None = None
+    score: float = 0.0
+
+
+class GroupSuggestResponse(BaseModel):
+    keywords: list[str] = Field(default_factory=list)
+    candidates: list[GroupSuggestCandidate] = Field(default_factory=list)
+
+
 class GenerateImageRequest(BaseModel):
     prompt: str | None = None
 
@@ -327,6 +423,7 @@ class ChatSessionRead(BaseModel):
     word_id: int | None = None
     component_text: str | None = None
     component_id: int | None = None
+    group_id: int | None = None
     title: str
     created_at: datetime
     updated_at: datetime

@@ -8,7 +8,7 @@ from openai import OpenAI
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.models import Word, WordImage
+from app.models import GroupImage, Word, WordGroup, WordImage
 from app.services.wordnet_service import get_wordnet_snapshot
 from app.utils.prompt_loader import load_prompt
 
@@ -161,6 +161,81 @@ def generate_word_image(db: Session, word: Word, user_prompt: str | None) -> Wor
 
     relative_path = f"images/{filename}"
     image = WordImage(word_id=word.id, file_path=relative_path, prompt=prompt, is_active=True)
+    db.add(image)
+    db.flush()
+    return image
+
+
+def build_group_image_prompt(group: WordGroup) -> str:
+    template = load_prompt("group_image_generation.md")
+    lines: list[str] = []
+    words: list[str] = []
+    phrases: list[str] = []
+    examples: list[str] = []
+    for item in sorted(group.items, key=lambda x: (x.sort_order, x.id))[:60]:
+        if item.item_type == "word" and item.word_ref:
+            words.append(item.word_ref.word)
+        elif item.item_type == "phrase" and item.phrase_text:
+            meaning = (item.phrase_meaning or "").strip()
+            phrases.append(f"{item.phrase_text} ({meaning})" if meaning else item.phrase_text)
+        elif item.item_type == "example" and item.definition_ref and item.word_ref:
+            ex = (item.definition_ref.example_en or "").strip()
+            if ex:
+                examples.append(f"{item.word_ref.word}: {ex}")
+
+    if words:
+        lines.append("### 単語")
+        for w in _dedup_lines(words)[:20]:
+            lines.append(f"- {w}")
+    if phrases:
+        lines.append("### 熟語")
+        for p in _dedup_lines(phrases)[:20]:
+            lines.append(f"- {p}")
+    if examples:
+        lines.append("### 例文")
+        for e in _dedup_lines(examples)[:12]:
+            lines.append(f"- {e}")
+
+    if not lines:
+        lines = ["- (No items in this group yet.)"]
+    items_summary = "\n".join(lines)
+    return template.format(
+        group_name=group.name,
+        group_description=(group.description or "").strip(),
+        items_summary=items_summary,
+    )
+
+
+def generate_group_image(db: Session, group: WordGroup, user_prompt: str | None) -> GroupImage:
+    image_dir = Path(settings.image_dir)
+    image_dir.mkdir(parents=True, exist_ok=True)
+    prompt = user_prompt or build_group_image_prompt(group)
+    filename = f"group-{group.id}-{uuid.uuid4().hex[:8]}.png"
+    file_path = image_dir / filename
+
+    if settings.openai_api_key:
+        try:
+            client = OpenAI(api_key=settings.openai_api_key)
+            result = client.images.generate(
+                model=settings.openai_image_model,
+                prompt=prompt,
+                size=settings.openai_image_size,
+            )
+            b64 = result.data[0].b64_json
+            if b64:
+                file_path.write_bytes(base64.b64decode(b64))
+            else:
+                _write_placeholder_png(file_path)
+        except Exception:  # noqa: BLE001
+            _write_placeholder_png(file_path)
+    else:
+        _write_placeholder_png(file_path)
+
+    for img in group.images:
+        img.is_active = False
+
+    relative_path = f"images/{filename}"
+    image = GroupImage(group_id=group.id, file_path=relative_path, prompt=prompt, is_active=True)
     db.add(image)
     db.flush()
     return image

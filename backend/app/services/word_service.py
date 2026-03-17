@@ -421,6 +421,18 @@ def _build_etymology_read(db: Session, etymology: Etymology) -> dict:
 
 
 def to_word_read(db: Session, word: Word) -> WordRead:
+    definitions = []
+    for d in word.definitions:
+        item = DefinitionRead.model_validate(d).model_dump()
+        item["part_of_speech"] = normalize_part_of_speech(item.get("part_of_speech"))
+        definitions.append(item)
+
+    derivations = []
+    for drv in word.derivations:
+        item = DerivationRead.model_validate(drv).model_dump()
+        item["part_of_speech"] = normalize_part_of_speech(item.get("part_of_speech"))
+        derivations.append(item)
+
     data: dict = {
         "id": word.id,
         "word": word.word,
@@ -429,9 +441,9 @@ def to_word_read(db: Session, word: Word) -> WordRead:
         "created_at": word.created_at,
         "updated_at": word.updated_at,
         "last_viewed_at": word.last_viewed_at,
-        "definitions": [DefinitionRead.model_validate(d).model_dump() for d in word.definitions],
+        "definitions": definitions,
         "etymology": _build_etymology_read(db, word.etymology) if word.etymology else None,
-        "derivations": [DerivationRead.model_validate(d).model_dump() for d in word.derivations],
+        "derivations": derivations,
         "related_words": [RelatedWordRead.model_validate(r).model_dump() for r in word.related_words],
         "images": [WordImageRead.model_validate(i).model_dump() for i in word.images],
         "chat_session_count": len(word.chat_sessions),

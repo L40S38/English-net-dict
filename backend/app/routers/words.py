@@ -4,7 +4,7 @@ import asyncio
 from datetime import datetime
 from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
@@ -28,7 +28,7 @@ from app.schemas import (
     WordRead,
 )
 from app.services.gpt_service import enrich_core_image_and_branches, generate_structured_word_data
-from app.services.etymology_component_service import ensure_component_cache, normalize_component_text
+from app.services.etymology_component_service import get_component_cache, normalize_component_text
 from app.services.scraper import build_scrapers
 from app.services.scraper.wiktionary import WiktionaryScraper
 from app.services import word_service
@@ -182,9 +182,38 @@ def list_words(
     sort_clauses = _word_sort_clauses(sort_by, sort_order)
     stmt = _word_query().order_by(*sort_clauses)
     if q:
-        keyword = q.strip()
-        stmt = stmt.where(Word.word.ilike(f"%{keyword}%")).order_by(
-            Word.word.ilike(f"{keyword}%").desc(), *sort_clauses
+        raw = q.strip()
+        # Support Japanese comma "、" and regular commas/spaces.
+        tokens = [t.strip() for t in raw.replace("、", ",").split(",")]
+        keywords = [t for token in tokens for t in token.split() if t]
+        if not keywords:
+            keywords = [raw]
+
+        def _definition_matches(text: str):
+            pat = f"%{text}%"
+            return exists(
+                select(1)
+                .select_from(Definition)
+                .where(Definition.word_id == Word.id)
+                .where(
+                    or_(
+                        Definition.meaning_ja.ilike(pat),
+                        Definition.meaning_en.ilike(pat),
+                        Definition.example_en.ilike(pat),
+                        Definition.example_ja.ilike(pat),
+                    )
+                )
+            )
+
+        predicates = []
+        for kw in keywords:
+            pat = f"%{kw}%"
+            predicates.append(or_(Word.word.ilike(pat), _definition_matches(kw)))
+
+        stmt = stmt.where(or_(*predicates)).order_by(
+            # Keep "starts with" boost for English word matches only.
+            or_(*[Word.word.ilike(f"{kw}%") for kw in keywords]).desc(),
+            *sort_clauses,
         )
     total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
     items = list(db.scalars(stmt.offset((page - 1) * page_size).limit(page_size)).unique())
@@ -231,14 +260,14 @@ async def list_words_by_etymology_component(
     db: Session = Depends(get_db),
 ) -> EtymologyComponentSearchResponse:
     normalized_text = normalize_component_text(text)
+    if not normalized_text:
+        raise HTTPException(status_code=400, detail="text is required")
     words = list(db.scalars(_word_query().order_by(Word.updated_at.desc())).unique())
     filtered = [word for word in words if _has_etymology_component(word, normalized_text)]
     resolved_meaning = _resolve_component_meaning(filtered, normalized_text)
-    component_cache, changed = await ensure_component_cache(db, normalized_text, force_refresh=False)
-    if component_cache.resolved_meaning != resolved_meaning:
+    component_cache = get_component_cache(db, normalized_text)
+    if component_cache and component_cache.resolved_meaning != resolved_meaning:
         component_cache.resolved_meaning = resolved_meaning
-        changed = True
-    if changed:
         db.commit()
         db.refresh(component_cache)
     aggregated_related_words = _aggregate_related_words(filtered)
@@ -248,12 +277,12 @@ async def list_words_by_etymology_component(
     items = filtered[start : start + page_size]
     return EtymologyComponentSearchResponse(
         component_text=normalized_text,
-        resolved_meaning=component_cache.resolved_meaning or resolved_meaning,
+        resolved_meaning=(component_cache.resolved_meaning if component_cache else resolved_meaning),
         wiktionary={
-            "meanings": component_cache.wiktionary_meanings or [],
-            "related_terms": component_cache.wiktionary_related_terms or [],
-            "derived_terms": component_cache.wiktionary_derived_terms or [],
-            "source_url": component_cache.wiktionary_source_url,
+            "meanings": (component_cache.wiktionary_meanings if component_cache else []) or [],
+            "related_terms": (component_cache.wiktionary_related_terms if component_cache else []) or [],
+            "derived_terms": (component_cache.wiktionary_derived_terms if component_cache else []) or [],
+            "source_url": component_cache.wiktionary_source_url if component_cache else None,
         },
         aggregated={
             "related_words": aggregated_related_words,

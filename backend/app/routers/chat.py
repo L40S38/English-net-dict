@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import ChatSession, Word
+from app.models import ChatSession, Word, WordGroup
 from app.schemas import (
     ChatMessageCreate,
     ChatMessageRead,
@@ -15,9 +15,11 @@ from app.services.chat_service import (
     answer_in_session,
     auto_title_from_content,
     create_component_session,
+    create_group_session,
     create_session,
     delete_session,
     list_component_sessions,
+    list_group_sessions,
     list_messages,
     list_sessions,
     update_session_title,
@@ -54,6 +56,23 @@ def get_component_sessions(component_text: str, db: Session = Depends(get_db)) -
     return [ChatSessionRead.model_validate(s) for s in sessions]
 
 
+@router.get("/groups/{group_id}/chat/sessions", response_model=list[ChatSessionRead])
+def get_group_sessions(group_id: int, db: Session = Depends(get_db)) -> list[ChatSessionRead]:
+    if not db.get(WordGroup, group_id):
+        raise HTTPException(status_code=404, detail="Group not found")
+    sessions = list_group_sessions(db, group_id)
+    return [ChatSessionRead.model_validate(s) for s in sessions]
+
+
+@router.post("/groups/{group_id}/chat/sessions", response_model=ChatSessionRead)
+def post_group_session(group_id: int, payload: ChatSessionCreate, db: Session = Depends(get_db)) -> ChatSessionRead:
+    if not db.get(WordGroup, group_id):
+        raise HTTPException(status_code=404, detail="Group not found")
+    session = create_group_session(db, group_id, payload.title)
+    db.commit()
+    db.refresh(session)
+    return ChatSessionRead.model_validate(session)
+
 @router.post("/etymology-components/{component_text}/chat/sessions", response_model=ChatSessionRead)
 def post_component_session(
     component_text: str,
@@ -77,8 +96,8 @@ def patch_session(
 ) -> ChatSessionRead:
     try:
         session = update_session_title(db, session_id, payload.title)
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Session not found")
+    except ValueError as err:
+        raise HTTPException(status_code=404, detail="Session not found") from err
     db.commit()
     db.refresh(session)
     return ChatSessionRead.model_validate(session)
@@ -88,8 +107,8 @@ def patch_session(
 def remove_session(session_id: int, db: Session = Depends(get_db)) -> None:
     try:
         delete_session(db, session_id)
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Session not found")
+    except ValueError as err:
+        raise HTTPException(status_code=404, detail="Session not found") from err
     db.commit()
 
 

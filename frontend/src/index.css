@@ -67,6 +67,10 @@ select {
   background: var(--color-surface);
 }
 
+input[type="checkbox"] {
+  width: auto;
+}
+
 button {
   border: 0;
   border-radius: var(--radius-md);
@@ -164,6 +168,77 @@ button {
   z-index: 40;
   border-bottom: 1px solid var(--color-border);
   background: var(--color-surface);
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  min-height: calc(100vh - 76px);
+}
+
+.app-shell.app-shell-collapsed {
+  grid-template-columns: 72px minmax(0, 1fr);
+}
+
+.app-main {
+  min-width: 0;
+}
+
+.side-menu {
+  border-right: 1px solid var(--color-border);
+  background: var(--color-surface);
+  padding: 0.9rem 0.7rem;
+  position: sticky;
+  top: 76px;
+  height: calc(100vh - 76px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.side-menu.collapsed {
+  align-items: center;
+  padding-inline: 0.45rem;
+}
+
+.side-menu-toggle {
+  width: 100%;
+  background: transparent;
+  color: var(--color-text);
+  border: 1px solid var(--color-input-border);
+}
+
+.side-menu-nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.side-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 0.55rem 0.65rem;
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+}
+
+.side-menu-item.active {
+  background: var(--color-banner-bg);
+  color: var(--color-banner-text);
+  font-weight: 600;
+}
+
+.side-menu-item-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  border: 1px solid var(--color-input-border);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 0.8rem;
 }
 
 .header-inner {
@@ -459,6 +534,28 @@ select:disabled {
 }
 
 @media (max-width: 980px) {
+  .app-shell,
+  .app-shell.app-shell-collapsed {
+    grid-template-columns: 1fr;
+  }
+
+  .side-menu {
+    position: static;
+    top: auto;
+    height: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .side-menu.collapsed {
+    align-items: stretch;
+    padding-inline: 0.7rem;
+  }
+
+  .side-menu.collapsed .side-menu-item span:last-child {
+    display: inline;
+  }
+
   .detail-layout {
     grid-template-columns: 1fr;
   }

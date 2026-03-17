@@ -203,7 +203,8 @@ def run_runtime_migrations(engine: Engine) -> None:
                 text(
                     """
                     INSERT INTO etymologies
-                      (id, word_id, origin_word, origin_language, core_image, branches, language_chain, component_meanings, etymology_variants, raw_description)
+                      (id, word_id, origin_word, origin_language, core_image, branches, language_chain,
+                       component_meanings, etymology_variants, raw_description)
                     SELECT
                       old.id,
                       old.word_id,
@@ -225,9 +226,14 @@ def run_runtime_migrations(engine: Engine) -> None:
             conn.execute(text("ALTER TABLE chat_sessions ADD COLUMN component_text VARCHAR(128)"))
 
         if has_table("chat_sessions"):
-            must_rebuild = is_not_null("chat_sessions", "word_id") or not has_column("chat_sessions", "component_id")
+            must_rebuild = (
+                is_not_null("chat_sessions", "word_id")
+                or not has_column("chat_sessions", "component_id")
+                or not has_column("chat_sessions", "group_id")
+            )
             if must_rebuild:
                 old_has_component_id = has_column("chat_sessions", "component_id")
+                old_has_group_id = has_column("chat_sessions", "group_id")
                 conn.execute(text("ALTER TABLE chat_sessions RENAME TO chat_sessions_old"))
                 conn.execute(
                     text(
@@ -237,30 +243,40 @@ def run_runtime_migrations(engine: Engine) -> None:
                           word_id INTEGER,
                           component_text VARCHAR(128),
                           component_id INTEGER,
+                          group_id INTEGER,
                           title VARCHAR(255) NOT NULL,
                           created_at DATETIME NOT NULL,
                           updated_at DATETIME NOT NULL,
                           CONSTRAINT ck_chat_sessions_scope CHECK (
-                            (word_id IS NOT NULL AND component_text IS NULL AND component_id IS NULL)
+                            (word_id IS NOT NULL AND component_text IS NULL AND component_id IS NULL
+                              AND group_id IS NULL)
                             OR
-                            (word_id IS NULL AND (component_text IS NOT NULL OR component_id IS NOT NULL))
+                            (word_id IS NULL AND group_id IS NULL
+                              AND (component_text IS NOT NULL OR component_id IS NOT NULL))
+                            OR
+                            (group_id IS NOT NULL AND word_id IS NULL
+                              AND component_text IS NULL AND component_id IS NULL)
                           ),
                           FOREIGN KEY(word_id) REFERENCES words (id) ON DELETE CASCADE,
-                          FOREIGN KEY(component_id) REFERENCES etymology_components (id) ON DELETE SET NULL
+                          FOREIGN KEY(component_id) REFERENCES etymology_components (id) ON DELETE SET NULL,
+                          FOREIGN KEY(group_id) REFERENCES word_groups (id) ON DELETE CASCADE
                         )
                         """
                     )
                 )
                 component_id_sql = "old.component_id" if old_has_component_id else "NULL"
+                group_id_sql = "old.group_id" if old_has_group_id else "NULL"
                 conn.execute(
                     text(
                         f"""
-                        INSERT INTO chat_sessions (id, word_id, component_text, component_id, title, created_at, updated_at)
+                        INSERT INTO chat_sessions
+                          (id, word_id, component_text, component_id, group_id, title, created_at, updated_at)
                         SELECT
                           old.id,
                           old.word_id,
                           CASE WHEN old.word_id IS NOT NULL THEN NULL ELSE lower(trim(old.component_text)) END,
                           COALESCE({component_id_sql}, ec.id),
+                          {group_id_sql},
                           old.title,
                           old.created_at,
                           old.updated_at
@@ -274,8 +290,19 @@ def run_runtime_migrations(engine: Engine) -> None:
 
         if has_table("chat_sessions"):
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_chat_sessions_word_id ON chat_sessions (word_id)"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_chat_sessions_component_text ON chat_sessions (component_text)"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_chat_sessions_component_id ON chat_sessions (component_id)"))
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_chat_sessions_component_text "
+                    "ON chat_sessions (component_text)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_chat_sessions_component_id "
+                    "ON chat_sessions (component_id)"
+                )
+            )
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_chat_sessions_group_id ON chat_sessions (group_id)"))
 
         # Normalize etymology JSON columns: create new tables and add variant_id
         if not has_table("etymology_branches"):
@@ -429,3 +456,74 @@ def run_runtime_migrations(engine: Engine) -> None:
             )
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_etymologies_word_id ON etymologies (word_id)"))
             conn.execute(text("DROP TABLE etymologies_old"))
+
+        if not has_table("word_groups"):
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE word_groups (
+                      id INTEGER NOT NULL PRIMARY KEY,
+                      name VARCHAR(128) NOT NULL,
+                      description TEXT NOT NULL DEFAULT '',
+                      created_at DATETIME NOT NULL,
+                      updated_at DATETIME NOT NULL
+                    )
+                    """
+                )
+            )
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_word_groups_name ON word_groups (name)"))
+
+        if not has_table("word_group_items"):
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE word_group_items (
+                      id INTEGER NOT NULL PRIMARY KEY,
+                      group_id INTEGER NOT NULL,
+                      item_type VARCHAR(16) NOT NULL DEFAULT 'word',
+                      word_id INTEGER,
+                      definition_id INTEGER,
+                      phrase_text VARCHAR(255),
+                      phrase_meaning TEXT,
+                      sort_order INTEGER NOT NULL DEFAULT 0,
+                      created_at DATETIME NOT NULL,
+                      FOREIGN KEY(group_id) REFERENCES word_groups (id) ON DELETE CASCADE,
+                      FOREIGN KEY(word_id) REFERENCES words (id) ON DELETE CASCADE,
+                      FOREIGN KEY(definition_id) REFERENCES definitions (id) ON DELETE CASCADE
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_word_group_items_group_id ON word_group_items (group_id)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_word_group_items_word_id ON word_group_items (word_id)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_word_group_items_definition_id ON word_group_items (definition_id)"
+                )
+            )
+
+        if not has_table("group_images"):
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE group_images (
+                      id INTEGER NOT NULL PRIMARY KEY,
+                      group_id INTEGER NOT NULL,
+                      file_path VARCHAR(512) NOT NULL,
+                      prompt TEXT NOT NULL,
+                      is_active BOOLEAN NOT NULL DEFAULT 1,
+                      created_at DATETIME NOT NULL,
+                      FOREIGN KEY(group_id) REFERENCES word_groups (id) ON DELETE CASCADE
+                    )
+                    """
+                )
+            )
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_group_images_group_id ON group_images (group_id)"))
