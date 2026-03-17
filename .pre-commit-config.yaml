@@ -1,0 +1,30 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.2
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+        files: ^English-net-dict/backend/.*\.py$
+      - id: ruff-format
+        files: ^English-net-dict/backend/.*\.py$
+
+  - repo: local
+    hooks:
+      - id: frontend-prettier-check
+        name: frontend prettier check
+        entry: npm --prefix English-net-dict/frontend run format:check
+        language: system
+        pass_filenames: false
+      - id: frontend-eslint
+        name: frontend eslint
+        entry: npm --prefix English-net-dict/frontend run lint
+        language: system
+        pass_filenames: false
+

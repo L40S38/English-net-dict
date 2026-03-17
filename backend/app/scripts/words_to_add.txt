@@ -1,0 +1,40 @@
+# One word per line.
+# Lines starting with '#' are ignored.
+# Empty lines are ignored.
+
+penthouse
+alcoholism
+commonwealth
+inevitable
+dogmatic
+slumber
+eligible
+fleet
+detergent
+adhere
+patent
+excursion
+municipal
+proficiency
+ample
+attribute
+generous
+compensation
+faculty
+defective
+verify
+privilege
+dispatch
+compromise
+convey
+shortly
+inventory
+engage
+publicity
+conduct
+district
+pier
+utensil
+awning
+prop
+wing

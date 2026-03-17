@@ -1,0 +1,23 @@
+data/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.ruff_cache/
+.nltk_data/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment
+.env
+
+# Pre-commit
+.pre-commit-cache/
+
+# IDE
+.cursor/
