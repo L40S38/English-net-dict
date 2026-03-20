@@ -17,10 +17,7 @@ import { wordApi } from "../lib/api";
 import { EMPTY_MESSAGES } from "../lib/constants";
 
 function isPhrase(text: string): boolean {
-  return text
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean).length >= 2;
+  return text.trim().split(/\s+/).filter(Boolean).length >= 2;
 }
 
 export function WordDetailPage() {

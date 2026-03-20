@@ -2,13 +2,17 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
+import { ConfirmModal } from "../components/ConfirmModal";
 import { Card, Muted, Row, Stack } from "../components/atom";
 import { groupApi } from "../lib/api";
+import { GROUP_NAME_MAX_LENGTH } from "../lib/constants";
+import { groupNameLengthErrorMessage, groupNameTooLong } from "../lib/groupNameLimits";
 
 export function GroupListPage() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [query, setQuery] = useState("");
+  const [groupNameErrorOpen, setGroupNameErrorOpen] = useState(false);
   const queryClient = useQueryClient();
 
   const groupsQuery = useQuery({
@@ -44,7 +48,12 @@ export function GroupListPage() {
         <h3>新規グループ作成</h3>
         <label>
           <small>グループ名</small>
-          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="例: 挨拶系" />
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="例: 挨拶系"
+          />
+          <Muted as="p">グループ名は最大{GROUP_NAME_MAX_LENGTH}文字です。</Muted>
         </label>
         <label>
           <small>説明</small>
@@ -58,7 +67,13 @@ export function GroupListPage() {
         <Row>
           <button
             type="button"
-            onClick={() => createMutation.mutate()}
+            onClick={() => {
+              if (groupNameTooLong(name)) {
+                setGroupNameErrorOpen(true);
+                return;
+              }
+              createMutation.mutate();
+            }}
             disabled={createMutation.isPending || !name.trim()}
           >
             {createMutation.isPending ? "作成中..." : "作成"}
@@ -78,14 +93,20 @@ export function GroupListPage() {
       </Card>
 
       {groupsQuery.isLoading && <Muted as="p">グループを読み込み中...</Muted>}
-      {!groupsQuery.isLoading && groups.length === 0 && <Muted as="p">グループはまだありません。</Muted>}
+      {!groupsQuery.isLoading && groups.length === 0 && (
+        <Muted as="p">グループはまだありません。</Muted>
+      )}
 
       <section className="grid">
         {groups.map((group) => (
-          <Card key={group.id} stack>
-            <Link to={`/groups/${group.id}`}>{group.name}</Link>
-            {group.description && <Muted as="p">{group.description}</Muted>}
-            <Muted as="p">登録数: {group.item_count}</Muted>
+          <Card key={group.id} stack className="group-list-card">
+            <div className="group-list-card-body">
+              <div className="group-list-card-main">
+                <Link to={`/groups/${group.id}`}>{group.name}</Link>
+                {group.description && <Muted as="p">{group.description}</Muted>}
+              </div>
+              <Muted as="p">登録数: {group.item_count}</Muted>
+            </div>
             <Stack gap="sm">
               <button
                 type="button"
@@ -103,6 +124,16 @@ export function GroupListPage() {
           </Card>
         ))}
       </section>
+
+      <ConfirmModal
+        open={groupNameErrorOpen}
+        title="グループ名が長すぎます"
+        message={groupNameLengthErrorMessage()}
+        variant="alert"
+        confirmText="閉じる"
+        onConfirm={() => setGroupNameErrorOpen(false)}
+        onCancel={() => setGroupNameErrorOpen(false)}
+      />
     </main>
   );
 }

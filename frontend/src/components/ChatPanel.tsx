@@ -145,7 +145,11 @@ export function ChatPanel({
                 type="button"
                 onClick={handleStartRename}
                 title="セッション名を変更"
-                style={{ background: "var(--color-border)", color: "var(--color-text)", padding: "0.55rem 0.6rem" }}
+                style={{
+                  background: "var(--color-border)",
+                  color: "var(--color-text)",
+                  padding: "0.55rem 0.6rem",
+                }}
               >
                 ✎
               </button>

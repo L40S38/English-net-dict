@@ -42,7 +42,9 @@ function normalizePhraseEntries(rawPhrases: unknown): PhraseEntry[] {
     if (!item || typeof item !== "object") {
       return [];
     }
-    const phrase = String((item as { phrase?: string; text?: string }).phrase ?? (item as { text?: string }).text ?? "").trim();
+    const phrase = String(
+      (item as { phrase?: string; text?: string }).phrase ?? (item as { text?: string }).text ?? "",
+    ).trim();
     if (!phrase) {
       return [];
     }
@@ -381,7 +383,11 @@ export function WordEditPage() {
             />
           </Field>
           <Field label="複数形">
-            <input value={plural} onChange={(e) => setPlural(e.target.value)} placeholder="複数形" />
+            <input
+              value={plural}
+              onChange={(e) => setPlural(e.target.value)}
+              placeholder="複数形"
+            />
           </Field>
           <Field label="比較級">
             <input
@@ -568,9 +574,7 @@ export function WordEditPage() {
               item={item}
               index={idx}
               onUpdate={(index, next) =>
-                setComponentMeanings((prev) =>
-                  prev.map((entry, i) => (i === index ? next : entry)),
-                )
+                setComponentMeanings((prev) => prev.map((entry, i) => (i === index ? next : entry)))
               }
               onRemove={(index) =>
                 void confirmRemove("この語源要素の意味", () =>
@@ -587,7 +591,6 @@ export function WordEditPage() {
           >
             <Plus size={18} />
           </button>
-
         </Card>
       )}
 
@@ -600,9 +603,7 @@ export function WordEditPage() {
               variant={item}
               index={idx}
               onUpdate={(index, next) =>
-                setEtymologyVariants((prev) =>
-                  prev.map((entry, i) => (i === index ? next : entry)),
-                )
+                setEtymologyVariants((prev) => prev.map((entry, i) => (i === index ? next : entry)))
               }
               onRemove={(index) =>
                 void confirmRemove("この語源バリエーション", () =>

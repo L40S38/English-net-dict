@@ -4,6 +4,8 @@ type Props = {
   open: boolean;
   title: string;
   message: string;
+  /** 確定のみ（エラー表示など）。キャンセルボタンを出さない */
+  variant?: "confirm" | "alert";
   confirmText?: string;
   cancelText?: string;
   onConfirm: () => void | Promise<void>;
@@ -14,6 +16,7 @@ export function ConfirmModal({
   open,
   title,
   message,
+  variant = "confirm",
   confirmText = "OK",
   cancelText = "キャンセル",
   onConfirm,
@@ -53,12 +56,20 @@ export function ConfirmModal({
         <h3 className="modal-title">{title}</h3>
         <p className="modal-message">{message}</p>
         <div className="modal-actions">
-          <button type="button" className="modal-cancel" onClick={onCancel}>
-            {cancelText}
-          </button>
-          <button type="button" className="modal-confirm" onClick={() => void onConfirm()}>
-            {confirmText}
-          </button>
+          {variant === "confirm" ? (
+            <>
+              <button type="button" className="modal-cancel" onClick={onCancel}>
+                {cancelText}
+              </button>
+              <button type="button" className="modal-confirm" onClick={() => void onConfirm()}>
+                {confirmText}
+              </button>
+            </>
+          ) : (
+            <button type="button" className="modal-confirm" onClick={() => void onConfirm()}>
+              {confirmText}
+            </button>
+          )}
         </div>
       </div>
     </div>

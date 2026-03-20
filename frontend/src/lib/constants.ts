@@ -7,6 +7,9 @@ export const EMPTY_MESSAGES = {
   noResults: "該当する単語がありません",
 } as const;
 
+/** 最長想定:「ややこしい単語：delightful / delighted」と同程度（30 文字） */
+export const GROUP_NAME_MAX_LENGTH = 50;
+
 export const RELATION_TYPE_LABELS: Record<RelationType, string> = {
   synonym: "類義語",
   antonym: "対義語",

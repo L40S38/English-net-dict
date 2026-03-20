@@ -9,7 +9,11 @@ interface Props {
   groupId: number;
 }
 
-const presetQuestions = ["このグループの共通点をまとめて", "覚え方を作って", "追加すべき関連語は？"];
+const presetQuestions = [
+  "このグループの共通点をまとめて",
+  "覚え方を作って",
+  "追加すべき関連語は？",
+];
 
 export function GroupChatPanel({ groupId }: Props) {
   const queryClient = useQueryClient();
@@ -65,7 +69,8 @@ export function GroupChatPanel({ groupId }: Props) {
   });
 
   const renameMutation = useMutation({
-    mutationFn: ({ sid, title }: { sid: number; title: string }) => chatApi.updateSession(sid, title),
+    mutationFn: ({ sid, title }: { sid: number; title: string }) =>
+      chatApi.updateSession(sid, title),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["group-chat-sessions", groupId] });
     },
@@ -106,4 +111,3 @@ export function GroupChatPanel({ groupId }: Props) {
     />
   );
 }
-

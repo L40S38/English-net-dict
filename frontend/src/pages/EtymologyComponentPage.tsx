@@ -120,9 +120,7 @@ export function EtymologyComponentPage() {
             >
               {createComponentMutation.isPending ? "登録中..." : "語源要素として登録する"}
             </button>
-            <Link to={fromWord ? `/words/${encodeURIComponent(fromWord)}` : "/"}>
-              キャンセル
-            </Link>
+            <Link to={fromWord ? `/words/${encodeURIComponent(fromWord)}` : "/"}>キャンセル</Link>
           </div>
         </Card>
         <ConfirmModal

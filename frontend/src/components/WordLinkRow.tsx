@@ -26,7 +26,11 @@ export function WordLinkRow({ value, linkedWordId, secondary, status }: Props) {
             </Link>
           ))
         ) : (
-          <Link to={linkedWordId ? `/words/${linkedWordId}` : `/words/${encodeURIComponent(value)}`}>{value}</Link>
+          <Link
+            to={linkedWordId ? `/words/${linkedWordId}` : `/words/${encodeURIComponent(value)}`}
+          >
+            {value}
+          </Link>
         )}
       </div>
       {showSecondaryBelow ? (

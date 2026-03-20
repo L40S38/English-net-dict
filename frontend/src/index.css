@@ -132,6 +132,28 @@ button {
   margin-left: 0;
 }
 
+/* グループ一覧: 説明の有無・行数でカード高さ・削除ボタン位置がばらつかないようにする */
+.group-list-card.card.stack {
+  min-height: 200px;
+  height: 100%;
+}
+
+.group-list-card-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  min-height: 0;
+}
+
+.group-list-card-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  min-height: 0;
+}
+
 /* カード高さとボタン位置を発音記号の行数に依存させない */
 .word-card.card.stack {
   min-height: 200px;
@@ -423,7 +445,9 @@ button {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .generating-spinner {
@@ -438,11 +462,21 @@ button {
 }
 
 @keyframes dot-blink {
-  0%     { content: ""; }
-  25%    { content: "."; }
-  50%    { content: ".."; }
-  75%    { content: "..."; }
-  100%   { content: ""; }
+  0% {
+    content: "";
+  }
+  25% {
+    content: ".";
+  }
+  50% {
+    content: "..";
+  }
+  75% {
+    content: "...";
+  }
+  100% {
+    content: "";
+  }
 }
 
 .generating-dots::after {

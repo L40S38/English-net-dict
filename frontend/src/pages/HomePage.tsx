@@ -23,10 +23,7 @@ const SORT_ORDER_OPTIONS: Array<{ value: SortOrder; label: string }> = [
 ];
 
 function isPhrase(text: string): boolean {
-  return text
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean).length >= 2;
+  return text.trim().split(/\s+/).filter(Boolean).length >= 2;
 }
 
 function compareWords(a: Word, b: Word, sortBy: WordSortBy, sortOrder: SortOrder): number {
@@ -78,7 +75,9 @@ export function HomePage() {
   const BULK_CHUNK_SIZE = 5;
   const [deletingWordId, setDeletingWordId] = useState<number | null>(null);
   const [sessionWords, setSessionWords] = useState<Word[]>([]);
-  const [bulkProgress, setBulkProgress] = useState<{ completed: number; total: number } | null>(null);
+  const [bulkProgress, setBulkProgress] = useState<{ completed: number; total: number } | null>(
+    null,
+  );
   const [confirmState, setConfirmState] = useState<{
     open: boolean;
     title: string;
@@ -290,35 +289,35 @@ export function HomePage() {
       <hr className="section-divider" />
       {wordsQuery.isLoading && <Muted as="p">単語データを読み込み中...</Muted>}
       <div className="row" style={{ flexWrap: "wrap", alignItems: "flex-end" }}>
-          <label style={{ minWidth: 200 }}>
-            <small>並び替え項目</small>
-            <select
-              value={sortBy}
-              onChange={(event) => setSortBy(event.target.value as WordSortBy)}
-              disabled={wordsQuery.isFetching}
-            >
-              {SORT_BY_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label style={{ minWidth: 140 }}>
-            <small>順序</small>
-            <select
-              value={sortOrder}
-              onChange={(event) => setSortOrder(event.target.value as SortOrder)}
-              disabled={wordsQuery.isFetching}
-            >
-              {SORT_ORDER_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
+        <label style={{ minWidth: 200 }}>
+          <small>並び替え項目</small>
+          <select
+            value={sortBy}
+            onChange={(event) => setSortBy(event.target.value as WordSortBy)}
+            disabled={wordsQuery.isFetching}
+          >
+            {SORT_BY_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label style={{ minWidth: 140 }}>
+          <small>順序</small>
+          <select
+            value={sortOrder}
+            onChange={(event) => setSortOrder(event.target.value as SortOrder)}
+            disabled={wordsQuery.isFetching}
+          >
+            {SORT_ORDER_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
       <section className="grid">
         {displayWords.map((word) => (
           <WordCard

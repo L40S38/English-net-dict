@@ -292,7 +292,10 @@ export const groupApi = {
     await api.delete(`/api/groups/${groupId}/items/${itemId}`);
   },
   async suggest(groupId: number, payload: { keywords: string[]; limit?: number }) {
-    const { data } = await api.post<GroupSuggestResponse>(`/api/groups/${groupId}/suggest`, payload);
+    const { data } = await api.post<GroupSuggestResponse>(
+      `/api/groups/${groupId}/suggest`,
+      payload,
+    );
     return data;
   },
   async generateImage(groupId: number, prompt?: string) {
@@ -302,7 +305,9 @@ export const groupApi = {
     return data;
   },
   async getDefaultImagePrompt(groupId: number) {
-    const { data } = await api.get<{ prompt: string }>(`/api/groups/${groupId}/default-image-prompt`);
+    const { data } = await api.get<{ prompt: string }>(
+      `/api/groups/${groupId}/default-image-prompt`,
+    );
     return data.prompt;
   },
 };

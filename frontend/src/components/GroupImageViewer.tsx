@@ -15,7 +15,9 @@ export function GroupImageViewer({ group, onGenerate, loading = false }: Props) 
   const [defaultPrompt, setDefaultPrompt] = useState("");
   const active = useMemo(() => group.images.find((x) => x.is_active), [group.images]);
   const baseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
-  const imageUrl = active ? `${baseUrl}/static/images/${active.file_path.split(/[\\/]/).pop()}` : null;
+  const imageUrl = active
+    ? `${baseUrl}/static/images/${active.file_path.split(/[\\/]/).pop()}`
+    : null;
 
   useEffect(() => {
     let mounted = true;
@@ -56,11 +58,14 @@ export function GroupImageViewer({ group, onGenerate, loading = false }: Props) 
         <button onClick={() => onGenerate(prompt || undefined)} disabled={loading}>
           {loading ? "生成中..." : imageUrl ? "再生成" : "画像を生成"}
         </button>
-        <button type="button" onClick={() => setPrompt(defaultPrompt)} disabled={loading || !defaultPrompt}>
+        <button
+          type="button"
+          onClick={() => setPrompt(defaultPrompt)}
+          disabled={loading || !defaultPrompt}
+        >
           デフォルトに戻す
         </button>
       </Row>
     </Card>
   );
 }
-

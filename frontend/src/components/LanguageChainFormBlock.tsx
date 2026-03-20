@@ -13,7 +13,9 @@ interface Props {
 export function LanguageChainFormBlock({ link, index, onUpdate, onRemove }: Props) {
   const isKnownLanguage = LANGUAGE_OPTIONS.some((option) => option.code === link.lang);
   const languageSelectValue = !link.lang ? "" : isKnownLanguage ? link.lang : "__custom__";
-  const isKnownRelation = ETYMOLOGY_RELATION_OPTIONS.some((option) => option.value === link.relation);
+  const isKnownRelation = ETYMOLOGY_RELATION_OPTIONS.some(
+    (option) => option.value === link.relation,
+  );
   const relationSelectValue = !link.relation ? "" : isKnownRelation ? link.relation : "__custom__";
 
   return (
@@ -25,7 +27,11 @@ export function LanguageChainFormBlock({ link, index, onUpdate, onRemove }: Prop
             onChange={(e) => {
               const next = e.target.value;
               if (next === "__custom__") {
-                onUpdate(index, { ...link, lang: link.lang || "", lang_name: link.lang_name || "" });
+                onUpdate(index, {
+                  ...link,
+                  lang: link.lang || "",
+                  lang_name: link.lang_name || "",
+                });
                 return;
               }
               if (!next) {
@@ -61,7 +67,9 @@ export function LanguageChainFormBlock({ link, index, onUpdate, onRemove }: Prop
             <Field label="言語名（手動）" className="field-grow">
               <input
                 value={link.lang_name ?? ""}
-                onChange={(e) => onUpdate(index, { ...link, lang_name: e.target.value || undefined })}
+                onChange={(e) =>
+                  onUpdate(index, { ...link, lang_name: e.target.value || undefined })
+                }
                 placeholder="例: ラテン語"
               />
             </Field>

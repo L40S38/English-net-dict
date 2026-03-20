@@ -17,7 +17,9 @@ export function DerivationsPanel({ word }: Props) {
     if (!item || typeof item !== "object") {
       return [];
     }
-    const phrase = String((item as { phrase?: string; text?: string }).phrase ?? (item as { text?: string }).text ?? "").trim();
+    const phrase = String(
+      (item as { phrase?: string; text?: string }).phrase ?? (item as { text?: string }).text ?? "",
+    ).trim();
     if (!phrase) {
       return [];
     }

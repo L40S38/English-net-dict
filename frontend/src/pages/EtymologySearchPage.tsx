@@ -39,7 +39,9 @@ export function EtymologySearchPage() {
       </Card>
 
       {listQuery.isLoading && <Muted as="p">語源要素を読み込み中...</Muted>}
-      {!listQuery.isLoading && items.length === 0 && <Muted as="p">該当する語源要素はありません。</Muted>}
+      {!listQuery.isLoading && items.length === 0 && (
+        <Muted as="p">該当する語源要素はありません。</Muted>
+      )}
 
       <section className="grid">
         {items.map((item) => (
@@ -55,7 +57,11 @@ export function EtymologySearchPage() {
 
       {total > 0 && (
         <Row>
-          <button type="button" onClick={() => setPage((prev) => Math.max(1, prev - 1))} disabled={page <= 1}>
+          <button
+            type="button"
+            onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+            disabled={page <= 1}
+          >
             前へ
           </button>
           <Stack gap="sm">

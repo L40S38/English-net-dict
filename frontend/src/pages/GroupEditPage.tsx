@@ -3,8 +3,11 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { PageHeader } from "../components/PageHeader";
+import { ConfirmModal } from "../components/ConfirmModal";
 import { Card, Muted, Row, Stack } from "../components/atom";
 import { groupApi, wordApi } from "../lib/api";
+import { GROUP_NAME_MAX_LENGTH } from "../lib/constants";
+import { groupNameLengthErrorMessage, groupNameTooLong } from "../lib/groupNameLimits";
 import type { GroupSuggestCandidate } from "../types";
 
 export function GroupEditPage() {
@@ -16,6 +19,7 @@ export function GroupEditPage() {
   const [wordKeyword, setWordKeyword] = useState("");
   const [aiKeywords, setAiKeywords] = useState("");
   const [selectedCandidates, setSelectedCandidates] = useState<Set<string>>(new Set());
+  const [groupNameErrorOpen, setGroupNameErrorOpen] = useState(false);
 
   const groupQuery = useQuery({
     queryKey: ["group", groupId],
@@ -34,7 +38,8 @@ export function GroupEditPage() {
   });
 
   const updateGroupMutation = useMutation({
-    mutationFn: () => groupApi.update(groupId, { name: currentNameDraft, description: currentDescriptionDraft }),
+    mutationFn: () =>
+      groupApi.update(groupId, { name: currentNameDraft, description: currentDescriptionDraft }),
     onSuccess: async () => {
       setGroupDraft(null);
       await queryClient.invalidateQueries({ queryKey: ["group", groupId] });
@@ -43,7 +48,8 @@ export function GroupEditPage() {
   });
 
   const addItemMutation = useMutation({
-    mutationFn: (payload: Parameters<typeof groupApi.addItem>[1]) => groupApi.addItem(groupId, payload),
+    mutationFn: (payload: Parameters<typeof groupApi.addItem>[1]) =>
+      groupApi.addItem(groupId, payload),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["group", groupId] });
       await queryClient.invalidateQueries({ queryKey: ["groups"] });
@@ -111,6 +117,7 @@ export function GroupEditPage() {
                 }
               />
             </label>
+            <Muted as="p">グループ名は最大{GROUP_NAME_MAX_LENGTH}文字です。</Muted>
             <label>
               <small>説明</small>
               <textarea
@@ -127,7 +134,13 @@ export function GroupEditPage() {
             <Row>
               <button
                 type="button"
-                onClick={() => updateGroupMutation.mutate()}
+                onClick={() => {
+                  if (groupNameTooLong(currentNameDraft)) {
+                    setGroupNameErrorOpen(true);
+                    return;
+                  }
+                  updateGroupMutation.mutate();
+                }}
                 disabled={updateGroupMutation.isPending || !currentNameDraft.trim()}
               >
                 {updateGroupMutation.isPending ? "保存中..." : "保存"}
@@ -159,7 +172,14 @@ export function GroupEditPage() {
                 </Row>
                 {(word.definitions ?? []).slice(0, 2).map((definition) => (
                   <Row key={definition.id}>
-                    <span style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: "0.5rem" }}>
+                    <span
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        alignItems: "baseline",
+                        gap: "0.5rem",
+                      }}
+                    >
                       <strong>{word.word}</strong>
                       <Muted as="span">
                         [{definition.part_of_speech}] {definition.meaning_ja}
@@ -196,7 +216,14 @@ export function GroupEditPage() {
                   .slice(0, 5)
                   .map((entry) => (
                     <Row key={entry.phrase}>
-                      <span style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: "0.5rem" }}>
+                      <span
+                        style={{
+                          display: "flex",
+                          flexWrap: "wrap",
+                          alignItems: "baseline",
+                          gap: "0.5rem",
+                        }}
+                      >
                         <strong>{entry.phrase}</strong>
                         {entry.meaning ? <Muted as="span">— {entry.meaning}</Muted> : null}
                         <Muted as="span" style={{ fontSize: "0.9em" }}>
@@ -251,13 +278,26 @@ export function GroupEditPage() {
               const checked = selectedCandidates.has(key);
               return (
                 <Card key={key} variant="sub" stack>
-                  <label style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem", cursor: "pointer" }}>
-                    <input type="checkbox" checked={checked} onChange={(e) => setSelectedCandidates((prev) => {
-                      const next = new Set(prev);
-                      if (e.target.checked) next.add(key);
-                      else next.delete(key);
-                      return next;
-                    })} />
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: "0.5rem",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) =>
+                        setSelectedCandidates((prev) => {
+                          const next = new Set(prev);
+                          if (e.target.checked) next.add(key);
+                          else next.delete(key);
+                          return next;
+                        })
+                      }
+                    />
                     <span style={{ flex: 1 }}>
                       {candidate.item_type === "word" && (
                         <>
@@ -277,11 +317,16 @@ export function GroupEditPage() {
                       {candidate.item_type === "example" && (
                         <>
                           <strong>{candidate.word}</strong>
-                          {(candidate.definition_part_of_speech || candidate.definition_meaning_ja) && (
+                          {(candidate.definition_part_of_speech ||
+                            candidate.definition_meaning_ja) && (
                             <Muted as="span">
                               {" "}
-                              {candidate.definition_part_of_speech ? `[${candidate.definition_part_of_speech}]` : ""}
-                              {candidate.definition_meaning_ja ? ` ${candidate.definition_meaning_ja}` : ""}
+                              {candidate.definition_part_of_speech
+                                ? `[${candidate.definition_part_of_speech}]`
+                                : ""}
+                              {candidate.definition_meaning_ja
+                                ? ` ${candidate.definition_meaning_ja}`
+                                : ""}
                             </Muted>
                           )}
                           <span> — {candidate.example_en || candidate.example_ja || "—"}</span>
@@ -368,7 +413,16 @@ export function GroupEditPage() {
           </Card>
         </>
       )}
+
+      <ConfirmModal
+        open={groupNameErrorOpen}
+        title="グループ名が長すぎます"
+        message={groupNameLengthErrorMessage()}
+        variant="alert"
+        confirmText="閉じる"
+        onConfirm={() => setGroupNameErrorOpen(false)}
+        onCancel={() => setGroupNameErrorOpen(false)}
+      />
     </main>
   );
 }
-

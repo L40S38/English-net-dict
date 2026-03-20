@@ -23,7 +23,9 @@ export function BranchFormBlock({ branch, index, onUpdate, onRemove }: Props) {
         <Field label="意味（英語）" className="field-grow">
           <input
             value={branch.meaning_en ?? ""}
-            onChange={(e) => onUpdate(index, { ...branch, meaning_en: e.target.value || undefined })}
+            onChange={(e) =>
+              onUpdate(index, { ...branch, meaning_en: e.target.value || undefined })
+            }
             placeholder="例: to open out"
           />
         </Field>

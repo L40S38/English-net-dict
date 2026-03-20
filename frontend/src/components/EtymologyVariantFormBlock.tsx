@@ -1,10 +1,7 @@
 import { Plus, Trash2 } from "lucide-react";
 import { Card, Field } from "./atom";
 import { ComponentFormBlock } from "./ComponentFormBlock";
-import {
-  ComponentMeaningFormBlock,
-  type ComponentMeaningItem,
-} from "./ComponentMeaningFormBlock";
+import { ComponentMeaningFormBlock, type ComponentMeaningItem } from "./ComponentMeaningFormBlock";
 import { LanguageChainFormBlock } from "./LanguageChainFormBlock";
 import type { EtymologyComponent, EtymologyVariant, LanguageChainLink } from "../types";
 
