@@ -29,6 +29,8 @@ _LANG_NAMES: dict[str, str] = {
     "tr": "トルコ語", "fi": "フィンランド語", "hu": "ハンガリー語",
 }
 
+_FORM_NOISE_TOKENS = {"of", "from", "for", "to", "by", "and", "or", "the", "a", "an"}
+
 
 class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
     source_name = "wiktionary"
@@ -441,9 +443,11 @@ class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
             for regex in regexes:
                 match = re.search(regex, compact, flags=re.IGNORECASE)
                 if match:
-                    forms[key] = match.group(1)
+                    extracted = match.group(1)
+                    if extracted.strip().lower() in _FORM_NOISE_TOKENS:
+                        continue
+                    forms[key] = extracted
                     break
-
         return forms
 
     @staticmethod

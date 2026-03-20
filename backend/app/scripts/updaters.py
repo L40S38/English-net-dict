@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -154,6 +155,66 @@ async def _enrich_phrase_and_related_meanings(
         )
         if meaning:
             rel["note"] = meaning
+
+
+async def _enrich_phrase_and_related_meanings_parallel(
+    structured: dict,
+    scraper: WiktionaryScraper,
+    cache: dict[str, str | None],
+    *,
+    concurrency: int = 8,
+) -> None:
+    semaphore = asyncio.Semaphore(max(1, concurrency))
+    tasks: list[asyncio.Task[None]] = []
+
+    async def _resolve_phrase(entry: dict) -> None:
+        phrase = str(entry.get("phrase", "")).strip()
+        if not phrase:
+            return
+        existing = str(entry.get("meaning", "")).strip()
+        if existing and not needs_one_line_summary(existing):
+            return
+        async with semaphore:
+            meaning = await resolve_meaning_ja(
+                phrase,
+                scraper,
+                cache,
+                seed_candidates=[existing] if existing else None,
+            )
+        if meaning:
+            entry["meaning"] = meaning
+
+    async def _resolve_related(rel: dict) -> None:
+        term = str(rel.get("related_word", "")).strip()
+        if not term or not is_multi_token(term):
+            return
+        note = str(rel.get("note", "")).strip()
+        if note and not needs_one_line_summary(note):
+            return
+        async with semaphore:
+            meaning = await resolve_meaning_ja(
+                term,
+                scraper,
+                cache,
+                seed_candidates=[note] if note else None,
+            )
+        if meaning:
+            rel["note"] = meaning
+
+    forms = structured.get("forms")
+    if isinstance(forms, dict):
+        phrases = forms.get("phrases")
+        if isinstance(phrases, list):
+            for entry in phrases:
+                if isinstance(entry, dict):
+                    tasks.append(asyncio.create_task(_resolve_phrase(entry)))
+
+    for rel in structured.get("related_words", []):
+        if isinstance(rel, dict):
+            tasks.append(asyncio.create_task(_resolve_related(rel)))
+
+    if tasks:
+        await asyncio.gather(*tasks)
 
 
 async def refresh_word_data(

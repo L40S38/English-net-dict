@@ -3,12 +3,18 @@ from __future__ import annotations
 import asyncio
 import re
 from dataclasses import dataclass
+from typing import Literal
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import Word
 from app.services.gpt_service import enrich_core_image_and_branches, generate_structured_word_data
+from app.services.gpt_service_parallel import (
+    ExampleMode,
+    enrich_core_image_and_branches_async,
+    generate_structured_word_data_async,
+)
 from app.services.phrase_service import get_or_create_phrase, link_phrase_to_word, normalize_phrase_text
 from app.services.phrase_meaning_service import resolve_meaning_ja_ddgs
 from app.services.scraper import build_scrapers
@@ -17,6 +23,7 @@ from app.services.word_service import apply_structured_payload
 from app.services.wordnet_service import get_wordnet_snapshot
 from app.scripts.updaters import (
     _enrich_phrase_and_related_meanings,
+    _enrich_phrase_and_related_meanings_parallel,
     _normalize_structured_derivations_and_phrases,
     _normalize_structured_forms,
 )
@@ -27,6 +34,14 @@ class IngestResult:
     words: list[Word]
     created_count: int
     split_applied: bool
+
+
+@dataclass
+class IngestOptions:
+    llm_mode: Literal["sync", "async"] = "async"
+    phrase_enrich_mode: Literal["sequential", "parallel"] = "parallel"
+    phrase_parallelism: int = 8
+    example_mode: ExampleMode = "parallel_async"
 
 
 def _normalize_text(text: str) -> str:
@@ -100,20 +115,45 @@ async def _build_structured_payload(
     *,
     scraper: WiktionaryScraper,
     meaning_cache: dict[str, str | None],
+    options: IngestOptions | None = None,
 ) -> dict:
+    mode = options or IngestOptions()
     wordnet_data = get_wordnet_snapshot(word_text)
     scraped_data = await _scrape_all(word_text)
-    structured = generate_structured_word_data(word_text, wordnet_data, scraped_data)
-    if _needs_etymology_enrichment(word_text, structured):
-        enriched = enrich_core_image_and_branches(
-            word_text=word_text,
-            definitions=structured.get("definitions", []),
-            etymology_data=structured.get("etymology", {}),
+    if mode.llm_mode == "async":
+        structured = await generate_structured_word_data_async(
+            word_text,
+            wordnet_data,
+            scraped_data,
+            example_mode=mode.example_mode,
         )
+    else:
+        structured = generate_structured_word_data(word_text, wordnet_data, scraped_data)
+    if _needs_etymology_enrichment(word_text, structured):
+        if mode.llm_mode == "async":
+            enriched = await enrich_core_image_and_branches_async(
+                word_text=word_text,
+                definitions=structured.get("definitions", []),
+                etymology_data=structured.get("etymology", {}),
+            )
+        else:
+            enriched = enrich_core_image_and_branches(
+                word_text=word_text,
+                definitions=structured.get("definitions", []),
+                etymology_data=structured.get("etymology", {}),
+            )
         structured = _apply_enriched_etymology(structured, enriched)
     structured = _normalize_structured_forms(structured)
     structured = _normalize_structured_derivations_and_phrases(structured)
-    await _enrich_phrase_and_related_meanings(structured, scraper, meaning_cache)
+    if mode.phrase_enrich_mode == "parallel":
+        await _enrich_phrase_and_related_meanings_parallel(
+            structured,
+            scraper,
+            meaning_cache,
+            concurrency=mode.phrase_parallelism,
+        )
+    else:
+        await _enrich_phrase_and_related_meanings(structured, scraper, meaning_cache)
     return structured
 
 
@@ -128,6 +168,7 @@ async def _create_or_get_word(
     scraper: WiktionaryScraper,
     payload_cache: dict[str, dict],
     meaning_cache: dict[str, str | None],
+    options: IngestOptions | None = None,
 ) -> tuple[Word, bool]:
     existing = _find_word(db, normalized)
     if existing:
@@ -135,7 +176,12 @@ async def _create_or_get_word(
 
     structured = payload_cache.get(normalized)
     if structured is None:
-        structured = await _build_structured_payload(normalized, scraper=scraper, meaning_cache=meaning_cache)
+        structured = await _build_structured_payload(
+            normalized,
+            scraper=scraper,
+            meaning_cache=meaning_cache,
+            options=options,
+        )
         payload_cache[normalized] = structured
 
     existing = _find_word(db, normalized)
@@ -166,6 +212,7 @@ async def ingest_word_or_phrase(
     scraper: WiktionaryScraper,
     payload_cache: dict[str, dict],
     meaning_cache: dict[str, str | None],
+    options: IngestOptions | None = None,
 ) -> IngestResult:
     normalized = _normalize_text(raw_text)
     if not normalized:
@@ -178,6 +225,7 @@ async def ingest_word_or_phrase(
             scraper=scraper,
             payload_cache=payload_cache,
             meaning_cache=meaning_cache,
+            options=options,
         )
         return IngestResult(words=[word], created_count=1 if created else 0, split_applied=False)
 
@@ -192,6 +240,7 @@ async def ingest_word_or_phrase(
             scraper=scraper,
             payload_cache=payload_cache,
             meaning_cache=meaning_cache,
+            options=options,
         )
         if created:
             created_count += 1

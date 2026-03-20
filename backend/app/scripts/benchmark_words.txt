@@ -1,0 +1,8 @@
+# Benchmark target words (prefer currently unregistered words)
+serendipity
+ubiquitous
+meticulous
+turn a blind eye
+run out of steam
+break the ice
+ephemeral

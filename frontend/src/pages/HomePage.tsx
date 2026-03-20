@@ -22,6 +22,14 @@ const SORT_ORDER_OPTIONS: Array<{ value: SortOrder; label: string }> = [
   { value: "asc", label: "昇順" },
 ];
 
+function resolveBulkChunkSize(): number {
+  const raw = Number(import.meta.env.VITE_BULK_CHUNK_SIZE ?? "5");
+  if (!Number.isFinite(raw)) {
+    return 5;
+  }
+  return Math.min(100, Math.max(1, Math.trunc(raw)));
+}
+
 function isPhrase(text: string): boolean {
   return text.trim().split(/\s+/).filter(Boolean).length >= 2;
 }
@@ -72,7 +80,7 @@ function compareWords(a: Word, b: Word, sortBy: WordSortBy, sortOrder: SortOrder
 }
 
 export function HomePage() {
-  const BULK_CHUNK_SIZE = 5;
+  const BULK_CHUNK_SIZE = resolveBulkChunkSize();
   const [deletingWordId, setDeletingWordId] = useState<number | null>(null);
   const [sessionWords, setSessionWords] = useState<Word[]>([]);
   const [bulkProgress, setBulkProgress] = useState<{ completed: number; total: number } | null>(

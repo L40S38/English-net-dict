@@ -34,7 +34,7 @@ from app.services.etymology_component_service import get_component_cache, normal
 from app.services.scraper import build_scrapers
 from app.services.scraper.wiktionary import WiktionaryScraper
 from app.services import word_service
-from app.services.word_ingest_service import ingest_word_or_phrase
+from app.services.word_ingest_service import IngestOptions, ingest_word_or_phrase
 from app.services.wordnet_service import get_wordnet_snapshot
 from app.scripts.updaters import (
     _enrich_phrase_and_related_meanings,
@@ -308,7 +308,20 @@ def get_word(word_id: int, db: Session = Depends(get_db)) -> WordRead:
 
 
 @router.post("", response_model=list[WordRead])
-async def create_word(payload: WordCreateRequest, db: Session = Depends(get_db)) -> list[WordRead]:
+async def create_word(
+    payload: WordCreateRequest,
+    llm_mode: Literal["sync", "async"] = Query("async"),
+    phrase_enrich_mode: Literal["sequential", "parallel"] = Query("parallel"),
+    example_mode: Literal["sequential", "parallel_thread", "parallel_async"] = Query("parallel_async"),
+    phrase_parallelism: int = Query(8, ge=1, le=32),
+    db: Session = Depends(get_db),
+) -> list[WordRead]:
+    options = IngestOptions(
+        llm_mode=llm_mode,
+        phrase_enrich_mode=phrase_enrich_mode,
+        example_mode=example_mode,
+        phrase_parallelism=phrase_parallelism,
+    )
     try:
         result = await ingest_word_or_phrase(
             db,
@@ -316,6 +329,7 @@ async def create_word(payload: WordCreateRequest, db: Session = Depends(get_db))
             scraper=WiktionaryScraper(),
             payload_cache={},
             meaning_cache={},
+            options=options,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -326,7 +340,20 @@ async def create_word(payload: WordCreateRequest, db: Session = Depends(get_db))
 
 
 @router.post("/bulk", response_model=list[WordRead])
-async def bulk_create_words(payload: BulkWordRequest, db: Session = Depends(get_db)) -> list[WordRead]:
+async def bulk_create_words(
+    payload: BulkWordRequest,
+    llm_mode: Literal["sync", "async"] = Query("async"),
+    phrase_enrich_mode: Literal["sequential", "parallel"] = Query("parallel"),
+    example_mode: Literal["sequential", "parallel_thread", "parallel_async"] = Query("parallel_async"),
+    phrase_parallelism: int = Query(8, ge=1, le=32),
+    db: Session = Depends(get_db),
+) -> list[WordRead]:
+    options = IngestOptions(
+        llm_mode=llm_mode,
+        phrase_enrich_mode=phrase_enrich_mode,
+        example_mode=example_mode,
+        phrase_parallelism=phrase_parallelism,
+    )
     scraper = WiktionaryScraper()
     payload_cache: dict[str, dict] = {}
     meaning_cache: dict[str, str | None] = {}
@@ -340,6 +367,7 @@ async def bulk_create_words(payload: BulkWordRequest, db: Session = Depends(get_
             scraper=scraper,
             payload_cache=payload_cache,
             meaning_cache=meaning_cache,
+            options=options,
         )
         for word in result.words:
             result_words[word.id] = word
