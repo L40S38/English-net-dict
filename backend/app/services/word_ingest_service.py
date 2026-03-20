@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Word
 from app.services.gpt_service import enrich_core_image_and_branches, generate_structured_word_data
+from app.services.phrase_service import get_or_create_phrase, link_phrase_to_word, normalize_phrase_text
 from app.services.phrase_meaning_service import resolve_meaning_ja_ddgs
 from app.services.scraper import build_scrapers
 from app.services.scraper.wiktionary import WiktionaryScraper
@@ -38,26 +39,6 @@ def _tokenize(text: str) -> list[str]:
 
 def is_phrase_text(text: str) -> bool:
     return len(_tokenize(text)) >= 2
-
-
-def _phrase_entries(raw: object) -> list[dict[str, str]]:
-    if not isinstance(raw, list):
-        return []
-    entries: list[dict[str, str]] = []
-    for item in raw:
-        if isinstance(item, str):
-            phrase = item.strip()
-            if phrase:
-                entries.append({"phrase": phrase, "meaning": ""})
-            continue
-        if not isinstance(item, dict):
-            continue
-        phrase = str(item.get("phrase", item.get("text", ""))).strip()
-        if not phrase:
-            continue
-        meaning = str(item.get("meaning", item.get("meaning_en", item.get("meaning_ja", "")))).strip()
-        entries.append({"phrase": phrase, "meaning": meaning})
-    return entries
 
 
 def _unique_tokens(text: str) -> list[str]:
@@ -168,17 +149,14 @@ async def _create_or_get_word(
     return word, True
 
 
-def _append_phrase_if_missing(word: Word, phrase: str, meaning: str) -> bool:
-    forms = dict(word.forms or {})
-    phrases = _phrase_entries(forms.get("phrases"))
-    phrase_key = phrase.strip().lower()
-    existing_keys = {entry["phrase"].strip().lower() for entry in phrases if entry.get("phrase", "").strip()}
-    if phrase_key in existing_keys:
+def _append_phrase_if_missing(db: Session, word: Word, phrase: str, meaning: str) -> bool:
+    text = normalize_phrase_text(phrase)
+    if not text:
         return False
-    phrases.append({"phrase": phrase, "meaning": meaning})
-    forms["phrases"] = phrases
-    word.forms = forms
-    return True
+    phrase_obj = get_or_create_phrase(db, text, meaning)
+    before_count = len(word.phrase_links or [])
+    link_phrase_to_word(db, word, phrase_obj)
+    return len(word.phrase_links or []) > before_count
 
 
 async def ingest_word_or_phrase(
@@ -217,6 +195,6 @@ async def ingest_word_or_phrase(
         )
         if created:
             created_count += 1
-        _append_phrase_if_missing(word, normalized, phrase_meaning)
+        _append_phrase_if_missing(db, word, normalized, phrase_meaning)
         results.append(word)
     return IngestResult(words=results, created_count=created_count, split_applied=True)

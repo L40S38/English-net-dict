@@ -151,12 +151,16 @@ def build_group_context(group: WordGroup) -> dict[str, Any]:
     for item in sorted(group.items, key=lambda x: (x.sort_order, x.id)):
         if item.item_type == "word" and item.word_ref:
             items.append({"type": "word", "word": item.word_ref.word})
-        elif item.item_type == "phrase" and item.phrase_text:
+        elif item.item_type == "phrase":
+            phrase_text = item.phrase_ref.text if item.phrase_ref else item.phrase_text
+            phrase_meaning = item.phrase_ref.meaning if item.phrase_ref else item.phrase_meaning
+            if not phrase_text:
+                continue
             items.append(
                 {
                     "type": "phrase",
-                    "phrase": item.phrase_text,
-                    "meaning": item.phrase_meaning or "",
+                    "phrase": phrase_text,
+                    "meaning": phrase_meaning or "",
                 }
             )
         elif item.item_type == "example" and item.definition_ref and item.word_ref:
@@ -429,6 +433,7 @@ def answer_in_session(db: Session, session: ChatSession, user_input: str) -> tup
             .options(
                 joinedload(WordGroup.items).joinedload(WordGroupItem.word_ref),
                 joinedload(WordGroup.items).joinedload(WordGroupItem.definition_ref),
+                joinedload(WordGroup.items).joinedload(WordGroupItem.phrase_ref),
             )
         )
         group = db.scalar(group_stmt)

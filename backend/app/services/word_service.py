@@ -30,6 +30,11 @@ from app.schemas import (
     WordRead,
 )
 from app.services.wordnet_service import get_wordnet_snapshot
+from app.services.phrase_service import (
+    get_or_create_phrase,
+    link_phrase_to_word,
+    normalize_phrase_text,
+)
 from app.utils.etymology_components import normalize_component_text
 from app.stores.word_store import WordStore
 from app.utils.pos_labels import normalize_part_of_speech
@@ -420,6 +425,55 @@ def _build_etymology_read(db: Session, etymology: Etymology) -> dict:
     }
 
 
+def _extract_phrase_entries(payload: dict) -> list[dict[str, str]]:
+    explicit = payload.get("phrases")
+    entries: list[dict[str, str]] = []
+    if isinstance(explicit, list):
+        for item in explicit:
+            if not isinstance(item, dict):
+                continue
+            text = normalize_phrase_text(str(item.get("text", item.get("phrase", ""))))
+            if not text:
+                continue
+            meaning = str(item.get("meaning", "")).strip()
+            entries.append({"text": text, "meaning": meaning})
+        if entries:
+            return entries
+
+    forms = payload.get("forms")
+    if not isinstance(forms, dict):
+        return []
+    raw_phrases = forms.get("phrases")
+    if not isinstance(raw_phrases, list):
+        return []
+    for item in raw_phrases:
+        if isinstance(item, str):
+            text = normalize_phrase_text(item)
+            if text:
+                entries.append({"text": text, "meaning": ""})
+            continue
+        if not isinstance(item, dict):
+            continue
+        text = normalize_phrase_text(str(item.get("phrase", item.get("text", ""))))
+        if not text:
+            continue
+        meaning = str(item.get("meaning", item.get("meaning_en", item.get("meaning_ja", "")))).strip()
+        entries.append({"text": text, "meaning": meaning})
+    return entries
+
+
+def replace_word_phrases(db: Session, word: Word, phrase_entries: list[dict[str, str]]) -> None:
+    word.phrase_links.clear()
+    db.flush()
+    for entry in phrase_entries:
+        text = normalize_phrase_text(entry.get("text", ""))
+        if not text:
+            continue
+        phrase = get_or_create_phrase(db, text, entry.get("meaning", ""))
+        link_phrase_to_word(db, word, phrase)
+    db.flush()
+
+
 def to_word_read(db: Session, word: Word) -> WordRead:
     definitions = []
     for d in word.definitions:
@@ -433,11 +487,24 @@ def to_word_read(db: Session, word: Word) -> WordRead:
         item["part_of_speech"] = normalize_part_of_speech(item.get("part_of_speech"))
         derivations.append(item)
 
+    forms_data = dict(word.forms or {})
+    forms_data.pop("phrases", None)
+    phrases_data = [
+        {
+            "id": phrase.id,
+            "text": phrase.text,
+            "meaning": phrase.meaning or "",
+            "created_at": phrase.created_at,
+            "updated_at": phrase.updated_at,
+        }
+        for phrase in sorted(word.phrases, key=lambda item: (item.text.lower(), item.id))
+    ]
+
     data: dict = {
         "id": word.id,
         "word": word.word,
         "phonetic": word.phonetic,
-        "forms": word.forms or {},
+        "forms": forms_data,
         "created_at": word.created_at,
         "updated_at": word.updated_at,
         "last_viewed_at": word.last_viewed_at,
@@ -445,6 +512,7 @@ def to_word_read(db: Session, word: Word) -> WordRead:
         "etymology": _build_etymology_read(db, word.etymology) if word.etymology else None,
         "derivations": derivations,
         "related_words": [RelatedWordRead.model_validate(r).model_dump() for r in word.related_words],
+        "phrases": phrases_data,
         "images": [WordImageRead.model_validate(i).model_dump() for i in word.images],
         "chat_session_count": len(word.chat_sessions),
     }
@@ -462,9 +530,12 @@ def apply_structured_payload(db: Session, word: Word, payload: dict) -> None:
                 patched_etymology["branches"] = normalized_branches
                 payload = dict(payload)
                 payload["etymology"] = patched_etymology
+    phrase_entries = _extract_phrase_entries(payload)
     parsed = StructuredWordPayload.model_validate(payload)
     word.phonetic = parsed.phonetic
-    word.forms = parsed.forms or {}
+    forms = dict(parsed.forms or {})
+    forms.pop("phrases", None)
+    word.forms = forms
 
     word.definitions.clear()
     for d in parsed.definitions:
@@ -508,6 +579,7 @@ def apply_structured_payload(db: Session, word: Word, payload: dict) -> None:
         )
     db.flush()
     link_related_words(db, word)
+    replace_word_phrases(db, word, phrase_entries)
 
 
 def replace_definitions(word: Word, definitions: list[dict]) -> None:

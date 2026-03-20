@@ -18,6 +18,11 @@
 | **etymology_component_items** | 語源パーツ（トップ or バリアント内） | `id`, `etymology_id`, `variant_id`(nullable), `sort_order`, `component_text`, `meaning`, `type`, `component_id`(nullable) |
 | **derivations** | 派生語 | `id`, `word_id`, `derived_word`, `part_of_speech`, `meaning_ja`, `sort_order`, `linked_word_id`（別単語へのリンク） |
 | **related_words** | 関連語 | `id`, `word_id`, `related_word`, `relation_type`, `note`, `linked_word_id`（別単語へのリンク） |
+| **phrases** | 熟語・慣用句（正規化テキスト一意） | `id`, `text`(unique), `meaning`, `created_at`, `updated_at` |
+| **word_phrases** | 単語と熟語の多対多 | `id`, `word_id`, `phrase_id`, `created_at`（`word_id`+`phrase_id` で一意） |
+| **word_groups** | 単語グループ | `id`, `name`, `description`, `created_at`, `updated_at` |
+| **word_group_items** | グループ内アイテム（単語 / 定義 / 熟語） | `id`, `group_id`, `item_type`, `word_id`, `definition_id`, `phrase_id`, `phrase_text` / `phrase_meaning`（レガシー表示用）, `sort_order` |
+| **group_images** | グループ画像 | `id`, `group_id`, `file_path`, `prompt`, `is_active`, `created_at` |
 | **word_images** | 単語画像 | `id`, `word_id`, `file_path`, `prompt`, `is_active`, `created_at` |
 | **etymology_components** | 語源コンポーネントのキャッシュ（単語と直接のFKなし） | `id`, `component_text`(unique), `resolved_meaning`, `wiktionary_meanings`(JSON), `wiktionary_related_terms`, `wiktionary_derived_terms`, `wiktionary_source_url` |
 | **chat_sessions** | チャットセッション（単語 or 語源コンポーネント紐づき） | `id`, `word_id`(nullable), `component_text`(nullable), `component_id`(nullable), `title`, `created_at`, `updated_at` |
@@ -37,18 +42,10 @@
 - `comparative`: 比較級（例: `"faster"`）
 - `superlative`: 最上級（例: `"fastest"`）
 - `uncountable`: 不可算フラグ（例: `true`）
-- `phrases`: 成句・慣用句の配列（新形式）
 
-`phrases` の新形式:
+**熟語（phrases）**は `words.forms` には保持しません。正規データは **`phrases` テーブル**と **`word_phrases`** で管理します。アプリ起動時の `runtime_sqlite` が、過去に `forms.phrases` に入っていた JSON を **`phrases` / `word_phrases` に移行したうえで JSON から `phrases` キーを除去**します（意味が複数ある場合は全角カンマ `，` で連結して 1 行にマージ）。
 
-```json
-[
-  { "phrase": "break down", "meaning": "to stop functioning" },
-  { "phrase": "break out", "meaning": "to start suddenly" }
-]
-```
-
-互換対応として、旧形式 `string[]` からはランタイムマイグレーションで上記形式に正規化されます。
+レガシー互換として、API 応答や一部コードは **旧キー `phrase`（テキスト）** を **新フィールド `text`** に読み替えています。
 
 ---
 
@@ -67,11 +64,15 @@
   `derivations.linked_word_id` → `words.id` で派生先単語を参照（ON DELETE SET NULL）。
 - **words → related_words**: 1:N。`related_words.word_id` → `words.id`。CASCADE。  
   `related_words.linked_word_id` → `words.id` で関連単語を参照（ON DELETE SET NULL）。
+- **words ↔ phrases**: 多対多。`word_phrases.word_id` → `words.id`、`word_phrases.phrase_id` → `phrases.id`。両方 CASCADE。並び順カラムはなし。
+- **phrases → word_group_items**: 1:N。`word_group_items.phrase_id` → `phrases.id`（ON DELETE SET NULL）。表示は `phrase_ref` を優先し、未設定時は `phrase_text` / `phrase_meaning` にフォールバック。
+- **word_groups → word_group_items**: 1:N。`word_group_items.group_id` → `word_groups.id`。CASCADE。
+- **word_groups → group_images**: 1:N。`group_images.group_id` → `word_groups.id`。CASCADE。
 - **words → word_images**: 1:N。`word_images.word_id` → `words.id`。CASCADE。
 - **words → chat_sessions**: 1:N。`chat_sessions.word_id` → `words.id`（nullable）。CASCADE。語源コンポーネント用のセッションは `word_id` が NULL で `component_text` / `component_id` を使用。
 - **etymology_components → chat_sessions**: 1:N。`chat_sessions.component_id` → `etymology_components.id`（nullable, ON DELETE SET NULL）。
 - **chat_sessions → chat_messages**: 1:N。`chat_messages.session_id` → `chat_sessions.id`。CASCADE。
-- **chat_sessions 制約**: CHECK で「単語セッション（`word_id`）か、コンポーネントセッション（`component_text` / `component_id`）か」の排他を保証。
+- **chat_sessions 制約**: CHECK で「単語セッション（`word_id`）か、コンポーネントセッション（`component_text` / `component_id`）か、**グループセッション（`group_id`）**」のいずれかに限定。
 
 ---
 
@@ -173,11 +174,52 @@ erDiagram
         bool is_active
         datetime created_at
     }
+    phrases {
+        int id PK
+        string text UK
+        text meaning
+        datetime created_at
+        datetime updated_at
+    }
+    word_phrases {
+        int id PK
+        int word_id FK
+        int phrase_id FK
+        datetime created_at
+    }
+    word_groups {
+        int id PK
+        string name
+        text description
+        datetime created_at
+        datetime updated_at
+    }
+    word_group_items {
+        int id PK
+        int group_id FK
+        string item_type
+        int word_id FK "nullable"
+        int definition_id FK "nullable"
+        int phrase_id FK "nullable"
+        string phrase_text "nullable"
+        text phrase_meaning "nullable"
+        int sort_order
+        datetime created_at
+    }
+    group_images {
+        int id PK
+        int group_id FK
+        string file_path
+        text prompt
+        bool is_active
+        datetime created_at
+    }
     chat_sessions {
         int id PK
         int word_id FK "nullable"
         string component_text "nullable"
         int component_id FK "nullable"
+        int group_id FK "nullable"
         string title
         datetime created_at
         datetime updated_at
@@ -214,7 +256,15 @@ erDiagram
     words ||--o{ derivations : "word_id"
     words ||--o{ related_words : "word_id"
     words ||--o{ word_images : "word_id"
+    words ||--o{ word_phrases : "word_id"
+    phrases ||--o{ word_phrases : "phrase_id"
+    word_groups ||--o{ word_group_items : "group_id"
+    word_groups ||--o{ group_images : "group_id"
+    words ||--o{ word_group_items : "word_id"
+    definitions ||--o{ word_group_items : "definition_id"
+    phrases ||--o{ word_group_items : "phrase_id"
     words ||--o{ chat_sessions : "word_id"
+    word_groups ||--o{ chat_sessions : "group_id"
     etymology_components ||--o{ chat_sessions : "component_id"
     derivations }o--o| words : "linked_word_id"
     related_words }o--o| words : "linked_word_id"

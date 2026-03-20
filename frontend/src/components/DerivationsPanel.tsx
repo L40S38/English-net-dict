@@ -1,36 +1,14 @@
 import { Card, Muted, Stack } from "./atom";
 import { WordLinkRow } from "./WordLinkRow";
 import { EMPTY_MESSAGES } from "../lib/constants";
-import type { PhraseEntry, Word } from "../types";
+import type { Word } from "../types";
 
 interface Props {
   word: Word;
 }
 
 export function DerivationsPanel({ word }: Props) {
-  const rawPhrases = (word.forms?.phrases ?? []) as unknown[];
-  const phrases: PhraseEntry[] = rawPhrases.flatMap((item) => {
-    if (typeof item === "string") {
-      const phrase = item.trim();
-      return phrase ? [{ phrase, meaning: "" }] : [];
-    }
-    if (!item || typeof item !== "object") {
-      return [];
-    }
-    const phrase = String(
-      (item as { phrase?: string; text?: string }).phrase ?? (item as { text?: string }).text ?? "",
-    ).trim();
-    if (!phrase) {
-      return [];
-    }
-    const meaning = String(
-      (item as { meaning?: string; meaning_en?: string; meaning_ja?: string }).meaning ??
-        (item as { meaning_en?: string }).meaning_en ??
-        (item as { meaning_ja?: string }).meaning_ja ??
-        "",
-    ).trim();
-    return [{ phrase, meaning }];
-  });
+  const phrases = word.phrases ?? [];
   return (
     <Card stack>
       <h3>派生語</h3>
@@ -52,9 +30,9 @@ export function DerivationsPanel({ word }: Props) {
         <Card variant="sub" stack>
           <strong>熟語</strong>
           {phrases.length === 0 && <Muted as="p">{EMPTY_MESSAGES.noData}</Muted>}
-          {phrases.map((entry, idx) => (
-            <Card key={`${entry.phrase}-${idx}`} variant="sub" stack>
-              <WordLinkRow value={entry.phrase} secondary={entry.meaning} />
+          {phrases.map((entry) => (
+            <Card key={entry.id} variant="sub" stack>
+              <WordLinkRow value={entry.text} secondary={entry.meaning} />
             </Card>
           ))}
         </Card>

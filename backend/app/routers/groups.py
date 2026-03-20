@@ -6,9 +6,11 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.constants import GROUP_NAME_MAX_LENGTH
 from app.database import get_db
-from app.models import Definition, Word, WordGroup, WordGroupItem
+from app.models import Definition, Phrase, Word, WordGroup, WordGroupItem
 from app.schemas import (
     GenerateImageRequest,
+    GroupBulkAddItemsRequest,
+    GroupBulkAddItemsResponse,
     GroupImageRead,
     GroupSuggestRequest,
     GroupSuggestResponse,
@@ -21,19 +23,24 @@ from app.schemas import (
 )
 from app.services.group_suggest_service import suggest_group_candidates
 from app.services.image_service import build_group_image_prompt, generate_group_image
+from app.services.phrase_service import get_or_create_phrase, merge_meanings
 
 router = APIRouter(prefix="/api/groups", tags=["groups"])
 
 
 def _item_to_read(item: WordGroupItem) -> WordGroupItemRead:
     definition = item.definition_ref
+    phrase = item.phrase_ref
+    phrase_text = phrase.text if phrase else item.phrase_text
+    phrase_meaning = phrase.meaning if phrase else item.phrase_meaning
     return WordGroupItemRead(
         id=item.id,
         item_type=item.item_type,
         word_id=item.word_id,
         definition_id=item.definition_id,
-        phrase_text=item.phrase_text,
-        phrase_meaning=item.phrase_meaning,
+        phrase_id=item.phrase_id,
+        phrase_text=phrase_text,
+        phrase_meaning=phrase_meaning,
         sort_order=item.sort_order,
         created_at=item.created_at,
         word=item.word_ref.word if item.word_ref else None,
@@ -65,6 +72,7 @@ def _query_group(db: Session, group_id: int) -> WordGroup | None:
         .options(
             joinedload(WordGroup.items).joinedload(WordGroupItem.word_ref),
             joinedload(WordGroup.items).joinedload(WordGroupItem.definition_ref),
+            joinedload(WordGroup.items).joinedload(WordGroupItem.phrase_ref),
             joinedload(WordGroup.images),
         )
     )
@@ -164,11 +172,18 @@ def add_group_item(group_id: int, payload: WordGroupItemCreate, db: Session = De
             raise HTTPException(status_code=404, detail="Word not found")
         item.word_id = word.id
     elif item_type == "phrase":
-        phrase_text = (payload.phrase_text or "").strip()
-        if not phrase_text:
-            raise HTTPException(status_code=400, detail="phrase_text is required for phrase items")
-        item.phrase_text = phrase_text[:255]
-        item.phrase_meaning = (payload.phrase_meaning or "").strip()
+        phrase: Phrase | None = None
+        if payload.phrase_id is not None:
+            phrase = db.get(Phrase, payload.phrase_id)
+            if not phrase:
+                raise HTTPException(status_code=404, detail="Phrase not found")
+        elif payload.phrase_text:
+            phrase = get_or_create_phrase(db, payload.phrase_text, payload.phrase_meaning or "")
+        if not phrase:
+            raise HTTPException(status_code=400, detail="phrase_id or phrase_text is required for phrase items")
+        item.phrase_id = phrase.id
+        item.phrase_text = phrase.text[:255]
+        item.phrase_meaning = merge_meanings(phrase.meaning or "", payload.phrase_meaning or "")
     elif item_type == "example":
         if payload.word_id is None or payload.definition_id is None:
             raise HTTPException(status_code=400, detail="word_id and definition_id are required for example items")
@@ -190,6 +205,45 @@ def add_group_item(group_id: int, payload: WordGroupItemCreate, db: Session = De
     if not refreshed:
         raise HTTPException(status_code=404, detail="Item not found")
     return _item_to_read(refreshed)
+
+
+@router.post("/{group_id}/bulk-add-items", response_model=GroupBulkAddItemsResponse)
+def bulk_add_group_items(
+    group_id: int,
+    payload: GroupBulkAddItemsRequest,
+    db: Session = Depends(get_db),
+) -> GroupBulkAddItemsResponse:
+    group = db.get(WordGroup, group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    targets = [word_id for word_id in payload.word_ids if isinstance(word_id, int) and word_id > 0]
+    if not targets:
+        return GroupBulkAddItemsResponse(added=0, skipped=0)
+
+    existing_word_ids = set(
+        db.scalars(
+            select(WordGroupItem.word_id).where(
+                WordGroupItem.group_id == group_id,
+                WordGroupItem.item_type == "word",
+                WordGroupItem.word_id.is_not(None),
+            )
+        )
+    )
+    existing_word_ids.discard(None)
+    valid_word_ids = set(db.scalars(select(Word.id).where(Word.id.in_(targets))))
+
+    added = 0
+    skipped = 0
+    for word_id in targets:
+        if word_id not in valid_word_ids or word_id in existing_word_ids:
+            skipped += 1
+            continue
+        db.add(WordGroupItem(group_id=group_id, item_type="word", word_id=word_id))
+        existing_word_ids.add(word_id)
+        added += 1
+
+    db.commit()
+    return GroupBulkAddItemsResponse(added=added, skipped=skipped)
 
 
 @router.delete("/{group_id}/items/{item_id}")

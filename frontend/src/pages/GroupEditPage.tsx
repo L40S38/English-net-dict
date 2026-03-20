@@ -20,6 +20,10 @@ export function GroupEditPage() {
   const [aiKeywords, setAiKeywords] = useState("");
   const [selectedCandidates, setSelectedCandidates] = useState<Set<string>>(new Set());
   const [groupNameErrorOpen, setGroupNameErrorOpen] = useState(false);
+  const [bulkText, setBulkText] = useState("");
+  const [bulkMissingWords, setBulkMissingWords] = useState<string[]>([]);
+  const [bulkFoundWordIds, setBulkFoundWordIds] = useState<number[]>([]);
+  const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
 
   const groupQuery = useQuery({
     queryKey: ["group", groupId],
@@ -64,12 +68,24 @@ export function GroupEditPage() {
     },
   });
 
+  const bulkAddMutation = useMutation({
+    mutationFn: (wordIds: number[]) => groupApi.bulkAddItems(groupId, wordIds),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["group", groupId] });
+      await queryClient.invalidateQueries({ queryKey: ["groups"] });
+    },
+  });
+
+  const bulkCreateWordsMutation = useMutation({
+    mutationFn: (words: string[]) => wordApi.bulkCreate(words),
+  });
+
   const group = groupQuery.data;
   const currentNameDraft = groupDraft?.name ?? group?.name ?? "";
   const currentDescriptionDraft = groupDraft?.description ?? group?.description ?? "";
   const candidates = suggestMutation.data?.candidates ?? [];
   const candidateKey = (candidate: GroupSuggestCandidate) =>
-    `${candidate.item_type}:${candidate.word_id ?? ""}:${candidate.definition_id ?? ""}:${candidate.phrase_text ?? ""}`;
+    `${candidate.item_type}:${candidate.word_id ?? ""}:${candidate.definition_id ?? ""}:${candidate.phrase_id ?? ""}:${candidate.phrase_text ?? ""}`;
 
   if (!groupId || Number.isNaN(groupId)) {
     return (
@@ -84,7 +100,35 @@ export function GroupEditPage() {
     updateGroupMutation.isPending ||
     addItemMutation.isPending ||
     removeItemMutation.isPending ||
-    suggestMutation.isPending;
+    suggestMutation.isPending ||
+    bulkAddMutation.isPending ||
+    bulkCreateWordsMutation.isPending;
+
+  const parseBulkWords = (raw: string) => {
+    const unique = new Set<string>();
+    for (const line of raw.split(/\r?\n/)) {
+      const value = line.trim();
+      if (!value || unique.has(value)) continue;
+      unique.add(value);
+    }
+    return Array.from(unique);
+  };
+
+  const runBulkAddFlow = async (missingWords: string[], foundWordIds: number[]) => {
+    let targetWordIds = [...foundWordIds];
+    if (missingWords.length > 0) {
+      const created = await bulkCreateWordsMutation.mutateAsync(missingWords);
+      targetWordIds = Array.from(new Set([...targetWordIds, ...created.map((item) => item.id)]));
+    }
+    if (targetWordIds.length > 0) {
+      await bulkAddMutation.mutateAsync(targetWordIds);
+      await queryClient.invalidateQueries({ queryKey: ["words"] });
+    }
+    setBulkText("");
+    setBulkMissingWords([]);
+    setBulkFoundWordIds([]);
+    setBulkConfirmOpen(false);
+  };
 
   return (
     <main className="container">
@@ -206,16 +250,16 @@ export function GroupEditPage() {
                   </Row>
                 ))}
 
-                {(word.forms?.phrases ?? [])
+                {(word.phrases ?? [])
                   .filter((entry) => {
                     const q = wordKeyword.trim().toLowerCase();
                     if (!q) return true;
-                    const text = `${entry.phrase} ${entry.meaning ?? ""}`.toLowerCase();
+                    const text = `${entry.text} ${entry.meaning ?? ""}`.toLowerCase();
                     return text.includes(q);
                   })
                   .slice(0, 5)
                   .map((entry) => (
-                    <Row key={entry.phrase}>
+                    <Row key={entry.id}>
                       <span
                         style={{
                           display: "flex",
@@ -224,7 +268,7 @@ export function GroupEditPage() {
                           gap: "0.5rem",
                         }}
                       >
-                        <strong>{entry.phrase}</strong>
+                        <strong>{entry.text}</strong>
                         {entry.meaning ? <Muted as="span">— {entry.meaning}</Muted> : null}
                         <Muted as="span" style={{ fontSize: "0.9em" }}>
                           （熟語）
@@ -235,7 +279,8 @@ export function GroupEditPage() {
                         onClick={() =>
                           addItemMutation.mutate({
                             item_type: "phrase",
-                            phrase_text: entry.phrase,
+                            phrase_id: entry.id,
+                            phrase_text: entry.text,
                             phrase_meaning: entry.meaning,
                           })
                         }
@@ -247,6 +292,43 @@ export function GroupEditPage() {
                   ))}
               </Card>
             ))}
+          </Card>
+
+          <Card stack>
+            <h3>単語一括追加</h3>
+            <label>
+              <small>1行1単語/熟語</small>
+              <textarea
+                rows={5}
+                value={bulkText}
+                onChange={(event) => setBulkText(event.target.value)}
+                placeholder="例: apple&#10;take off&#10;ASAP"
+              />
+            </label>
+            <button
+              type="button"
+              disabled={bulkAddMutation.isPending || bulkCreateWordsMutation.isPending}
+              onClick={async () => {
+                const words = parseBulkWords(bulkText);
+                if (words.length === 0) return;
+                const checked = await wordApi.check(words);
+                const foundIds = checked.found.map((item) => item.id);
+                if (checked.not_found.length === 0) {
+                  await runBulkAddFlow([], foundIds);
+                  return;
+                }
+                setBulkMissingWords(checked.not_found);
+                setBulkFoundWordIds(foundIds);
+                setBulkConfirmOpen(true);
+              }}
+            >
+              {bulkAddMutation.isPending || bulkCreateWordsMutation.isPending
+                ? "一括追加中..."
+                : "確認して追加"}
+            </button>
+            {bulkMissingWords.length > 0 && (
+              <Muted as="p">未登録: {bulkMissingWords.join(", ")}</Muted>
+            )}
           </Card>
 
           <Card stack>
@@ -349,6 +431,7 @@ export function GroupEditPage() {
                       item_type: candidate.item_type,
                       word_id: candidate.word_id,
                       definition_id: candidate.definition_id,
+                      phrase_id: candidate.phrase_id,
                       phrase_text: candidate.phrase_text,
                       phrase_meaning: candidate.phrase_meaning,
                     });
@@ -422,6 +505,23 @@ export function GroupEditPage() {
         confirmText="閉じる"
         onConfirm={() => setGroupNameErrorOpen(false)}
         onCancel={() => setGroupNameErrorOpen(false)}
+      />
+      <ConfirmModal
+        open={bulkConfirmOpen}
+        title="未登録単語をDBに追加しますか？"
+        message={
+          bulkMissingWords.length > 0
+            ? `次の単語/熟語は未登録です。\n${bulkMissingWords.join(", ")}\n\nDB登録してからグループへ追加しますか？`
+            : "未登録単語はありません。"
+        }
+        confirmText="登録して追加"
+        cancelText="登録済みのみ追加"
+        onConfirm={() =>
+          void runBulkAddFlow(bulkMissingWords, bulkFoundWordIds)
+        }
+        onCancel={() => {
+          void runBulkAddFlow([], bulkFoundWordIds);
+        }}
       />
     </main>
   );

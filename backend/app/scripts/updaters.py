@@ -5,6 +5,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.models import Etymology, Word
+from app.services.phrase_service import get_or_create_phrase, link_phrase_to_word, normalize_phrase_text
 from app.services.gpt_service import enrich_core_image_and_branches, generate_structured_word_data
 from app.services.phrase_meaning_service import clean_line, needs_one_line_summary, resolve_meaning_ja
 from app.services.scraper.wiktionary import WiktionaryScraper
@@ -18,8 +19,7 @@ _PLACEHOLDER_MEANINGS = {"", "Wiktionaryの派生語"}
 
 def _word_snapshot(word: Word) -> dict[str, Any]:
     ety = word.etymology
-    forms = dict(word.forms or {})
-    phrases = normalize_phrase_entries(forms.get("phrases"))
+    phrases = [{"phrase": p.text, "meaning": p.meaning or ""} for p in sorted(word.phrases, key=lambda x: x.id)]
     branches = []
     if ety:
         branches = [
@@ -191,8 +191,7 @@ async def refresh_word_data(
 
 
 def _phrase_state(word: Word) -> tuple[list[dict[str, str]], dict[str, str], list[str]]:
-    forms = dict(word.forms or {})
-    phrases = normalize_phrase_entries(forms.get("phrases"))
+    phrases = [{"phrase": p.text, "meaning": p.meaning or ""} for p in sorted(word.phrases, key=lambda x: x.id)]
     related_notes = {rw.related_word: (rw.note or "") for rw in word.related_words}
     derivations = [drv.derived_word for drv in word.derivations]
     return phrases, related_notes, derivations
@@ -207,12 +206,11 @@ async def enrich_phrase_meanings(
 ) -> list[FieldDiff]:
     before_phrases, before_notes, before_derivations = _phrase_state(word)
 
-    forms = dict(word.forms or {})
-    normalized_phrases = normalize_phrase_entries(forms.get("phrases"))
+    normalized_phrases = [{"phrase": p.text, "meaning": p.meaning or ""} for p in sorted(word.phrases, key=lambda x: x.id)]
     phrase_map: dict[str, dict[str, str]] = {
         entry["phrase"].strip().lower(): entry for entry in normalized_phrases if entry.get("phrase", "").strip()
     }
-    changed = normalized_phrases != forms.get("phrases")
+    changed = False
 
     derivations_to_remove = []
     for drv in list(word.derivations):
@@ -281,8 +279,13 @@ async def enrich_phrase_meanings(
             changed = True
 
     if changed:
-        forms["phrases"] = list(normalized_phrases)
-        word.forms = forms
+        word.phrase_links.clear()
+        for entry in normalized_phrases:
+            text = normalize_phrase_text(entry.get("phrase", ""))
+            if not text:
+                continue
+            phrase = get_or_create_phrase(db, text, entry.get("meaning", ""))
+            link_phrase_to_word(db, word, phrase)
 
     after_phrases, after_notes, after_derivations = _phrase_state(word)
     diffs: list[FieldDiff] = []

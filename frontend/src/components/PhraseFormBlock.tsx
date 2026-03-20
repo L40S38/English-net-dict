@@ -1,11 +1,11 @@
 import { Trash2 } from "lucide-react";
 import { Card, Field } from "./atom";
-import type { PhraseEntry } from "../types";
+import type { Phrase } from "../types";
 
 interface Props {
-  phraseEntry: PhraseEntry;
+  phraseEntry: Pick<Phrase, "text" | "meaning">;
   index: number;
-  onUpdate: (index: number, next: PhraseEntry) => void;
+  onUpdate: (index: number, next: Pick<Phrase, "text" | "meaning">) => void;
   onRemove: (index: number) => void;
 }
 
@@ -15,8 +15,8 @@ export function PhraseFormBlock({ phraseEntry, index, onUpdate, onRemove }: Prop
       <div className="inline-form-row">
         <Field label="成句・慣用句" className="field-grow">
           <input
-            value={phraseEntry.phrase}
-            onChange={(e) => onUpdate(index, { ...phraseEntry, phrase: e.target.value })}
+            value={phraseEntry.text}
+            onChange={(e) => onUpdate(index, { ...phraseEntry, text: e.target.value })}
             placeholder="成句・慣用句"
           />
         </Field>

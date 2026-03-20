@@ -11,6 +11,8 @@ from app.database import get_db
 from app.models import Definition, Derivation, Etymology, RelatedWord, Word
 from app.schemas import (
     BulkWordRequest,
+    WordCheckFound,
+    WordCheckResponse,
     DefinitionRead,
     DerivationCreate,
     DerivationRead,
@@ -56,6 +58,7 @@ def _word_query():
         joinedload(Word.related_words),
         joinedload(Word.images),
         joinedload(Word.chat_sessions),
+        joinedload(Word.phrases),
     )
 
 
@@ -347,6 +350,36 @@ async def bulk_create_words(payload: BulkWordRequest, db: Session = Depends(get_
     return [_to_word_read(db, word) for word in words]
 
 
+@router.post("/check", response_model=WordCheckResponse)
+def check_words(payload: BulkWordRequest, db: Session = Depends(get_db)) -> WordCheckResponse:
+    normalized_targets: list[str] = []
+    for item in payload.words:
+        value = item.strip()
+        if not value:
+            continue
+        if value in normalized_targets:
+            continue
+        normalized_targets.append(value)
+
+    if not normalized_targets:
+        return WordCheckResponse(found=[], not_found=[])
+
+    lowered = [item.lower() for item in normalized_targets]
+    stmt = select(Word).where(func.lower(Word.word).in_(lowered))
+    matched_words = list(db.scalars(stmt))
+    by_lower = {word.word.lower(): word for word in matched_words}
+
+    found: list[WordCheckFound] = []
+    not_found: list[str] = []
+    for original in normalized_targets:
+        matched = by_lower.get(original.lower())
+        if matched:
+            found.append(WordCheckFound(id=matched.id, word=matched.word))
+        else:
+            not_found.append(original)
+    return WordCheckResponse(found=found, not_found=not_found)
+
+
 @router.put("/{word_id}", response_model=WordRead)
 def update_word(word_id: int, payload: WordCreateRequest, db: Session = Depends(get_db)) -> WordRead:
     word = db.get(Word, word_id)
@@ -460,7 +493,9 @@ def update_word_full(word_id: int, payload: WordFullUpdate, db: Session = Depend
     if payload.word is not None:
         word.word = payload.word.strip().lower()
     word.phonetic = payload.phonetic
-    word.forms = payload.forms or {}
+    forms = dict(payload.forms or {})
+    forms.pop("phrases", None)
+    word.forms = forms
 
     _replace_definitions(word, [item.model_dump() for item in payload.definitions])
     if payload.etymology is not None:
@@ -469,6 +504,12 @@ def update_word_full(word_id: int, payload: WordFullUpdate, db: Session = Depend
         word_service.apply_etymology_update(db, word.etymology, payload.etymology.model_dump())
     _replace_derivations(db, word, [item.model_dump() for item in payload.derivations])
     _replace_related_words(db, word, [item.model_dump() for item in payload.related_words])
+    if "phrases" in payload.model_fields_set:
+        word_service.replace_word_phrases(
+            db,
+            word,
+            [item.model_dump() for item in payload.phrases],
+        )
 
     db.commit()
     db.refresh(word)

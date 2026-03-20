@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Literal
 
 from openai import OpenAI
 from sqlalchemy import or_, select
@@ -98,26 +98,6 @@ def _extract_rules_with_gpt(keywords: list[str]) -> list[SearchRule]:
         return [SearchRule(scope="all", text=k, match="contains") for k in keywords]
 
 
-def _phrase_entries(raw: Any) -> list[tuple[str, str]]:
-    if not isinstance(raw, list):
-        return []
-    entries: list[tuple[str, str]] = []
-    for item in raw:
-        if isinstance(item, str):
-            phrase = item.strip()
-            if phrase:
-                entries.append((phrase, ""))
-            continue
-        if not isinstance(item, dict):
-            continue
-        phrase = str(item.get("phrase", item.get("text", ""))).strip()
-        if not phrase:
-            continue
-        meaning = str(item.get("meaning", item.get("meaning_ja", item.get("meaning_en", "")))).strip()
-        entries.append((phrase, meaning))
-    return entries
-
-
 def _match_score(patterns: list[str], *texts: str) -> float:
     haystack = " ".join(texts).lower()
     if not haystack:
@@ -149,7 +129,7 @@ def _collect_candidates(db: Session, rules: list[SearchRule], max_candidates: in
     """Collect a broad set of candidates using SQL where possible.
 
     - Words/examples via SQL LIKE
-    - Phrases via scanning Word.forms.phrases
+    - Phrases via scanning Word.phrases
     """
     if not rules:
         return []
@@ -221,17 +201,20 @@ def _collect_candidates(db: Session, rules: list[SearchRule], max_candidates: in
             candidates[_candidate_key(candidate)] = candidate
 
     if phrase_rules:
-        # Phrases are stored in Word.forms JSON, so scan words but keep it bounded.
+        # Phrases are stored in Phrase table; scan words with eager-loaded phrases.
         words = list(
             db.scalars(
                 select(Word).options(
                     joinedload(Word.definitions),
                     joinedload(Word.etymology).joinedload(Etymology.component_items),
+                    joinedload(Word.phrases),
                 )
             ).unique()
         )
         for word in words:
-            for phrase_text, phrase_meaning in _phrase_entries((word.forms or {}).get("phrases")):
+            for phrase in word.phrases:
+                phrase_text = phrase.text
+                phrase_meaning = phrase.meaning or ""
                 text_lower = phrase_text.lower()
                 meaning_lower = (phrase_meaning or "").lower()
                 matched = False
@@ -250,6 +233,7 @@ def _collect_candidates(db: Session, rules: list[SearchRule], max_candidates: in
                 candidate = GroupSuggestCandidate(
                     item_type="phrase",
                     word_id=word.id,
+                    phrase_id=phrase.id,
                     phrase_text=phrase_text,
                     phrase_meaning=phrase_meaning,
                     word=word.word,

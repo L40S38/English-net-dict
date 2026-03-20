@@ -3,9 +3,12 @@ export type ComponentDisplayMode = "auto" | "word" | "morpheme" | "both";
 export type WordSortBy = "last_viewed_at" | "created_at" | "updated_at" | "word";
 export type SortOrder = "desc" | "asc";
 
-export interface PhraseEntry {
-  phrase: string;
+export interface Phrase {
+  id: number;
+  text: string;
   meaning: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface WordForms {
@@ -17,7 +20,6 @@ export interface WordForms {
   comparative?: string;
   superlative?: string;
   uncountable?: boolean;
-  phrases?: PhraseEntry[];
 }
 
 export interface EtymologyComponent {
@@ -112,6 +114,7 @@ export interface Word {
   etymology?: Etymology | null;
   derivations: Derivation[];
   related_words: RelatedWord[];
+  phrases: Phrase[];
   images: WordImage[];
   /** 単語に紐づくチャットセッション数（一覧APIで返る） */
   chat_session_count?: number;
@@ -204,6 +207,7 @@ export interface WordGroupItem {
   item_type: GroupItemType;
   word_id?: number | null;
   definition_id?: number | null;
+  phrase_id?: number | null;
   phrase_text?: string | null;
   phrase_meaning?: string | null;
   sort_order: number;
@@ -244,6 +248,7 @@ export interface GroupSuggestCandidate {
   item_type: GroupItemType;
   word_id?: number | null;
   definition_id?: number | null;
+  phrase_id?: number | null;
   phrase_text?: string | null;
   phrase_meaning?: string | null;
   word?: string | null;
@@ -257,4 +262,19 @@ export interface GroupSuggestCandidate {
 export interface GroupSuggestResponse {
   keywords: string[];
   candidates: GroupSuggestCandidate[];
+}
+
+export interface WordCheckFound {
+  id: number;
+  word: string;
+}
+
+export interface WordCheckResponse {
+  found: WordCheckFound[];
+  not_found: string[];
+}
+
+export interface GroupBulkAddItemsResponse {
+  added: number;
+  skipped: number;
 }

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -29,6 +29,16 @@ class Word(Base, TimestampMixin):
     )
     related_words: Mapped[list["RelatedWord"]] = relationship(
         back_populates="word_ref", cascade="all, delete-orphan", foreign_keys="RelatedWord.word_id"
+    )
+    phrase_links: Mapped[list["WordPhrase"]] = relationship(
+        back_populates="word_ref",
+        cascade="all, delete-orphan",
+        order_by="WordPhrase.id",
+    )
+    phrases: Mapped[list["Phrase"]] = relationship(
+        secondary="word_phrases",
+        viewonly=True,
+        order_by="Phrase.id",
     )
     images: Mapped[list["WordImage"]] = relationship(back_populates="word_ref", cascade="all, delete-orphan")
     chat_sessions: Mapped[list["ChatSession"]] = relationship(back_populates="word_ref", cascade="all, delete-orphan")
@@ -233,6 +243,34 @@ class WordImage(Base):
     word_ref: Mapped[Word] = relationship(back_populates="images")
 
 
+class Phrase(Base, TimestampMixin):
+    __tablename__ = "phrases"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    text: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    meaning: Mapped[str] = mapped_column(Text, default="")
+
+    word_links: Mapped[list["WordPhrase"]] = relationship(
+        back_populates="phrase_ref",
+        cascade="all, delete-orphan",
+        order_by="WordPhrase.id",
+    )
+    group_items: Mapped[list["WordGroupItem"]] = relationship(back_populates="phrase_ref")
+
+
+class WordPhrase(Base):
+    __tablename__ = "word_phrases"
+    __table_args__ = (UniqueConstraint("word_id", "phrase_id", name="uq_word_phrases_word_id_phrase_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    word_id: Mapped[int] = mapped_column(ForeignKey("words.id", ondelete="CASCADE"), index=True)
+    phrase_id: Mapped[int] = mapped_column(ForeignKey("phrases.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    word_ref: Mapped[Word] = relationship(back_populates="phrase_links")
+    phrase_ref: Mapped[Phrase] = relationship(back_populates="word_links")
+
+
 class EtymologyComponent(Base, TimestampMixin):
     __tablename__ = "etymology_components"
 
@@ -297,6 +335,9 @@ class WordGroupItem(Base):
     definition_id: Mapped[int | None] = mapped_column(
         ForeignKey("definitions.id", ondelete="CASCADE"), index=True, nullable=True
     )
+    phrase_id: Mapped[int | None] = mapped_column(
+        ForeignKey("phrases.id", ondelete="SET NULL"), index=True, nullable=True
+    )
     phrase_text: Mapped[str | None] = mapped_column(String(255), nullable=True)
     phrase_meaning: Mapped[str | None] = mapped_column(Text, nullable=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
@@ -305,6 +346,7 @@ class WordGroupItem(Base):
     group_ref: Mapped[WordGroup] = relationship(back_populates="items")
     word_ref: Mapped[Word | None] = relationship(foreign_keys=[word_id])
     definition_ref: Mapped[Definition | None] = relationship(foreign_keys=[definition_id])
+    phrase_ref: Mapped[Phrase | None] = relationship(back_populates="group_items", foreign_keys=[phrase_id])
 
 
 class GroupImage(Base):

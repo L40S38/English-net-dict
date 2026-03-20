@@ -23,40 +23,12 @@ import type {
   EtymologyComponent,
   EtymologyVariant,
   LanguageChainLink,
-  PhraseEntry,
+  Phrase,
   RelatedWord,
   Word,
 } from "../types";
 
 type ComponentMeaningEntry = { text: string; meaning: string };
-
-function normalizePhraseEntries(rawPhrases: unknown): PhraseEntry[] {
-  if (!Array.isArray(rawPhrases)) {
-    return [];
-  }
-  return rawPhrases.flatMap((item) => {
-    if (typeof item === "string") {
-      const phrase = item.trim();
-      return phrase ? [{ phrase, meaning: "" }] : [];
-    }
-    if (!item || typeof item !== "object") {
-      return [];
-    }
-    const phrase = String(
-      (item as { phrase?: string; text?: string }).phrase ?? (item as { text?: string }).text ?? "",
-    ).trim();
-    if (!phrase) {
-      return [];
-    }
-    const meaning = String(
-      (item as { meaning?: string; meaning_en?: string; meaning_ja?: string }).meaning ??
-        (item as { meaning_en?: string }).meaning_en ??
-        (item as { meaning_ja?: string }).meaning_ja ??
-        "",
-    ).trim();
-    return [{ phrase, meaning }];
-  });
-}
 
 type EditTabKey =
   | "basic"
@@ -103,7 +75,7 @@ export function WordEditPage() {
   const [comparative, setComparative] = useState("");
   const [superlative, setSuperlative] = useState("");
   const [uncountable, setUncountable] = useState(false);
-  const [phrases, setPhrases] = useState<PhraseEntry[]>([]);
+  const [phrases, setPhrases] = useState<Array<Pick<Phrase, "text" | "meaning">>>([]);
   const [definitions, setDefinitions] = useState<Word["definitions"]>([]);
   const [derivations, setDerivations] = useState<Derivation[]>([]);
   const [relatedWords, setRelatedWords] = useState<RelatedWord[]>([]);
@@ -150,7 +122,6 @@ export function WordEditPage() {
   useEffect(() => {
     if (!word) return;
     const forms = word.forms ?? {};
-    const normalizedPhrases = normalizePhraseEntries(forms.phrases);
     setEditWord(word.word);
     setPhonetic(word.phonetic ?? "");
     setThird(String(forms.third_person_singular ?? ""));
@@ -161,7 +132,7 @@ export function WordEditPage() {
     setComparative(String(forms.comparative ?? ""));
     setSuperlative(String(forms.superlative ?? ""));
     setUncountable(Boolean(forms.uncountable));
-    setPhrases(normalizedPhrases);
+    setPhrases((word.phrases ?? []).map((item) => ({ text: item.text, meaning: item.meaning ?? "" })));
     setDefinitions(word.definitions);
     setDerivations(word.derivations);
     setRelatedWords(word.related_words);
@@ -189,13 +160,13 @@ export function WordEditPage() {
         comparative: comparative || undefined,
         superlative: superlative || undefined,
         uncountable: uncountable || undefined,
-        phrases: phrases
-          .map((entry) => ({
-            phrase: entry.phrase.trim(),
-            meaning: entry.meaning.trim(),
-          }))
-          .filter((entry) => Boolean(entry.phrase)),
       },
+      phrases: phrases
+        .map((entry) => ({
+          text: entry.text.trim(),
+          meaning: entry.meaning.trim(),
+        }))
+        .filter((entry) => Boolean(entry.text)),
       definitions: definitions.map((d, idx) => ({
         id: d.id,
         part_of_speech: d.part_of_speech,
@@ -442,7 +413,7 @@ export function WordEditPage() {
               setPhrases((prev) => [
                 ...prev,
                 {
-                  phrase: "",
+                      text: "",
                   meaning: "",
                 },
               ])

@@ -175,9 +175,12 @@ def build_group_image_prompt(group: WordGroup) -> str:
     for item in sorted(group.items, key=lambda x: (x.sort_order, x.id))[:60]:
         if item.item_type == "word" and item.word_ref:
             words.append(item.word_ref.word)
-        elif item.item_type == "phrase" and item.phrase_text:
-            meaning = (item.phrase_meaning or "").strip()
-            phrases.append(f"{item.phrase_text} ({meaning})" if meaning else item.phrase_text)
+        elif item.item_type == "phrase":
+            phrase_text = (item.phrase_ref.text if item.phrase_ref else item.phrase_text) or ""
+            if not phrase_text:
+                continue
+            meaning = ((item.phrase_ref.meaning if item.phrase_ref else item.phrase_meaning) or "").strip()
+            phrases.append(f"{phrase_text} ({meaning})" if meaning else phrase_text)
         elif item.item_type == "example" and item.definition_ref and item.word_ref:
             ex = (item.definition_ref.example_en or "").strip()
             if ex:

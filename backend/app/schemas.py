@@ -186,6 +186,37 @@ class BulkWordRequest(BaseModel):
     words: list[str]
 
 
+class WordCheckFound(BaseModel):
+    id: int
+    word: str
+
+
+class WordCheckResponse(BaseModel):
+    found: list[WordCheckFound] = Field(default_factory=list)
+    not_found: list[str] = Field(default_factory=list)
+
+
+class PhraseBase(BaseModel):
+    text: str
+    meaning: str = ""
+
+
+class PhraseCreate(PhraseBase):
+    pass
+
+
+class PhraseUpdate(BaseModel):
+    meaning: str = ""
+
+
+class PhraseRead(PhraseBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class WordRead(BaseModel):
     id: int
     word: str
@@ -198,6 +229,7 @@ class WordRead(BaseModel):
     etymology: EtymologyRead | None = None
     derivations: list[DerivationRead] = Field(default_factory=list)
     related_words: list[RelatedWordRead] = Field(default_factory=list)
+    phrases: list[PhraseRead] = Field(default_factory=list)
     images: list[WordImageRead] = Field(default_factory=list)
     chat_session_count: int = 0
 
@@ -283,6 +315,7 @@ class WordGroupItemCreate(BaseModel):
     item_type: Literal["word", "phrase", "example"]
     word_id: int | None = None
     definition_id: int | None = None
+    phrase_id: int | None = None
     phrase_text: str | None = None
     phrase_meaning: str | None = None
     sort_order: int = 0
@@ -293,6 +326,7 @@ class WordGroupItemRead(BaseModel):
     item_type: Literal["word", "phrase", "example"]
     word_id: int | None = None
     definition_id: int | None = None
+    phrase_id: int | None = None
     phrase_text: str | None = None
     phrase_meaning: str | None = None
     sort_order: int
@@ -331,6 +365,7 @@ class GroupSuggestCandidate(BaseModel):
     item_type: Literal["word", "phrase", "example"]
     word_id: int | None = None
     definition_id: int | None = None
+    phrase_id: int | None = None
     phrase_text: str | None = None
     phrase_meaning: str | None = None
     word: str | None = None
@@ -385,6 +420,7 @@ class WordFullUpdate(BaseModel):
     word: str | None = None
     phonetic: str | None = None
     forms: dict = Field(default_factory=dict)
+    phrases: list[PhraseCreate] = Field(default_factory=list)
     definitions: list[DefinitionPayload] = Field(default_factory=list)
     etymology: EtymologyPayload | None = None
     derivations: list[DerivationPayload] = Field(default_factory=list)
@@ -490,7 +526,17 @@ class StructuredEtymology(BaseModel):
 class StructuredWordPayload(BaseModel):
     phonetic: str | None = None
     forms: dict = Field(default_factory=dict)
+    phrases: list[PhraseCreate] = Field(default_factory=list)
     definitions: list[StructuredDefinition] = Field(default_factory=list)
     etymology: StructuredEtymology = Field(default_factory=StructuredEtymology)
     derivations: list[StructuredDerivation] = Field(default_factory=list)
     related_words: list[StructuredRelatedWord] = Field(default_factory=list)
+
+
+class GroupBulkAddItemsRequest(BaseModel):
+    word_ids: list[int] = Field(default_factory=list)
+
+
+class GroupBulkAddItemsResponse(BaseModel):
+    added: int = 0
+    skipped: int = 0

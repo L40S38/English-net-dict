@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import re
+import unicodedata
 
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
@@ -31,6 +33,33 @@ def run_runtime_migrations(engine: Engine) -> None:
                 if str(col.get("name", "")) == column:
                     return bool(col.get("notnull"))
             return False
+
+        def normalize_phrase_text(raw: object) -> str:
+            value = unicodedata.normalize("NFKC", str(raw or ""))
+            value = value.strip()
+            value = re.sub(r"\s+", " ", value)
+            return value
+
+        def split_meanings(raw: object) -> list[str]:
+            text_value = str(raw or "")
+            parts = [part.strip() for part in re.split(r"[，,]", text_value)]
+            seen: list[str] = []
+            for part in parts:
+                if not part:
+                    continue
+                if part in seen:
+                    continue
+                seen.append(part)
+            return seen
+
+        def merge_meanings(*values: object) -> str:
+            merged: list[str] = []
+            for value in values:
+                for part in split_meanings(value):
+                    if part in merged:
+                        continue
+                    merged.append(part)
+            return "，".join(merged)
 
         if not has_column("words", "forms"):
             conn.execute(text("ALTER TABLE words ADD COLUMN forms JSON"))
@@ -457,6 +486,22 @@ def run_runtime_migrations(engine: Engine) -> None:
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_etymologies_word_id ON etymologies (word_id)"))
             conn.execute(text("DROP TABLE etymologies_old"))
 
+        if not has_table("phrases"):
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE phrases (
+                      id INTEGER NOT NULL PRIMARY KEY,
+                      text VARCHAR(255) NOT NULL UNIQUE,
+                      meaning TEXT NOT NULL DEFAULT '',
+                      created_at DATETIME NOT NULL,
+                      updated_at DATETIME NOT NULL
+                    )
+                    """
+                )
+            )
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_phrases_text ON phrases (text)"))
+
         if not has_table("word_groups"):
             conn.execute(
                 text(
@@ -483,13 +528,15 @@ def run_runtime_migrations(engine: Engine) -> None:
                       item_type VARCHAR(16) NOT NULL DEFAULT 'word',
                       word_id INTEGER,
                       definition_id INTEGER,
+                      phrase_id INTEGER,
                       phrase_text VARCHAR(255),
                       phrase_meaning TEXT,
                       sort_order INTEGER NOT NULL DEFAULT 0,
                       created_at DATETIME NOT NULL,
                       FOREIGN KEY(group_id) REFERENCES word_groups (id) ON DELETE CASCADE,
                       FOREIGN KEY(word_id) REFERENCES words (id) ON DELETE CASCADE,
-                      FOREIGN KEY(definition_id) REFERENCES definitions (id) ON DELETE CASCADE
+                      FOREIGN KEY(definition_id) REFERENCES definitions (id) ON DELETE CASCADE,
+                      FOREIGN KEY(phrase_id) REFERENCES phrases (id) ON DELETE SET NULL
                     )
                     """
                 )
@@ -508,6 +555,146 @@ def run_runtime_migrations(engine: Engine) -> None:
                 text(
                     "CREATE INDEX IF NOT EXISTS ix_word_group_items_definition_id ON word_group_items (definition_id)"
                 )
+            )
+        if not has_table("phrases"):
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE phrases (
+                      id INTEGER NOT NULL PRIMARY KEY,
+                      text VARCHAR(255) NOT NULL UNIQUE,
+                      meaning TEXT NOT NULL DEFAULT '',
+                      created_at DATETIME NOT NULL,
+                      updated_at DATETIME NOT NULL
+                    )
+                    """
+                )
+            )
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_phrases_text ON phrases (text)"))
+        if not has_table("word_phrases"):
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE word_phrases (
+                      id INTEGER NOT NULL PRIMARY KEY,
+                      word_id INTEGER NOT NULL,
+                      phrase_id INTEGER NOT NULL,
+                      created_at DATETIME NOT NULL,
+                      FOREIGN KEY(word_id) REFERENCES words (id) ON DELETE CASCADE,
+                      FOREIGN KEY(phrase_id) REFERENCES phrases (id) ON DELETE CASCADE,
+                      CONSTRAINT uq_word_phrases_word_id_phrase_id UNIQUE (word_id, phrase_id)
+                    )
+                    """
+                )
+            )
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_word_phrases_word_id ON word_phrases (word_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_word_phrases_phrase_id ON word_phrases (phrase_id)"))
+        if has_table("word_group_items") and not has_column("word_group_items", "phrase_id"):
+            conn.execute(text("ALTER TABLE word_group_items ADD COLUMN phrase_id INTEGER"))
+        if has_table("word_group_items"):
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_word_group_items_phrase_id ON word_group_items (phrase_id)"))
+
+        if has_table("word_group_items"):
+            phrase_rows = conn.execute(
+                text(
+                    "SELECT id, phrase_text, phrase_meaning FROM word_group_items "
+                    "WHERE item_type = 'phrase' AND phrase_text IS NOT NULL AND trim(phrase_text) <> ''"
+                )
+            ).mappings().all()
+        else:
+            phrase_rows = []
+        word_rows = conn.execute(text("SELECT id, forms FROM words ORDER BY id")).mappings().all()
+        phrase_map_rows = conn.execute(text("SELECT id, text, meaning FROM phrases ORDER BY id")).mappings().all()
+        phrase_map: dict[str, dict] = {}
+        for row in phrase_map_rows:
+            normalized = normalize_phrase_text(row.get("text"))
+            if not normalized:
+                continue
+            phrase_map[normalized] = {
+                "id": int(row["id"]),
+                "text": normalized,
+                "meaning": str(row.get("meaning") or ""),
+            }
+
+        def ensure_phrase_id(raw_text: object, raw_meaning: object) -> int | None:
+            text_value = normalize_phrase_text(raw_text)
+            if not text_value:
+                return None
+            meaning_value = str(raw_meaning or "").strip()
+            existing = phrase_map.get(text_value)
+            if existing:
+                merged = merge_meanings(existing.get("meaning", ""), meaning_value)
+                if merged != existing.get("meaning", ""):
+                    conn.execute(
+                        text("UPDATE phrases SET meaning = :meaning, updated_at = CURRENT_TIMESTAMP WHERE id = :id"),
+                        {"id": existing["id"], "meaning": merged},
+                    )
+                    existing["meaning"] = merged
+                return int(existing["id"])
+            conn.execute(
+                text(
+                    "INSERT INTO phrases (text, meaning, created_at, updated_at) "
+                    "VALUES (:text, :meaning, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                ),
+                {"text": text_value, "meaning": merge_meanings(meaning_value)},
+            )
+            phrase_id = conn.execute(text("SELECT last_insert_rowid()")).scalar()
+            if phrase_id is None:
+                return None
+            phrase_map[text_value] = {
+                "id": int(phrase_id),
+                "text": text_value,
+                "meaning": merge_meanings(meaning_value),
+            }
+            return int(phrase_id)
+
+        for row in word_rows:
+            forms_raw = row.get("forms")
+            if forms_raw in (None, ""):
+                continue
+            try:
+                parsed_forms = json.loads(forms_raw) if isinstance(forms_raw, str) else forms_raw
+            except Exception:
+                continue
+            if not isinstance(parsed_forms, dict):
+                continue
+            raw_phrase_items = parsed_forms.get("phrases")
+            if not isinstance(raw_phrase_items, list):
+                continue
+            for item in raw_phrase_items:
+                if isinstance(item, str):
+                    phrase_id = ensure_phrase_id(item, "")
+                elif isinstance(item, dict):
+                    phrase_id = ensure_phrase_id(
+                        item.get("phrase", item.get("text", "")),
+                        item.get("meaning", item.get("meaning_ja", item.get("meaning_en", ""))),
+                    )
+                else:
+                    phrase_id = None
+                if phrase_id is None:
+                    continue
+                conn.execute(
+                    text(
+                        "INSERT OR IGNORE INTO word_phrases (word_id, phrase_id, created_at) "
+                        "VALUES (:word_id, :phrase_id, CURRENT_TIMESTAMP)"
+                    ),
+                    {"word_id": int(row["id"]), "phrase_id": int(phrase_id)},
+                )
+
+            next_forms = dict(parsed_forms)
+            next_forms.pop("phrases", None)
+            conn.execute(
+                text("UPDATE words SET forms = :forms WHERE id = :id"),
+                {"id": int(row["id"]), "forms": json.dumps(next_forms, ensure_ascii=False)},
+            )
+
+        for row in phrase_rows:
+            phrase_id = ensure_phrase_id(row.get("phrase_text"), row.get("phrase_meaning"))
+            if phrase_id is None:
+                continue
+            conn.execute(
+                text("UPDATE word_group_items SET phrase_id = :phrase_id WHERE id = :id"),
+                {"id": int(row["id"]), "phrase_id": int(phrase_id)},
             )
 
         if not has_table("group_images"):

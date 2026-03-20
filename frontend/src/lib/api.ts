@@ -10,12 +10,15 @@ import type {
   EtymologyComponentSearchResponse,
   Etymology,
   GroupSuggestResponse,
+  GroupBulkAddItemsResponse,
   GroupImage,
+  Phrase,
   RelatedWord,
   Word,
   WordForms,
   WordImage,
   WordListResponse,
+  WordCheckResponse,
   WordGroup,
   WordGroupItem,
   WordGroupListResponse,
@@ -69,6 +72,10 @@ export const wordApi = {
     const { data } = await api.post<Word[]>("/api/words/bulk", { words });
     return data;
   },
+  async check(words: string[]) {
+    const { data } = await api.post<WordCheckResponse>("/api/words/check", { words });
+    return data;
+  },
   async rescrape(wordId: number) {
     const { data } = await api.post<Word>(`/api/words/${wordId}/rescrape`);
     return data;
@@ -90,6 +97,10 @@ export const wordApi = {
       word?: string;
       phonetic?: string | null;
       forms?: WordForms;
+      phrases?: Array<{
+        text: string;
+        meaning: string;
+      }>;
       definitions: Array<{
         id?: number | null;
         part_of_speech: string;
@@ -155,6 +166,17 @@ export const wordApi = {
   async getDefaultImagePrompt(wordId: number) {
     const { data } = await api.get<{ prompt: string }>(`/api/words/${wordId}/default-image-prompt`);
     return data.prompt;
+  },
+  async listPhrases(wordId: number) {
+    const { data } = await api.get<Phrase[]>(`/api/words/${wordId}/phrases`);
+    return data;
+  },
+  async addPhrase(wordId: number, payload: { text: string; meaning?: string }) {
+    const { data } = await api.post<Phrase>(`/api/words/${wordId}/phrases`, payload);
+    return data;
+  },
+  async removePhrase(wordId: number, phraseId: number) {
+    await api.delete(`/api/words/${wordId}/phrases/${phraseId}`);
   },
 };
 
@@ -280,6 +302,7 @@ export const groupApi = {
       item_type: "word" | "phrase" | "example";
       word_id?: number | null;
       definition_id?: number | null;
+      phrase_id?: number | null;
       phrase_text?: string | null;
       phrase_meaning?: string | null;
       sort_order?: number;
@@ -290,6 +313,13 @@ export const groupApi = {
   },
   async removeItem(groupId: number, itemId: number) {
     await api.delete(`/api/groups/${groupId}/items/${itemId}`);
+  },
+  async bulkAddItems(groupId: number, wordIds: number[]) {
+    const { data } = await api.post<GroupBulkAddItemsResponse>(
+      `/api/groups/${groupId}/bulk-add-items`,
+      { word_ids: wordIds },
+    );
+    return data;
   },
   async suggest(groupId: number, payload: { keywords: string[]; limit?: number }) {
     const { data } = await api.post<GroupSuggestResponse>(
@@ -309,6 +339,34 @@ export const groupApi = {
       `/api/groups/${groupId}/default-image-prompt`,
     );
     return data.prompt;
+  },
+};
+
+export const phraseApi = {
+  async list(params?: { q?: string; page?: number; page_size?: number }) {
+    const { data } = await api.get<Phrase[]>("/api/phrases", {
+      params: {
+        q: params?.q,
+        page: params?.page ?? 1,
+        page_size: params?.page_size ?? 50,
+      },
+    });
+    return data;
+  },
+  async get(phraseId: number) {
+    const { data } = await api.get<Phrase>(`/api/phrases/${phraseId}`);
+    return data;
+  },
+  async create(payload: { text: string; meaning?: string }) {
+    const { data } = await api.post<Phrase>("/api/phrases", payload);
+    return data;
+  },
+  async update(phraseId: number, payload: { meaning: string }) {
+    const { data } = await api.put<Phrase>(`/api/phrases/${phraseId}`, payload);
+    return data;
+  },
+  async delete(phraseId: number) {
+    await api.delete(`/api/phrases/${phraseId}`);
   },
 };
 
