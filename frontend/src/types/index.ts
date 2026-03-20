@@ -4,6 +4,11 @@ export type WordSortBy = "last_viewed_at" | "created_at" | "updated_at" | "word"
 export type SortOrder = "desc" | "asc";
 export type InflectionAction = "merge" | "link" | "register_as_is";
 
+export interface ComponentMeaningItem {
+  text: string;
+  meaning: string;
+}
+
 export interface Phrase {
   id: number;
   text: string;
@@ -51,7 +56,7 @@ export interface EtymologyVariant {
   label?: string;
   excerpt?: string;
   components?: EtymologyComponent[];
-  component_meanings?: Array<{ text: string; meaning: string }>;
+  component_meanings?: ComponentMeaningItem[];
   language_chain?: LanguageChainLink[];
 }
 
@@ -73,7 +78,7 @@ export interface Etymology {
   core_image?: string | null;
   branches: EtymologyBranch[];
   language_chain?: LanguageChainLink[];
-  component_meanings?: Array<{ text: string; meaning: string }>;
+  component_meanings?: ComponentMeaningItem[];
   etymology_variants?: EtymologyVariant[];
   raw_description?: string | null;
 }

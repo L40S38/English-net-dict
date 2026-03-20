@@ -2,11 +2,11 @@ import { Card, Muted, Stack } from "./atom";
 import { POS_OPTIONS } from "../lib/constants";
 import type { Word } from "../types";
 
-interface Props {
+interface WordDefinitionsProps {
   word: Word;
 }
 
-export function WordDefinitions({ word }: Props) {
+export function WordDefinitions({ word }: WordDefinitionsProps) {
   const grouped = new Map<string, Word["definitions"]>();
   for (const def of word.definitions) {
     const key = def.part_of_speech || "その他";

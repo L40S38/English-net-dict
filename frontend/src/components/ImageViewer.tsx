@@ -1,28 +1,39 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { Card, Muted, Row } from "./atom";
-import { wordApi } from "../lib/api";
-import type { Word } from "../types";
+import { SHARED_API_BASE_URL_DEFAULT } from "../lib/sharedConfig";
+import type { GroupImage, WordImage } from "../types";
 
-interface Props {
-  word: Word;
+interface ImageViewerProps {
+  title: string;
+  entityLabel: string;
+  images: Array<WordImage | GroupImage>;
+  defaultPromptRows?: number;
+  fetchDefaultPrompt: () => Promise<string>;
   onGenerate: (prompt?: string) => Promise<unknown>;
   loading?: boolean;
 }
 
-export function ImageViewer({ word, onGenerate, loading = false }: Props) {
+export function ImageViewer({
+  title,
+  entityLabel,
+  images,
+  defaultPromptRows = 4,
+  fetchDefaultPrompt,
+  onGenerate,
+  loading = false,
+}: ImageViewerProps) {
   const [prompt, setPrompt] = useState("");
   const [defaultPrompt, setDefaultPrompt] = useState("");
-  const active = useMemo(() => word.images.find((x) => x.is_active), [word.images]);
-  const baseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+  const active = useMemo(() => images.find((image) => image.is_active), [images]);
+  const baseUrl = import.meta.env.VITE_API_BASE_URL ?? SHARED_API_BASE_URL_DEFAULT;
   const imageUrl = active
     ? `${baseUrl}/static/images/${active.file_path.split(/[\\/]/).pop()}`
     : null;
 
   useEffect(() => {
     let mounted = true;
-    wordApi
-      .getDefaultImagePrompt(word.id)
+    fetchDefaultPrompt()
       .then((p) => {
         if (!mounted) return;
         setDefaultPrompt(p);
@@ -35,20 +46,20 @@ export function ImageViewer({ word, onGenerate, loading = false }: Props) {
     return () => {
       mounted = false;
     };
-  }, [word.id]);
+  }, [fetchDefaultPrompt]);
 
   return (
     <Card stack>
-      <h3>イメージ画像</h3>
+      <h3>{title}</h3>
       {imageUrl ? (
         <div className="word-image-frame">
-          <img src={imageUrl} alt={`${word.word} visual`} className="word-image" />
+          <img src={imageUrl} alt={`${entityLabel} visual`} className="word-image" />
         </div>
       ) : (
         <Muted as="p">まだ画像は生成されていません。</Muted>
       )}
       <textarea
-        rows={4}
+        rows={defaultPromptRows}
         value={prompt}
         placeholder="プロンプトを編集して再生成できます"
         onChange={(e) => setPrompt(e.target.value)}

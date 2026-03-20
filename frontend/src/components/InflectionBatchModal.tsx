@@ -1,18 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
+import { INFLECTION_LABELS } from "../lib/constants";
 import type { InflectionAction } from "../types";
-
-const INFLECTION_LABELS: Record<string, string> = {
-  third_person_singular: "三単現",
-  plural: "複数形",
-  past_tense: "過去形",
-  past_participle: "過去分詞",
-  present_participle: "現在分詞",
-  comparative: "比較級",
-  superlative: "最上級",
-  possessive: "所有格",
-  inflection: "活用形",
-};
 
 export interface InflectionBatchItem {
   word: string;

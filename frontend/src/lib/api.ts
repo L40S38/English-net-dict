@@ -1,4 +1,4 @@
-import axios from "axios";
+import axios, { AxiosError, type InternalAxiosRequestConfig } from "axios";
 import type {
   ChatMessage,
   ChatReply,
@@ -27,10 +27,76 @@ import type {
   WordSortBy,
   SortOrder,
 } from "../types";
+import { SHARED_API_BASE_URL_DEFAULT } from "./sharedConfig";
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000",
+  baseURL: import.meta.env.VITE_API_BASE_URL ?? SHARED_API_BASE_URL_DEFAULT,
 });
+
+const MAX_RETRY_COUNT = 3;
+const RETRY_BASE_DELAY_MS = 300;
+const CONNECTION_ERROR_EVENT = "api-connection-error";
+const CONNECTION_RECOVERED_EVENT = "api-connection-recovered";
+let hasActiveConnectionError = false;
+
+interface RetryRequestConfig extends InternalAxiosRequestConfig {
+  _retryCount?: number;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function isRetryableConnectionError(error: AxiosError): boolean {
+  if (error.response) {
+    return false;
+  }
+  if (error.code === "ERR_NETWORK" || error.code === "ECONNABORTED") {
+    return true;
+  }
+  return /network error/i.test(error.message ?? "");
+}
+
+function notifyConnectionError(): void {
+  hasActiveConnectionError = true;
+  window.dispatchEvent(
+    new CustomEvent(CONNECTION_ERROR_EVENT, {
+      detail: {
+        message: "サーバーに接続できません。ネットワークまたはサーバー状態を確認してください。",
+      },
+    }),
+  );
+}
+
+function notifyConnectionRecovered(): void {
+  if (!hasActiveConnectionError) {
+    return;
+  }
+  hasActiveConnectionError = false;
+  window.dispatchEvent(new CustomEvent(CONNECTION_RECOVERED_EVENT));
+}
+
+api.interceptors.response.use(
+  async (response) => {
+    notifyConnectionRecovered();
+    return response;
+  },
+  async (error: AxiosError) => {
+    const config = error.config as RetryRequestConfig | undefined;
+    if (!config || !isRetryableConnectionError(error)) {
+      throw error;
+    }
+    const retryCount = config._retryCount ?? 0;
+    if (retryCount >= MAX_RETRY_COUNT) {
+      notifyConnectionError();
+      throw error;
+    }
+    config._retryCount = retryCount + 1;
+    const delayMs = RETRY_BASE_DELAY_MS * 2 ** retryCount;
+    await sleep(delayMs);
+    return api.request(config);
+  },
+);
 
 export const wordApi = {
   async list(params?: {

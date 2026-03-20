@@ -3,11 +3,11 @@ import { WordLinkRow } from "./WordLinkRow";
 import { EMPTY_MESSAGES } from "../lib/constants";
 import type { Word } from "../types";
 
-interface Props {
+interface DerivationsPanelProps {
   word: Word;
 }
 
-export function DerivationsPanel({ word }: Props) {
+export function DerivationsPanel({ word }: DerivationsPanelProps) {
   const phrases = word.phrases ?? [];
   return (
     <Card stack>

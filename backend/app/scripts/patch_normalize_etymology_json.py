@@ -4,8 +4,8 @@
 使い方（backend をカレントに）:
   python -m app.scripts.patch_normalize_etymology_json [--dry-run] [--limit N] [--word WORD]
 
-実行前に DB バックアップを取ること。実行後、アプリを再起動すると runtime_sqlite が
-etymologies テーブルを再作成して JSON 列を除去する。
+実行前に DB バックアップを取ること。実行後、アプリを再起動すると Alembic マイグレーションで
+etymologies テーブルの旧 JSON 列が最終的に整理される。
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.database import engine
-from app.migrations import run_runtime_migrations
+from app.migrations import run_alembic_migrations
 
 from app.scripts.patch_base import add_common_args, print_summary
 
@@ -270,7 +270,7 @@ def run(
         print("このスクリプトは SQLite のみ対応しています。")
         return
 
-    run_runtime_migrations(engine)
+    run_alembic_migrations()
 
     updated = 0
     skipped = 0

@@ -122,53 +122,6 @@ button {
   gap: var(--space-sm);
 }
 
-.word-card-meta {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-}
-
-.word-card-meta small {
-  margin-left: 0;
-}
-
-/* グループ一覧: 説明の有無・行数でカード高さ・削除ボタン位置がばらつかないようにする */
-.group-list-card.card.stack {
-  min-height: 200px;
-  height: 100%;
-}
-
-.group-list-card-body {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-md);
-  min-height: 0;
-}
-
-.group-list-card-main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-md);
-  min-height: 0;
-}
-
-/* カード高さとボタン位置を発音記号の行数に依存させない */
-.word-card.card.stack {
-  min-height: 200px;
-  display: flex;
-  flex-direction: column;
-}
-
-.word-card-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-md);
-  min-height: 0;
-}
-
 .word-form-row {
   align-items: stretch;
 }
@@ -568,6 +521,15 @@ button {
   color: var(--color-banner-text);
   border-radius: var(--radius-md);
   padding: var(--space-sm) var(--space-md);
+  font-size: 0.9rem;
+}
+
+.connection-error-banner {
+  margin: 0;
+  border-bottom: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+  padding: 0.55rem 1.25rem;
   font-size: 0.9rem;
 }
 

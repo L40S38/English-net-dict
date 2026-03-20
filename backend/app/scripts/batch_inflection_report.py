@@ -1,3 +1,9 @@
+"""Generate inflection analysis report for input words.
+
+Usage:
+    uv run python -m app.scripts.batch_inflection_report --input app/scripts/words_to_add.txt
+"""
+
 from __future__ import annotations
 
 import argparse

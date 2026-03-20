@@ -9,6 +9,7 @@ export function Layout() {
   const [desktopCollapsed, setDesktopCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(() => window.matchMedia("(max-width: 980px)").matches);
+  const [connectionErrorMessage, setConnectionErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(max-width: 980px)");
@@ -30,6 +31,25 @@ export function Layout() {
     }
   }, [isMobile, location.pathname]);
 
+  useEffect(() => {
+    const onConnectionError = (event: Event) => {
+      const customEvent = event as CustomEvent<{ message?: string }>;
+      setConnectionErrorMessage(
+        customEvent.detail?.message ??
+          "サーバーに接続できません。ネットワークまたはサーバー状態を確認してください。",
+      );
+    };
+    const onConnectionRecovered = () => {
+      setConnectionErrorMessage(null);
+    };
+    window.addEventListener("api-connection-error", onConnectionError as EventListener);
+    window.addEventListener("api-connection-recovered", onConnectionRecovered);
+    return () => {
+      window.removeEventListener("api-connection-error", onConnectionError as EventListener);
+      window.removeEventListener("api-connection-recovered", onConnectionRecovered);
+    };
+  }, []);
+
   const collapsed = isMobile ? !mobileMenuOpen : desktopCollapsed;
   const showMenuLabels = isMobile || !desktopCollapsed;
   const showToggleText = isMobile || !desktopCollapsed;
@@ -38,6 +58,11 @@ export function Layout() {
   return (
     <>
       <SearchHeader />
+      {connectionErrorMessage && (
+        <div className="connection-error-banner" role="alert">
+          {connectionErrorMessage}
+        </div>
+      )}
       <div className={`app-shell ${collapsed ? "app-shell-collapsed" : ""}`}>
         <aside
           className={`side-menu ${collapsed ? "collapsed" : ""} ${isMobile ? "mobile" : "desktop"} ${

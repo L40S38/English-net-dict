@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Card } from "./atom";
 
-interface Props {
+interface BulkImportProps {
   onImport: (words: string[]) => Promise<boolean | void> | boolean | void;
   disabled?: boolean;
   loading?: boolean;
@@ -13,7 +13,7 @@ export function BulkImport({
   disabled = false,
   loading = false,
   progress = null,
-}: Props) {
+}: BulkImportProps) {
   const [text, setText] = useState("");
   const progressPercent =
     progress && progress.total > 0 ? Math.round((progress.completed / progress.total) * 100) : 0;

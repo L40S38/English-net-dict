@@ -3,14 +3,14 @@ import { Link } from "react-router-dom";
 import { Muted } from "./atom";
 import { hasMultipleWordTokens, isPlaceholderToken, tokenizeForWordLinks } from "../lib/tokenLinks";
 
-interface Props {
+interface WordLinkRowProps {
   value: string;
   linkedWordId?: number | null;
   secondary?: string;
   status?: string;
 }
 
-export function WordLinkRow({ value, linkedWordId, secondary, status }: Props) {
+export function WordLinkRow({ value, linkedWordId, secondary, status }: WordLinkRowProps) {
   const showTokenLinks = hasMultipleWordTokens(value);
   const tokens = showTokenLinks ? tokenizeForWordLinks(value) : [];
   const hasSecondary = Boolean(secondary?.trim());

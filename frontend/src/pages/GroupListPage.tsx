@@ -5,8 +5,8 @@ import { Link } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { Card, Muted, Row, Stack } from "../components/atom";
 import { groupApi } from "../lib/api";
-import { GROUP_NAME_MAX_LENGTH } from "../lib/constants";
 import { groupNameLengthErrorMessage, groupNameTooLong } from "../lib/groupNameLimits";
+import styles from "./GroupListPage.module.css";
 
 export function GroupListPage() {
   const [name, setName] = useState("");
@@ -53,7 +53,7 @@ export function GroupListPage() {
             onChange={(event) => setName(event.target.value)}
             placeholder="例: 挨拶系"
           />
-          <Muted as="p">グループ名は最大{GROUP_NAME_MAX_LENGTH}文字です。</Muted>
+          <Muted as="p">{groupNameLengthErrorMessage()}</Muted>
         </label>
         <label>
           <small>説明</small>
@@ -99,9 +99,9 @@ export function GroupListPage() {
 
       <section className="grid">
         {groups.map((group) => (
-          <Card key={group.id} stack className="group-list-card">
-            <div className="group-list-card-body">
-              <div className="group-list-card-main">
+          <Card key={group.id} stack className={styles.groupListCard}>
+            <div className={styles.groupListCardBody}>
+              <div className={styles.groupListCardMain}>
                 <Link to={`/groups/${group.id}`}>{group.name}</Link>
                 {group.description && <Muted as="p">{group.description}</Muted>}
               </div>

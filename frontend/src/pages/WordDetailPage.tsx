@@ -1,5 +1,4 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import axios from "axios";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
@@ -15,24 +14,13 @@ import { WordDefinitions } from "../components/WordDefinitions";
 import { InflectionBatchModal } from "../components/InflectionBatchModal";
 import { Card, Muted, Row } from "../components/atom";
 import { wordApi } from "../lib/api";
-import { EMPTY_MESSAGES } from "../lib/constants";
+import { EMPTY_MESSAGES, INFLECTION_LABELS } from "../lib/constants";
+import { isNotFoundError } from "../lib/errors";
 import type { InflectionAction, InflectionCheckResult } from "../types";
 
 function isPhrase(text: string): boolean {
   return text.trim().split(/\s+/).filter(Boolean).length >= 2;
 }
-
-const INFLECTION_LABELS: Record<string, string> = {
-  third_person_singular: "三単現",
-  present_participle: "現在分詞",
-  past_tense: "過去形",
-  past_participle: "過去分詞",
-  plural: "複数形",
-  comparative: "比較級",
-  superlative: "最上級",
-  possessive: "所有格",
-  inflection: "活用形",
-};
 
 export function WordDetailPage() {
   const params = useParams();
@@ -97,22 +85,39 @@ export function WordDetailPage() {
   const formEntries = [
     {
       key: "third_person_singular",
-      label: "三単現",
+      label: INFLECTION_LABELS.third_person_singular,
       value: String(forms.third_person_singular ?? ""),
     },
-    { key: "present_participle", label: "現在分詞", value: String(forms.present_participle ?? "") },
-    { key: "past_tense", label: "過去形", value: String(forms.past_tense ?? "") },
-    { key: "past_participle", label: "過去分詞", value: String(forms.past_participle ?? "") },
-    { key: "plural", label: "複数形", value: String(forms.plural ?? "") },
-    { key: "comparative", label: "比較級", value: String(forms.comparative ?? "") },
-    { key: "superlative", label: "最上級", value: String(forms.superlative ?? "") },
+    {
+      key: "present_participle",
+      label: INFLECTION_LABELS.present_participle,
+      value: String(forms.present_participle ?? ""),
+    },
+    {
+      key: "past_tense",
+      label: INFLECTION_LABELS.past_tense,
+      value: String(forms.past_tense ?? ""),
+    },
+    {
+      key: "past_participle",
+      label: INFLECTION_LABELS.past_participle,
+      value: String(forms.past_participle ?? ""),
+    },
+    { key: "plural", label: INFLECTION_LABELS.plural, value: String(forms.plural ?? "") },
+    {
+      key: "comparative",
+      label: INFLECTION_LABELS.comparative,
+      value: String(forms.comparative ?? ""),
+    },
+    {
+      key: "superlative",
+      label: INFLECTION_LABELS.superlative,
+      value: String(forms.superlative ?? ""),
+    },
     { key: "uncountable", label: "可算/不可算", value: forms.uncountable ? "不可算" : "" },
   ].filter((item) => item.value);
 
-  const isNotFound =
-    wordQuery.isError &&
-    axios.isAxiosError(wordQuery.error) &&
-    wordQuery.error.response?.status === 404;
+  const isNotFound = wordQuery.isError && isNotFoundError(wordQuery.error);
 
   const [deletingWordId, setDeletingWordId] = useState<number | null>(null);
   const [showPhraseConfirm, setShowPhraseConfirm] = useState(false);
@@ -300,7 +305,10 @@ export function WordDetailPage() {
         </div>
         <aside className="detail-side">
           <ImageViewer
-            word={word}
+            title="イメージ画像"
+            entityLabel={word.word}
+            images={word.images}
+            fetchDefaultPrompt={() => wordApi.getDefaultImagePrompt(word.id)}
             onGenerate={(prompt) => generateImageMutation.mutateAsync(prompt)}
             loading={generateImageMutation.isPending}
           />

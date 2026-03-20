@@ -1,3 +1,3 @@
-from app.migrations.runtime_sqlite import run_runtime_migrations
+from app.migrations.alembic_runner import run_alembic_migrations
 
-__all__ = ["run_runtime_migrations"]
+__all__ = ["run_alembic_migrations"]

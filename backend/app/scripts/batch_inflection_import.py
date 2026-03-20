@@ -1,3 +1,9 @@
+"""Import inflection relationships from a word list.
+
+Usage:
+    uv run python -m app.scripts.batch_inflection_import --input app/scripts/words_to_add.txt
+"""
+
 from __future__ import annotations
 
 import argparse

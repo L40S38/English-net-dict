@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 
 import { GroupChatPanel } from "../components/GroupChatPanel";
-import { GroupImageViewer } from "../components/GroupImageViewer";
+import { ImageViewer } from "../components/ImageViewer";
 import { PageHeader } from "../components/PageHeader";
 import { Card, Muted, Row, Stack } from "../components/atom";
 import { groupApi } from "../lib/api";
@@ -85,8 +85,12 @@ export function GroupDetailPage() {
             </Card>
           </div>
           <aside className="detail-side">
-            <GroupImageViewer
-              group={group}
+            <ImageViewer
+              title="グループ画像"
+              entityLabel={group.name}
+              images={group.images}
+              defaultPromptRows={5}
+              fetchDefaultPrompt={() => groupApi.getDefaultImagePrompt(group.id)}
               onGenerate={(prompt) => generateImageMutation.mutateAsync(prompt)}
               loading={generateImageMutation.isPending}
             />

@@ -21,3 +21,7 @@ __pycache__/
 
 # IDE
 .cursor/
+
+# Script output / user-specific input
+backend/app/scripts/words_to_add.txt
+backend/app/scripts/*.csv

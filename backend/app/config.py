@@ -1,11 +1,23 @@
-﻿from pathlib import Path
+from pathlib import Path
 
+import yaml
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = PROJECT_ROOT / "data"
+SHARED_CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 DEFAULT_DB_PATH = (DATA_DIR / "db" / "data.db").resolve()
+
+
+def _load_shared_config() -> dict[str, object]:
+    if not SHARED_CONFIG_PATH.exists():
+        return {}
+    parsed = yaml.safe_load(SHARED_CONFIG_PATH.read_text(encoding="utf-8")) or {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+SHARED_CONFIG = _load_shared_config()
 
 
 class Settings(BaseSettings):

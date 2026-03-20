@@ -1,3 +1,9 @@
+"""Normalize comparative/superlative marker noise in forms JSON.
+
+Usage:
+    uv run python -m app.scripts.patch_fix_forms_comparison_markers [--word WORD] [--limit N] [--dry-run]
+"""
+
 from __future__ import annotations
 
 import argparse

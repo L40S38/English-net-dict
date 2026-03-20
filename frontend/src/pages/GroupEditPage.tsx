@@ -6,7 +6,6 @@ import { PageHeader } from "../components/PageHeader";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { Card, Muted, Row, Stack } from "../components/atom";
 import { groupApi, wordApi } from "../lib/api";
-import { GROUP_NAME_MAX_LENGTH } from "../lib/constants";
 import { groupNameLengthErrorMessage, groupNameTooLong } from "../lib/groupNameLimits";
 import type { GroupSuggestCandidate } from "../types";
 
@@ -161,7 +160,7 @@ export function GroupEditPage() {
                 }
               />
             </label>
-            <Muted as="p">グループ名は最大{GROUP_NAME_MAX_LENGTH}文字です。</Muted>
+            <Muted as="p">{groupNameLengthErrorMessage()}</Muted>
             <label>
               <small>説明</small>
               <textarea

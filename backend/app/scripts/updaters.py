@@ -1,3 +1,9 @@
+"""Reusable update helpers for patch and batch scripts.
+
+Usage:
+    Imported from other scripts under app.scripts; not intended as a direct CLI entrypoint.
+"""
+
 from __future__ import annotations
 
 import asyncio

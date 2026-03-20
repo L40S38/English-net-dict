@@ -1,3 +1,9 @@
+"""Shared CLI and DB helpers for maintenance scripts.
+
+Usage:
+    Imported by scripts in app.scripts and used by batch/patch/check commands.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -16,7 +22,7 @@ from sqlalchemy.orm import Session
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from app.database import Base, SessionLocal, engine
-from app.migrations import run_runtime_migrations
+from app.migrations import run_alembic_migrations
 from app.models import Word
 from app.services.scraper import build_scrapers
 
@@ -30,7 +36,7 @@ class FieldDiff:
 
 def prepare_database() -> None:
     Base.metadata.create_all(bind=engine)
-    run_runtime_migrations(engine)
+    run_alembic_migrations()
 
 
 def create_session() -> Session:

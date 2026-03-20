@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime
 from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -32,20 +31,12 @@ from app.schemas import (
     WordListResponse,
     WordRead,
 )
-from app.services.gpt_service import enrich_core_image_and_branches, generate_structured_word_data
 from app.services.etymology_component_service import get_component_cache, normalize_component_text
-from app.services.scraper import build_scrapers
 from app.services.scraper.wiktionary import WiktionaryScraper
 from app.services import word_service
 from app.services.lemma_service import detect_lemma, detect_lemma_candidates, suggest_inflection_action
 from app.services.word_merge_service import link_to_lemma, merge_into_lemma
 from app.services.word_ingest_service import IngestOptions, ingest_word_or_phrase
-from app.services.wordnet_service import get_wordnet_snapshot
-from app.scripts.updaters import (
-    _enrich_phrase_and_related_meanings,
-    _normalize_structured_derivations_and_phrases,
-    _normalize_structured_forms,
-)
 from app.utils.pos_labels import normalize_part_of_speech
 
 router = APIRouter(prefix="/api/words", tags=["words"])
@@ -120,65 +111,6 @@ def _aggregate_derivations(words: list[Word]) -> list[dict]:
     return word_service.aggregate_derivations(words)
 
 
-def _core_image_is_generic(word_text: str, core_image: object) -> bool:
-    value = str(core_image or "").strip()
-    if not value:
-        return True
-    generic_patterns = {
-        f"{word_text}: central concept",
-        f"core image for {word_text}",
-        f"etymology for {word_text}",
-    }
-    return value.lower() in {pattern.lower() for pattern in generic_patterns}
-
-
-def _needs_etymology_enrichment(word_text: str, structured: dict) -> bool:
-    ety = structured.get("etymology")
-    if not isinstance(ety, dict):
-        return False
-    core_image = ety.get("core_image")
-    branches = ety.get("branches")
-    has_branches = isinstance(branches, list) and len(branches) > 0
-    return _core_image_is_generic(word_text, core_image) or not has_branches
-
-
-def _apply_enriched_etymology(structured: dict, enriched: dict | None) -> dict:
-    if not enriched:
-        return structured
-    ety = structured.setdefault("etymology", {})
-    if not isinstance(ety, dict):
-        return structured
-    core_image = str(enriched.get("core_image", "")).strip()
-    branches = enriched.get("branches")
-    if core_image:
-        ety["core_image"] = core_image
-    if isinstance(branches, list) and branches:
-        ety["branches"] = branches
-    return structured
-
-
-def _word_sort_clauses(sort_by: WordSortBy, sort_order: SortOrder):
-    direction = sort_order == "asc"
-    if sort_by == "word":
-        primary = func.lower(Word.word).asc() if direction else func.lower(Word.word).desc()
-    elif sort_by == "created_at":
-        primary = Word.created_at.asc() if direction else Word.created_at.desc()
-    elif sort_by == "updated_at":
-        primary = Word.updated_at.asc() if direction else Word.updated_at.desc()
-    else:
-        # 未閲覧(null)が混ざっても末尾に揃える。
-        primary = Word.last_viewed_at.asc().nullslast() if direction else Word.last_viewed_at.desc().nullslast()
-
-    tie_breaker = Word.id.asc() if direction else Word.id.desc()
-    return [primary, tie_breaker]
-
-
-async def _scrape_all(word: str) -> list[dict]:
-    scrapers = build_scrapers()
-    tasks = [scraper.scrape(word) for scraper in scrapers]
-    return list(await asyncio.gather(*tasks))
-
-
 @router.get("", response_model=WordListResponse)
 def list_words(
     q: str | None = Query(default=None),
@@ -188,7 +120,7 @@ def list_words(
     page_size: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
 ) -> WordListResponse:
-    sort_clauses = _word_sort_clauses(sort_by, sort_order)
+    sort_clauses = word_service.word_sort_clauses(sort_by, sort_order)
     stmt = _word_query().order_by(*sort_clauses)
     if q:
         raw = q.strip()
@@ -556,20 +488,7 @@ async def rescrape_word(word_id: int, db: Session = Depends(get_db)) -> WordRead
     word = db.scalar(_word_query().where(Word.id == word_id))
     if not word:
         raise HTTPException(status_code=404, detail="Word not found")
-    wordnet_data = get_wordnet_snapshot(word.word)
-    scraped_data = await _scrape_all(word.word)
-    structured = generate_structured_word_data(word.word, wordnet_data, scraped_data)
-    if _needs_etymology_enrichment(word.word, structured):
-        enriched = enrich_core_image_and_branches(
-            word_text=word.word,
-            definitions=structured.get("definitions", []),
-            etymology_data=structured.get("etymology", {}),
-        )
-        structured = _apply_enriched_etymology(structured, enriched)
-    structured = _normalize_structured_forms(structured)
-    structured = _normalize_structured_derivations_and_phrases(structured)
-    await _enrich_phrase_and_related_meanings(structured, WiktionaryScraper(), {})
-    _apply_structured_payload(db, word, structured)
+    await word_service.rescrape(db, word)
     db.commit()
     db.refresh(word)
     return _to_word_read(db, word)
@@ -580,38 +499,10 @@ def enrich_etymology(word_id: int, db: Session = Depends(get_db)) -> EtymologyRe
     word = db.scalar(_word_query().where(Word.id == word_id))
     if not word:
         raise HTTPException(status_code=404, detail="Word not found")
-
-    if not word.etymology:
-        word.etymology = Etymology(word_id=word.id)
-        db.flush()
-
-    etymology_payload = word_service.build_etymology_enrich_payload(word.etymology)
-    definition_payload = [
-        {
-            "part_of_speech": definition.part_of_speech,
-            "meaning_en": definition.meaning_en,
-            "meaning_ja": definition.meaning_ja,
-            "example_en": definition.example_en,
-            "example_ja": definition.example_ja,
-        }
-        for definition in word.definitions
-    ]
-    enriched = enrich_core_image_and_branches(
-        word_text=word.word,
-        definitions=definition_payload,
-        etymology_data=etymology_payload,
-    )
-    if enriched:
-        core_image = str(enriched.get("core_image", "")).strip()
-        branches = enriched.get("branches")
-        if core_image:
-            word.etymology.core_image = core_image
-        if isinstance(branches, list) and branches:
-            word_service._apply_etymology_branches(word.etymology, branches)
-
+    etymology = word_service.enrich_etymology(db, word)
     db.commit()
-    db.refresh(word.etymology)
-    ety_data = word_service._build_etymology_read(db, word.etymology)
+    db.refresh(etymology)
+    ety_data = word_service._build_etymology_read(db, etymology)
     return EtymologyRead.model_validate(ety_data)
 
 

@@ -4,8 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.database import Base, engine
-from app.migrations import run_runtime_migrations
+from app.migrations import run_alembic_migrations
 from app.config import settings
 from app.routers import chat, etymology_components, groups, images, phrases, words
 
@@ -36,8 +35,7 @@ def create_app() -> FastAPI:
 
     @app.on_event("startup")
     def startup() -> None:
-        Base.metadata.create_all(bind=engine)
-        run_runtime_migrations(engine)
+        run_alembic_migrations()
 
     return app
 

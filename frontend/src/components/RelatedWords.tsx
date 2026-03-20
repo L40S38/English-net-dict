@@ -3,11 +3,11 @@ import { WordLinkRow } from "./WordLinkRow";
 import { EMPTY_MESSAGES, RELATION_TYPE_LABELS } from "../lib/constants";
 import type { Word } from "../types";
 
-interface Props {
+interface RelatedWordsProps {
   word: Word;
 }
 
-export function RelatedWords({ word }: Props) {
+export function RelatedWords({ word }: RelatedWordsProps) {
   const groups = (["synonym", "antonym", "confusable", "cognate"] as const).map((type) => ({
     type,
     items: word.related_words.filter((r) => r.relation_type === type),

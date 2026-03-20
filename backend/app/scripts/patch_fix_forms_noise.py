@@ -1,3 +1,9 @@
+"""Clean obvious noise tokens from inflection forms.
+
+Usage:
+    uv run python -m app.scripts.patch_fix_forms_noise [--word WORD] [--limit N] [--dry-run]
+"""
+
 from __future__ import annotations
 
 import argparse

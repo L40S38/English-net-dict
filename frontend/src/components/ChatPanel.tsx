@@ -7,6 +7,7 @@ import { Card, Chip, ChipList, Muted, Row } from "./atom";
 import type { ChatMessage, ChatSession } from "../types";
 
 function normalizeText(input: string): string {
+  // Strip control chars and guard against mojibake-like output from external LLM responses.
   const cleaned = Array.from(input)
     .filter((ch) => {
       const code = ch.charCodeAt(0);

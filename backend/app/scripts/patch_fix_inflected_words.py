@@ -1,3 +1,9 @@
+"""Fix linked forms for inflected words.
+
+Usage:
+    uv run python -m app.scripts.patch_fix_inflected_words [--word WORD] [--limit N] [--dry-run]
+"""
+
 from __future__ import annotations
 
 import argparse
