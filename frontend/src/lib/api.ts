@@ -12,6 +12,8 @@ import type {
   GroupSuggestResponse,
   GroupBulkAddItemsResponse,
   GroupImage,
+  InflectionAction,
+  InflectionCheckResponse,
   Phrase,
   RelatedWord,
   Word,
@@ -64,8 +66,18 @@ export const wordApi = {
     const { data } = await api.get<Word>(`/api/words/by-text/${encodeURIComponent(word)}`);
     return data;
   },
-  async create(word: string) {
-    const { data } = await api.post<Word[]>("/api/words", { word });
+  async create(
+    word: string,
+    options?: {
+      inflection_action?: InflectionAction | null;
+      lemma_word?: string | null;
+    },
+  ) {
+    const { data } = await api.post<Word[]>("/api/words", {
+      word,
+      inflection_action: options?.inflection_action ?? null,
+      lemma_word: options?.lemma_word ?? null,
+    });
     return data;
   },
   async bulkCreate(words: string[]) {
@@ -74,6 +86,13 @@ export const wordApi = {
   },
   async check(words: string[]) {
     const { data } = await api.post<WordCheckResponse>("/api/words/check", { words });
+    return data;
+  },
+  async checkInflection(payload: { word?: string; words?: string[] }) {
+    const { data } = await api.post<InflectionCheckResponse>(
+      "/api/words/check-inflection",
+      payload,
+    );
     return data;
   },
   async rescrape(wordId: number) {

@@ -2,6 +2,7 @@ export type RelationType = "synonym" | "confusable" | "cognate" | "antonym";
 export type ComponentDisplayMode = "auto" | "word" | "morpheme" | "both";
 export type WordSortBy = "last_viewed_at" | "created_at" | "updated_at" | "word";
 export type SortOrder = "desc" | "asc";
+export type InflectionAction = "merge" | "link" | "register_as_is";
 
 export interface Phrase {
   id: number;
@@ -118,6 +119,14 @@ export interface Word {
   images: WordImage[];
   /** 単語に紐づくチャットセッション数（一覧APIで返る） */
   chat_session_count?: number;
+  lemma_word_id?: number | null;
+  inflection_type?: string | null;
+  lemma_word_text?: string | null;
+  inflected_forms?: Array<{
+    word_id: number;
+    word: string;
+    inflection_type?: string | null;
+  }>;
 }
 
 export interface WordListResponse {
@@ -272,6 +281,33 @@ export interface WordCheckFound {
 export interface WordCheckResponse {
   found: WordCheckFound[];
   not_found: string[];
+}
+
+export interface InflectionCheckResult {
+  word: string;
+  is_inflected: boolean;
+  selected_lemma?: string | null;
+  selected_lemma_word_id?: number | null;
+  selected_inflection_type?: string | null;
+  selected_has_own_content?: boolean | null;
+  selected_confidence?: "high" | "medium" | "low" | null;
+  selected_source?: "db_forms" | "possessive" | "wiktionary" | "nltk" | null;
+  selected_score?: number | null;
+  lemma_candidates?: Array<{
+    lemma: string;
+    lemma_word_id?: number | null;
+    inflection_type?: string | null;
+    has_own_content?: boolean | null;
+    confidence?: "high" | "medium" | "low" | null;
+    source?: "db_forms" | "possessive" | "wiktionary" | "nltk" | null;
+    score?: number | null;
+  }>;
+  suggestion?: InflectionAction | null;
+}
+
+export interface InflectionCheckResponse {
+  result?: InflectionCheckResult | null;
+  results?: InflectionCheckResult[];
 }
 
 export interface GroupBulkAddItemsResponse {

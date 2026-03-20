@@ -132,7 +132,9 @@ export function WordEditPage() {
     setComparative(String(forms.comparative ?? ""));
     setSuperlative(String(forms.superlative ?? ""));
     setUncountable(Boolean(forms.uncountable));
-    setPhrases((word.phrases ?? []).map((item) => ({ text: item.text, meaning: item.meaning ?? "" })));
+    setPhrases(
+      (word.phrases ?? []).map((item) => ({ text: item.text, meaning: item.meaning ?? "" })),
+    );
     setDefinitions(word.definitions);
     setDerivations(word.derivations);
     setRelatedWords(word.related_words);
@@ -413,7 +415,7 @@ export function WordEditPage() {
               setPhrases((prev) => [
                 ...prev,
                 {
-                      text: "",
+                  text: "",
                   meaning: "",
                 },
               ])

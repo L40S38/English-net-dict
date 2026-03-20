@@ -516,9 +516,7 @@ export function GroupEditPage() {
         }
         confirmText="登録して追加"
         cancelText="登録済みのみ追加"
-        onConfirm={() =>
-          void runBulkAddFlow(bulkMissingWords, bulkFoundWordIds)
-        }
+        onConfirm={() => void runBulkAddFlow(bulkMissingWords, bulkFoundWordIds)}
         onCancel={() => {
           void runBulkAddFlow([], bulkFoundWordIds);
         }}

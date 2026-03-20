@@ -3,12 +3,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { BulkImport } from "../components/BulkImport";
 import { ConfirmModal } from "../components/ConfirmModal";
+import {
+  InflectionBatchModal,
+  type InflectionBatchDecision,
+} from "../components/InflectionBatchModal";
 import { WordCard } from "../components/WordCard";
 import { WordForm } from "../components/WordForm";
 import { LoadingBanner, Muted } from "../components/atom";
 import { wordApi } from "../lib/api";
 import { EMPTY_MESSAGES } from "../lib/constants";
-import type { SortOrder, Word, WordSortBy } from "../types";
+import type { InflectionAction, SortOrder, Word, WordSortBy } from "../types";
 
 const SORT_BY_OPTIONS: Array<{ value: WordSortBy; label: string }> = [
   { value: "last_viewed_at", label: "最終閲覧日時" },
@@ -99,9 +103,31 @@ export function HomePage() {
   });
   const [sortBy, setSortBy] = useState<WordSortBy>("last_viewed_at");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
+  const [inflectionModalState, setInflectionModalState] = useState<{
+    open: boolean;
+    title: string;
+    items: Array<{
+      word: string;
+      selectedLemma?: string | null;
+      selectedInflectionType?: string | null;
+      lemmaCandidates?: Array<{
+        lemma: string;
+        lemmaWordId?: number | null;
+        inflectionType?: string | null;
+      }>;
+      suggestion: InflectionAction;
+    }>;
+  }>({
+    open: false,
+    title: "",
+    items: [],
+  });
   const queryClient = useQueryClient();
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const confirmResolverRef = useRef<((result: boolean) => void) | null>(null);
+  const inflectionResolverRef = useRef<
+    ((result: Record<string, InflectionBatchDecision> | null) => void) | null
+  >(null);
 
   const openConfirm = (params: {
     title: string;
@@ -118,6 +144,35 @@ export function HomePage() {
     confirmResolverRef.current?.(result);
     confirmResolverRef.current = null;
     setConfirmState((prev) => ({ ...prev, open: false }));
+  };
+
+  const openInflectionModal = (params: {
+    title: string;
+    items: Array<{
+      word: string;
+      selectedLemma?: string | null;
+      selectedInflectionType?: string | null;
+      lemmaCandidates?: Array<{
+        lemma: string;
+        lemmaWordId?: number | null;
+        inflectionType?: string | null;
+      }>;
+      suggestion: InflectionAction;
+    }>;
+  }) =>
+    new Promise<Record<string, InflectionBatchDecision> | null>((resolve) => {
+      inflectionResolverRef.current = resolve;
+      setInflectionModalState({
+        open: true,
+        title: params.title,
+        items: params.items,
+      });
+    });
+
+  const closeInflectionModal = (result: Record<string, InflectionBatchDecision> | null) => {
+    inflectionResolverRef.current?.(result);
+    inflectionResolverRef.current = null;
+    setInflectionModalState({ open: false, title: "", items: [] });
   };
 
   const wordsQuery = useInfiniteQuery({
@@ -137,7 +192,10 @@ export function HomePage() {
   });
 
   const createMutation = useMutation({
-    mutationFn: (word: string) => wordApi.create(word),
+    mutationFn: (payload: {
+      word: string;
+      options?: { inflection_action?: InflectionAction | null; lemma_word?: string | null };
+    }) => wordApi.create(payload.word, payload.options),
     onSuccess: async (createdWords) => {
       setSessionWords((prev) => {
         const seenIds = new Set(prev.map((item) => item.id));
@@ -163,8 +221,52 @@ export function HomePage() {
 
       for (let start = 0; start < words.length; start += BULK_CHUNK_SIZE) {
         const chunk = words.slice(start, start + BULK_CHUNK_SIZE);
-        const createdWords = await wordApi.bulkCreate(chunk);
-        allCreatedWords.push(...createdWords);
+        const inflectionCheck = await wordApi.checkInflection({ words: chunk });
+        const checkResults = inflectionCheck.results ?? [];
+        const inflected = checkResults.filter((item) => item.is_inflected);
+        let inflectionDecisions: Record<string, InflectionBatchDecision> = {};
+        if (inflected.length > 0) {
+          const selectedActions = await openInflectionModal({
+            title: `活用形チェック (${start + 1}-${Math.min(start + chunk.length, words.length)}件目)`,
+            items: inflected.map((item) => ({
+              word: item.word,
+              selectedLemma: item.selected_lemma ?? null,
+              selectedInflectionType: item.selected_inflection_type ?? null,
+              lemmaCandidates: (item.lemma_candidates ?? []).map((candidate) => ({
+                lemma: candidate.lemma,
+                lemmaWordId: candidate.lemma_word_id ?? null,
+                inflectionType: candidate.inflection_type ?? null,
+              })),
+              suggestion: item.suggestion ?? "register_as_is",
+            })),
+          });
+          if (!selectedActions) {
+            setBulkProgress({
+              completed: Math.min(start + chunk.length, words.length),
+              total: words.length,
+            });
+            continue;
+          }
+          inflectionDecisions = selectedActions;
+        }
+        for (const word of chunk) {
+          const matched = checkResults.find(
+            (item) => item.word.toLowerCase() === word.toLowerCase(),
+          );
+          if (matched?.is_inflected) {
+            const decision = inflectionDecisions[word];
+            const action = decision?.action ?? matched.suggestion ?? "register_as_is";
+            const lemmaWord = decision?.lemma ?? matched.selected_lemma ?? null;
+            const createdWords = await wordApi.create(word, {
+              inflection_action: action,
+              lemma_word: action === "register_as_is" ? null : lemmaWord,
+            });
+            allCreatedWords.push(...createdWords);
+          } else {
+            const createdWords = await wordApi.create(word);
+            allCreatedWords.push(...createdWords);
+          }
+        }
         setBulkProgress({
           completed: Math.min(start + chunk.length, words.length),
           total: words.length,
@@ -266,7 +368,41 @@ export function HomePage() {
               return false;
             }
           }
-          await createMutation.mutateAsync(word);
+          const inflection = await wordApi.checkInflection({ word });
+          const result = inflection.result ?? inflection.results?.[0];
+          if (result?.is_inflected) {
+            const selectedActions = await openInflectionModal({
+              title: "活用形チェック",
+              items: [
+                {
+                  word: result.word,
+                  selectedLemma: result.selected_lemma ?? null,
+                  selectedInflectionType: result.selected_inflection_type ?? null,
+                  lemmaCandidates: (result.lemma_candidates ?? []).map((candidate) => ({
+                    lemma: candidate.lemma,
+                    lemmaWordId: candidate.lemma_word_id ?? null,
+                    inflectionType: candidate.inflection_type ?? null,
+                  })),
+                  suggestion: result.suggestion ?? "register_as_is",
+                },
+              ],
+            });
+            if (!selectedActions) {
+              return false;
+            }
+            const decision = selectedActions[result.word];
+            const action = decision?.action ?? result.suggestion ?? "register_as_is";
+            const lemmaWord = decision?.lemma ?? result.selected_lemma ?? null;
+            await createMutation.mutateAsync({
+              word,
+              options: {
+                inflection_action: action,
+                lemma_word: action === "register_as_is" ? null : lemmaWord,
+              },
+            });
+            return true;
+          }
+          await createMutation.mutateAsync({ word });
           return true;
         }}
         disabled={isBusy}
@@ -352,6 +488,13 @@ export function HomePage() {
         cancelText={confirmState.cancelText}
         onCancel={() => closeConfirm(false)}
         onConfirm={() => closeConfirm(true)}
+      />
+      <InflectionBatchModal
+        open={inflectionModalState.open}
+        title={inflectionModalState.title}
+        items={inflectionModalState.items}
+        onClose={() => closeInflectionModal(null)}
+        onConfirm={(actions) => closeInflectionModal(actions)}
       />
     </main>
   );

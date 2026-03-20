@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 
 import { Muted } from "./atom";
-import { hasMultipleWordTokens, tokenizeForWordLinks } from "../lib/tokenLinks";
+import { hasMultipleWordTokens, isPlaceholderToken, tokenizeForWordLinks } from "../lib/tokenLinks";
 
 interface Props {
   value: string;
@@ -20,11 +20,15 @@ export function WordLinkRow({ value, linkedWordId, secondary, status }: Props) {
     <div className={`word-link-row${showSecondaryBelow ? " word-link-row-multiword" : ""}`}>
       <div className="word-link-main">
         {showTokenLinks ? (
-          tokens.map((token) => (
-            <Link key={`${value}-${token}`} to={`/words/${encodeURIComponent(token)}`}>
-              {token}
-            </Link>
-          ))
+          tokens.map((token) =>
+            isPlaceholderToken(token) ? (
+              <span key={`${value}-${token}`}>{token}</span>
+            ) : (
+              <Link key={`${value}-${token}`} to={`/words/${encodeURIComponent(token)}`}>
+                {token}
+              </Link>
+            ),
+          )
         ) : (
           <Link
             to={linkedWordId ? `/words/${linkedWordId}` : `/words/${encodeURIComponent(value)}`}
