@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
+from app.constants import GROUP_NAME_MAX_LENGTH
 from app.database import get_db
 from app.models import Definition, Word, WordGroup, WordGroupItem
 from app.schemas import (
@@ -96,7 +97,12 @@ def create_group(payload: WordGroupCreate, db: Session = Depends(get_db)) -> Wor
     name = payload.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="name is required")
-    group = WordGroup(name=name[:128], description=payload.description.strip())
+    if len(name) > GROUP_NAME_MAX_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"group name must be at most {GROUP_NAME_MAX_LENGTH} characters",
+        )
+    group = WordGroup(name=name, description=payload.description.strip())
     db.add(group)
     db.commit()
     db.refresh(group)
@@ -119,7 +125,12 @@ def update_group(group_id: int, payload: WordGroupUpdate, db: Session = Depends(
     name = payload.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="name is required")
-    group.name = name[:128]
+    if len(name) > GROUP_NAME_MAX_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"group name must be at most {GROUP_NAME_MAX_LENGTH} characters",
+        )
+    group.name = name
     group.description = payload.description.strip()
     db.commit()
     refreshed = _query_group(db, group_id)

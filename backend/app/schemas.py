@@ -3,6 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.constants import GROUP_NAME_MAX_LENGTH
+
 
 class DefinitionBase(BaseModel):
     part_of_speech: str
@@ -268,12 +270,12 @@ class EtymologyComponentListResponse(BaseModel):
 
 
 class WordGroupCreate(BaseModel):
-    name: str
+    name: str = Field(..., max_length=GROUP_NAME_MAX_LENGTH)
     description: str = ""
 
 
 class WordGroupUpdate(BaseModel):
-    name: str
+    name: str = Field(..., max_length=GROUP_NAME_MAX_LENGTH)
     description: str = ""
 
 
