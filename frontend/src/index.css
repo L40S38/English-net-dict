@@ -223,6 +223,11 @@ button {
   padding-inline: 0.45rem;
 }
 
+.side-menu.mobile.collapsed {
+  align-items: stretch;
+  padding-inline: 0.7rem;
+}
+
 .side-menu.desktop.collapsed .side-menu-toggle {
   justify-content: center;
 }
@@ -231,11 +236,14 @@ button {
   width: 100%;
   background: transparent;
   color: var(--color-text);
-  border: 1px solid var(--color-input-border);
+  border: 0;
   display: inline-flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-sm);
+  min-height: 40px;
+  padding: 0.5rem 0.65rem;
+  line-height: 1.2;
 }
 
 .side-menu-nav {
@@ -251,12 +259,19 @@ button {
   padding: 0.55rem 0.65rem;
   border-radius: var(--radius-md);
   color: var(--color-text);
+  min-height: 40px;
+  background: var(--color-banner-bg);
+  border: 0;
 }
 
 .side-menu-item.active {
   background: var(--color-banner-bg);
   color: var(--color-banner-text);
   font-weight: 600;
+}
+
+.side-menu-item:hover {
+  color: var(--color-primary);
 }
 
 .side-menu-item-icon {
@@ -269,6 +284,7 @@ button {
   justify-content: center;
   flex-shrink: 0;
   font-size: 0.8rem;
+  line-height: 1;
 }
 
 .header-inner {
@@ -606,7 +622,7 @@ select:disabled {
   }
 
   .side-menu.mobile.mobile-closed {
-    gap: 0;
+    gap: var(--space-sm);
     padding-bottom: 0.6rem;
   }
 
@@ -623,10 +639,9 @@ select:disabled {
     background: var(--color-banner-bg);
     border-bottom: 1px solid var(--color-border);
     padding: var(--space-sm) 0.7rem 0.7rem;
-  }
-
-  .side-menu.mobile .side-menu-item {
-    background: var(--color-surface);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
   }
 
   .app-main {

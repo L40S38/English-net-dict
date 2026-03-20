@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp } from "lucide-react";
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 
 import { SearchHeader } from "./SearchHeader";
 
 export function Layout() {
+  const location = useLocation();
   const [desktopCollapsed, setDesktopCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(() => window.matchMedia("(max-width: 980px)").matches);
@@ -22,6 +23,12 @@ export function Layout() {
     mediaQuery.addEventListener("change", update);
     return () => mediaQuery.removeEventListener("change", update);
   }, []);
+
+  useEffect(() => {
+    if (isMobile) {
+      setMobileMenuOpen(false);
+    }
+  }, [isMobile, location.pathname]);
 
   const collapsed = isMobile ? !mobileMenuOpen : desktopCollapsed;
   const showMenuLabels = isMobile || !desktopCollapsed;
