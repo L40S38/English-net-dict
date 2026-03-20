@@ -180,6 +180,8 @@ class GroupImageRead(BaseModel):
 
 class WordCreateRequest(BaseModel):
     word: str
+    inflection_action: Literal["merge", "link", "register_as_is"] | None = None
+    lemma_word: str | None = None
 
 
 class BulkWordRequest(BaseModel):
@@ -194,6 +196,30 @@ class WordCheckFound(BaseModel):
 class WordCheckResponse(BaseModel):
     found: list[WordCheckFound] = Field(default_factory=list)
     not_found: list[str] = Field(default_factory=list)
+
+
+class InflectionCheckRequest(BaseModel):
+    word: str | None = None
+    words: list[str] = Field(default_factory=list)
+
+
+class InflectionCheckResult(BaseModel):
+    word: str
+    is_inflected: bool
+    selected_lemma: str | None = None
+    selected_lemma_word_id: int | None = None
+    selected_inflection_type: str | None = None
+    selected_has_own_content: bool | None = None
+    selected_confidence: Literal["high", "medium", "low"] | None = None
+    selected_source: Literal["db_forms", "possessive", "wiktionary", "nltk"] | None = None
+    selected_score: int | None = None
+    lemma_candidates: list[dict] = Field(default_factory=list)
+    suggestion: Literal["merge", "link", "register_as_is"] | None = None
+
+
+class InflectionCheckResponse(BaseModel):
+    result: InflectionCheckResult | None = None
+    results: list[InflectionCheckResult] = Field(default_factory=list)
 
 
 class PhraseBase(BaseModel):
@@ -232,6 +258,10 @@ class WordRead(BaseModel):
     phrases: list[PhraseRead] = Field(default_factory=list)
     images: list[WordImageRead] = Field(default_factory=list)
     chat_session_count: int = 0
+    lemma_word_id: int | None = None
+    inflection_type: str | None = None
+    lemma_word_text: str | None = None
+    inflected_forms: list[dict] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 

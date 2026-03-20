@@ -17,8 +17,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from app.models import Word
 from app.scripts.patch_base import add_common_args, create_session, prepare_database
+from app.services.lemma_service import detect_lemma, suggest_inflection_action
 from app.services.scraper.wiktionary import WiktionaryScraper
 from app.services.word_ingest_service import ingest_word_or_phrase
+from app.services.word_merge_service import link_to_lemma, merge_into_lemma
 
 
 def _read_word_list(file_path: Path) -> list[str]:
@@ -50,6 +52,7 @@ async def run(
     dry_run: bool = False,
     limit: int | None = None,
     word_filter: str | None = None,
+    skip_inflection_check: bool = False,
 ) -> None:
     prepare_database()
     db = create_session()
@@ -77,6 +80,71 @@ async def run(
                 continue
 
             try:
+                if not skip_inflection_check:
+                    candidate = await detect_lemma(normalized, db, scraper=scraper)
+                    suggestion = suggest_inflection_action(candidate)
+                    if suggestion == "merge" and candidate:
+                        lemma_target = candidate.lemma_word.strip().lower()
+                        lemma_result = await ingest_word_or_phrase(
+                            db,
+                            lemma_target,
+                            scraper=scraper,
+                            payload_cache=payload_cache,
+                            meaning_cache=phrase_cache,
+                        )
+                        lemma_word = db.scalar(select(Word).where(func.lower(Word.word) == lemma_target))
+                        inflected_word = db.scalar(select(Word).where(func.lower(Word.word) == normalized))
+                        if lemma_word and inflected_word and lemma_word.id != inflected_word.id:
+                            merge_into_lemma(db, inflected_word, lemma_word)
+                        if lemma_result.created_count > 0:
+                            added += lemma_result.created_count
+                            print(f"  [{idx}/{total}] {normalized} MERGED -> {lemma_target}")
+                        else:
+                            skipped += 1
+                            print(f"  [{idx}/{total}] {normalized} MERGE-SKIPPED (lemma exists)")
+                        if dry_run:
+                            db.rollback()
+                        else:
+                            db.commit()
+                        continue
+                    if suggestion == "link" and candidate:
+                        lemma_target = candidate.lemma_word.strip().lower()
+                        lemma_result = await ingest_word_or_phrase(
+                            db,
+                            lemma_target,
+                            scraper=scraper,
+                            payload_cache=payload_cache,
+                            meaning_cache=phrase_cache,
+                        )
+                        inflected_result = await ingest_word_or_phrase(
+                            db,
+                            normalized,
+                            scraper=scraper,
+                            payload_cache=payload_cache,
+                            meaning_cache=phrase_cache,
+                        )
+                        lemma_word = db.scalar(select(Word).where(func.lower(Word.word) == lemma_target))
+                        inflected_word = db.scalar(select(Word).where(func.lower(Word.word) == normalized))
+                        if lemma_word and inflected_word:
+                            link_to_lemma(
+                                db,
+                                inflected_word,
+                                lemma_word,
+                                candidate.inflection_type or "inflection",
+                            )
+                        created_total = lemma_result.created_count + inflected_result.created_count
+                        if created_total > 0:
+                            added += created_total
+                            print(f"  [{idx}/{total}] {normalized} LINKED -> {lemma_target}")
+                        else:
+                            skipped += 1
+                            print(f"  [{idx}/{total}] {normalized} LINK-SKIPPED (exists)")
+                        if dry_run:
+                            db.rollback()
+                        else:
+                            db.commit()
+                        continue
+
                 if dry_run:
                     result = await ingest_word_or_phrase(
                         db,
@@ -131,6 +199,11 @@ def main() -> None:
         default=Path(__file__).resolve().parent / "words_to_add.txt",
         help="Input text file path (one word per line)",
     )
+    parser.add_argument(
+        "--skip-inflection-check",
+        action="store_true",
+        help="Skip inflection-to-lemma check and keep legacy behavior",
+    )
     args = parser.parse_args()
     asyncio.run(
         run(
@@ -138,6 +211,7 @@ def main() -> None:
             dry_run=args.dry_run,
             limit=args.limit,
             word_filter=args.word,
+            skip_inflection_check=args.skip_inflection_check,
         )
     )
 

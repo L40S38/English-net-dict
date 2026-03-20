@@ -67,6 +67,10 @@ def run_runtime_migrations(engine: Engine) -> None:
         if not has_column("words", "last_viewed_at"):
             conn.execute(text("ALTER TABLE words ADD COLUMN last_viewed_at DATETIME"))
             conn.execute(text("UPDATE words SET last_viewed_at = updated_at WHERE last_viewed_at IS NULL"))
+        if not has_column("words", "lemma_word_id"):
+            conn.execute(text("ALTER TABLE words ADD COLUMN lemma_word_id INTEGER"))
+        if not has_column("words", "inflection_type"):
+            conn.execute(text("ALTER TABLE words ADD COLUMN inflection_type VARCHAR(32)"))
         if has_column("words", "forms"):
             rows = conn.execute(text("SELECT id, forms FROM words ORDER BY id")).mappings().all()
             for row in rows:

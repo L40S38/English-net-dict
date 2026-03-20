@@ -19,6 +19,10 @@ class Word(Base, TimestampMixin):
     phonetic: Mapped[str | None] = mapped_column(String(128), nullable=True)
     forms: Mapped[dict] = mapped_column(JSON, default=dict)
     last_viewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    lemma_word_id: Mapped[int | None] = mapped_column(
+        ForeignKey("words.id", ondelete="SET NULL"), index=True, nullable=True
+    )
+    inflection_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     definitions: Mapped[list["Definition"]] = relationship(back_populates="word_ref", cascade="all, delete-orphan")
     etymology: Mapped["Etymology | None"] = relationship(
@@ -42,6 +46,17 @@ class Word(Base, TimestampMixin):
     )
     images: Mapped[list["WordImage"]] = relationship(back_populates="word_ref", cascade="all, delete-orphan")
     chat_sessions: Mapped[list["ChatSession"]] = relationship(back_populates="word_ref", cascade="all, delete-orphan")
+    lemma_ref: Mapped["Word | None"] = relationship(
+        "Word",
+        remote_side=[id],
+        foreign_keys=[lemma_word_id],
+        back_populates="inflected_forms",
+    )
+    inflected_forms: Mapped[list["Word"]] = relationship(
+        "Word",
+        foreign_keys="Word.lemma_word_id",
+        back_populates="lemma_ref",
+    )
 
 
 class Definition(Base):

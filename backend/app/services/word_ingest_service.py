@@ -49,7 +49,7 @@ def _normalize_text(text: str) -> str:
 
 
 def _tokenize(text: str) -> list[str]:
-    return [t for t in re.split(r"\s+", _normalize_text(text)) if t]
+    return [t for t in re.split(r"\s+", str(text or "").strip()) if t]
 
 
 def is_phrase_text(text: str) -> bool:
@@ -60,11 +60,51 @@ def _unique_tokens(text: str) -> list[str]:
     seen: set[str] = set()
     unique: list[str] = []
     for token in _tokenize(text):
-        if token in seen:
+        key = token.lower()
+        if key in seen:
             continue
-        seen.add(token)
+        seen.add(key)
         unique.append(token)
     return unique
+
+
+_PHRASE_PLACEHOLDER_TOKENS = {"A", "B", "C", "O", "S", "~"}
+
+
+def is_placeholder_token(token: str) -> bool:
+    value = str(token or "").strip()
+    if not value:
+        return False
+    if value == "~":
+        return True
+    normalized = value
+    if normalized.endswith("'s") or normalized.endswith("’s"):
+        normalized = normalized[:-2]
+    return normalized in _PHRASE_PLACEHOLDER_TOKENS
+
+
+def _canonicalize_phrase_token(token: str) -> str:
+    value = str(token or "").strip()
+    if not value:
+        return value
+    if value == "~":
+        return "~"
+    normalized = value
+    if normalized.endswith("'s") or normalized.endswith("’s"):
+        base = normalized[:-2]
+        if base in _PHRASE_PLACEHOLDER_TOKENS:
+            return f"{base}'s"
+    if normalized in _PHRASE_PLACEHOLDER_TOKENS:
+        return normalized
+    return value
+
+
+def normalize_phrase_for_store(text: str) -> str:
+    raw_tokens = [t for t in re.split(r"\s+", str(text or "").strip()) if t]
+    if not raw_tokens:
+        return ""
+    canonical = [_canonicalize_phrase_token(token) for token in raw_tokens]
+    return normalize_phrase_text(" ".join(canonical))
 
 
 async def _scrape_all(word_text: str) -> list[dict]:
@@ -229,11 +269,16 @@ async def ingest_word_or_phrase(
         )
         return IngestResult(words=[word], created_count=1 if created else 0, split_applied=False)
 
-    tokens = _unique_tokens(normalized)
-    phrase_meaning = resolve_meaning_ja_ddgs(normalized, meaning_cache) or ""
+    phrase_text = normalize_phrase_for_store(raw_text)
+    if not phrase_text:
+        raise ValueError("phrase is required")
+    tokens = _unique_tokens(raw_text)
+    phrase_meaning = resolve_meaning_ja_ddgs(phrase_text, meaning_cache) or ""
     results: list[Word] = []
     created_count = 0
     for token in tokens:
+        if is_placeholder_token(token):
+            continue
         word, created = await _create_or_get_word(
             db,
             token,
@@ -244,6 +289,6 @@ async def ingest_word_or_phrase(
         )
         if created:
             created_count += 1
-        _append_phrase_if_missing(db, word, normalized, phrase_meaning)
+        _append_phrase_if_missing(db, word, phrase_text, phrase_meaning)
         results.append(word)
     return IngestResult(words=results, created_count=created_count, split_applied=True)

@@ -11,6 +11,9 @@ from app.database import get_db
 from app.models import Definition, Derivation, Etymology, RelatedWord, Word
 from app.schemas import (
     BulkWordRequest,
+    InflectionCheckRequest,
+    InflectionCheckResponse,
+    InflectionCheckResult,
     WordCheckFound,
     WordCheckResponse,
     DefinitionRead,
@@ -34,6 +37,8 @@ from app.services.etymology_component_service import get_component_cache, normal
 from app.services.scraper import build_scrapers
 from app.services.scraper.wiktionary import WiktionaryScraper
 from app.services import word_service
+from app.services.lemma_service import detect_lemma, detect_lemma_candidates, suggest_inflection_action
+from app.services.word_merge_service import link_to_lemma, merge_into_lemma
 from app.services.word_ingest_service import IngestOptions, ingest_word_or_phrase
 from app.services.wordnet_service import get_wordnet_snapshot
 from app.scripts.updaters import (
@@ -59,6 +64,7 @@ def _word_query():
         joinedload(Word.images),
         joinedload(Word.chat_sessions),
         joinedload(Word.phrases),
+        joinedload(Word.lemma_ref),
     )
 
 
@@ -322,21 +328,78 @@ async def create_word(
         example_mode=example_mode,
         phrase_parallelism=phrase_parallelism,
     )
+    payload_cache: dict[str, dict] = {}
+    meaning_cache: dict[str, str | None] = {}
+    scraper = WiktionaryScraper()
+    action = payload.inflection_action
+    input_word = payload.word.strip()
+    if not input_word:
+        raise HTTPException(status_code=400, detail="word is required")
     try:
-        result = await ingest_word_or_phrase(
-            db,
-            payload.word,
-            scraper=WiktionaryScraper(),
-            payload_cache={},
-            meaning_cache={},
-            options=options,
-        )
+        if action == "merge":
+            lemma_target = (payload.lemma_word or input_word).strip()
+            if not lemma_target:
+                raise HTTPException(status_code=400, detail="lemma_word is required for merge")
+            lemma_result = await ingest_word_or_phrase(
+                db,
+                lemma_target,
+                scraper=scraper,
+                payload_cache=payload_cache,
+                meaning_cache=meaning_cache,
+                options=options,
+            )
+            lemma_word = db.scalar(_word_query().where(func.lower(Word.word) == lemma_target.lower()))
+            if lemma_word is None:
+                raise HTTPException(status_code=500, detail="Failed to create/find lemma word")
+            inflected_word = db.scalar(_word_query().where(func.lower(Word.word) == input_word.lower()))
+            if inflected_word and inflected_word.id != lemma_word.id:
+                merge_into_lemma(db, inflected_word, lemma_word)
+            result_words = [lemma_word]
+            _ = lemma_result
+        elif action == "link":
+            lemma_target = (payload.lemma_word or "").strip()
+            if not lemma_target:
+                raise HTTPException(status_code=400, detail="lemma_word is required for link")
+            await ingest_word_or_phrase(
+                db,
+                lemma_target,
+                scraper=scraper,
+                payload_cache=payload_cache,
+                meaning_cache=meaning_cache,
+                options=options,
+            )
+            await ingest_word_or_phrase(
+                db,
+                input_word,
+                scraper=scraper,
+                payload_cache=payload_cache,
+                meaning_cache=meaning_cache,
+                options=options,
+            )
+            lemma_word = db.scalar(_word_query().where(func.lower(Word.word) == lemma_target.lower()))
+            inflected_word = db.scalar(_word_query().where(func.lower(Word.word) == input_word.lower()))
+            if lemma_word is None or inflected_word is None:
+                raise HTTPException(status_code=500, detail="Failed to create/find words for link")
+            candidate = await detect_lemma(input_word, db, scraper=scraper)
+            inflection_type = candidate.inflection_type if candidate else "inflection"
+            link_to_lemma(db, inflected_word, lemma_word, inflection_type)
+            result_words = [inflected_word, lemma_word]
+        else:
+            result = await ingest_word_or_phrase(
+                db,
+                input_word,
+                scraper=scraper,
+                payload_cache=payload_cache,
+                meaning_cache=meaning_cache,
+                options=options,
+            )
+            result_words = list(result.words)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     db.commit()
-    for word in result.words:
+    for word in result_words:
         db.refresh(word)
-    return [_to_word_read(db, word) for word in result.words]
+    return [_to_word_read(db, word) for word in result_words]
 
 
 @router.post("/bulk", response_model=list[WordRead])
@@ -406,6 +469,65 @@ def check_words(payload: BulkWordRequest, db: Session = Depends(get_db)) -> Word
         else:
             not_found.append(original)
     return WordCheckResponse(found=found, not_found=not_found)
+
+
+@router.post("/check-inflection", response_model=InflectionCheckResponse)
+async def check_inflection(payload: InflectionCheckRequest, db: Session = Depends(get_db)) -> InflectionCheckResponse:
+    targets: list[str] = []
+    if payload.word and payload.word.strip():
+        targets.append(payload.word.strip())
+    for item in payload.words:
+        value = item.strip()
+        if not value:
+            continue
+        targets.append(value)
+    if not targets:
+        return InflectionCheckResponse(result=None, results=[])
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for item in targets:
+        key = item.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+
+    scraper = WiktionaryScraper()
+    results: list[InflectionCheckResult] = []
+    for word_text in deduped:
+        candidates = await detect_lemma_candidates(word_text, db, scraper=scraper)
+        selected = candidates[0] if candidates else None
+        suggestion = suggest_inflection_action(selected)
+        results.append(
+            InflectionCheckResult(
+                word=word_text,
+                is_inflected=selected is not None,
+                selected_lemma=(selected.lemma_word if selected else None),
+                selected_lemma_word_id=(selected.lemma_word_id if selected else None),
+                selected_inflection_type=(selected.inflection_type if selected else None),
+                selected_has_own_content=(selected.has_own_content if selected else None),
+                selected_confidence=(selected.confidence if selected else None),
+                selected_source=(selected.source if selected else None),
+                selected_score=(selected.score if selected else None),
+                lemma_candidates=[
+                    {
+                        "lemma": item.lemma_word,
+                        "lemma_word_id": item.lemma_word_id,
+                        "inflection_type": item.inflection_type,
+                        "has_own_content": item.has_own_content,
+                        "confidence": item.confidence,
+                        "source": item.source,
+                        "score": item.score,
+                    }
+                    for item in candidates
+                ],
+                suggestion=suggestion or "register_as_is",
+            )
+        )
+    if payload.word and not payload.words:
+        return InflectionCheckResponse(result=results[0], results=results)
+    return InflectionCheckResponse(result=None, results=results)
 
 
 @router.put("/{word_id}", response_model=WordRead)

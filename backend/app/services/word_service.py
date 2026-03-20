@@ -499,6 +499,19 @@ def to_word_read(db: Session, word: Word) -> WordRead:
         }
         for phrase in sorted(word.phrases, key=lambda item: (item.text.lower(), item.id))
     ]
+    lemma_word_text = None
+    if word.lemma_ref is not None:
+        lemma_word_text = word.lemma_ref.word
+    elif word.lemma_word_id is not None:
+        lemma_word = db.get(Word, word.lemma_word_id)
+        lemma_word_text = lemma_word.word if lemma_word else None
+    inflected_forms_rows = db.execute(
+        select(Word.id, Word.word, Word.inflection_type).where(Word.lemma_word_id == word.id).order_by(Word.word.asc())
+    ).all()
+    inflected_forms = [
+        {"word_id": int(row[0]), "word": str(row[1]), "inflection_type": row[2]}
+        for row in inflected_forms_rows
+    ]
 
     data: dict = {
         "id": word.id,
@@ -515,6 +528,10 @@ def to_word_read(db: Session, word: Word) -> WordRead:
         "phrases": phrases_data,
         "images": [WordImageRead.model_validate(i).model_dump() for i in word.images],
         "chat_session_count": len(word.chat_sessions),
+        "lemma_word_id": word.lemma_word_id,
+        "inflection_type": word.inflection_type,
+        "lemma_word_text": lemma_word_text,
+        "inflected_forms": inflected_forms,
     }
     return WordRead.model_validate(data)
 
