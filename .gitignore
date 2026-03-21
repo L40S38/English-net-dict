@@ -25,3 +25,4 @@ __pycache__/
 # Script output / user-specific input
 backend/app/scripts/words_to_add.txt
 backend/app/scripts/*.csv
+backend/tmp*

@@ -1,5 +1,0 @@
-# One word per line.
-# Lines starting with '#' are ignored.
-# Empty lines are ignored.
-
-an

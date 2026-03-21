@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import re
 
-from app.utils.etymology_components import looks_like_morpheme
+from app.services.scraper.etymology_extractors import (
+    _ETY_AFTER_PLUS,
+    _ETY_PLUS_RIGHT_OPERAND,
+    extract_etymology_components,
+)
 
 _LANG_NAMES: dict[str, str] = {
     "LL.": "後期ラテン語",
@@ -94,165 +98,17 @@ _LANG_NAMES: dict[str, str] = {
 class WiktionaryParserMixin:
     @classmethod
     def _extract_etymology_components(cls, raw_etymology: str, word: str) -> list[dict]:
-        components: list[dict] = []
-
-        def clean_token(value: str) -> str:
-            token = value.strip()
-            token = re.sub(r"^[\s\(\[\{'\"]+", "", token)
-            token = re.sub(r"[\s\)\]\}',\"。．、,.;:]+$", "", token)
-            return token
-
-        def add_component(text: str, meaning: str, comp_type: str) -> None:
-            token = clean_token(text)
-            if not token:
-                return
-            comp = {"text": token, "meaning": meaning, "type": comp_type}
-            if comp not in components:
-                components.append(comp)
-
-        for match in re.finditer(
-            r"\{\{(?:af|affix|prefix)\|([^}]*)\}\}",
-            raw_etymology,
-            flags=re.IGNORECASE,
-        ):
-            args = [x.strip() for x in match.group(1).split("|") if x.strip()]
-            if not args:
-                continue
-            if len(args) >= 1 and re.fullmatch(r"[a-z]{2,3}", args[0].lower()):
-                args = args[1:]
-            if len(args) < 2:
-                continue
-            morpheme_parts: list[str] = []
-            for part in args[:3]:
-                text = re.sub(r"\s+", "", part)
-                if not text or "=" in text:
-                    continue
-                if not looks_like_morpheme(text):
-                    continue
-                morpheme_parts.append(text)
-            for idx, text in enumerate(morpheme_parts):
-                comp = {
-                    "text": text,
-                    "meaning": "接頭要素" if idx == 0 else "語根要素",
-                    "type": "prefix" if idx == 0 else "root",
-                }
-                if comp not in components:
-                    components.append(comp)
-
-        if not components:
-            for match in re.finditer(r"\{\{der\|([^}]*)\}\}", raw_etymology, flags=re.IGNORECASE):
-                args = [x.strip() for x in match.group(1).split("|")]
-                if len(args) < 3:
-                    continue
-                ety_text = args[2]
-                links = [x.strip() for x in re.findall(r"\[\[([^\]|]+)", ety_text) if x.strip()]
-                if "a" in links and "bandon" in links:
-                    components = [
-                        {"text": "a", "meaning": "〜へ、〜の方へ", "type": "prefix"},
-                        {"text": "bandon", "meaning": "支配、権限", "type": "root"},
-                    ]
-                    break
-                if "a" in links and "ban" in links:
-                    components = [
-                        {"text": "a", "meaning": "〜へ、〜の方へ", "type": "prefix"},
-                        {"text": "ban", "meaning": "布告、支配", "type": "root"},
-                    ]
-                    break
-                if len(links) >= 2:
-                    components = [
-                        {"text": links[-2], "meaning": "語源要素", "type": "prefix"},
-                        {"text": links[-1], "meaning": "語源要素", "type": "root"},
-                    ]
-                    break
-
-        if not components:
-            plus_match = re.search(
-                r"([^\W\d_][^\s+]{0,31})\s*\+\s*([^\W\d_][^\s,.;:)]{0,31})",
-                raw_etymology,
-                flags=re.UNICODE,
-            )
-            if plus_match:
-                left = clean_token(plus_match.group(1))
-                right = clean_token(plus_match.group(2))
-                if left and right:
-                    components = [
-                        {"text": left, "meaning": "接頭要素", "type": "prefix"},
-                        {"text": right, "meaning": "語根要素", "type": "root"},
-                    ]
-
-        if not components:
-            compact = cls._compact_wikitext(raw_etymology, max_chars=1200)
-            plus_match_compact = re.search(
-                r"([^\W\d_][^\s+]{0,31})\s*\+\s*([^\W\d_][^\s,.;:)]{0,31})",
-                compact,
-                flags=re.UNICODE,
-            )
-            if plus_match_compact:
-                left = clean_token(plus_match_compact.group(1))
-                right = clean_token(plus_match_compact.group(2))
-                if left and right:
-                    components = [
-                        {"text": left, "meaning": "接頭要素", "type": "prefix"},
-                        {"text": right, "meaning": "語根要素", "type": "root"},
-                    ]
-
-        if not components:
-            plain_der = re.search(
-                r"\{\{der\|[^|}]+\|[^|}]+\|([^|}\s]+)",
-                raw_etymology,
-                flags=re.IGNORECASE,
-            )
-            if plain_der:
-                term = clean_token(plain_der.group(1))
-                if term:
-                    components = [{"text": term, "meaning": "語源要素", "type": "root"}]
-
-        if not components:
-            plus_match = re.search(r"\b([A-Za-z]{1,6})\s*\+\s*([A-Za-z]{2,16})\b", raw_etymology)
-            if plus_match:
-                components = [
-                    {"text": plus_match.group(1), "meaning": "接頭要素", "type": "prefix"},
-                    {"text": plus_match.group(2), "meaning": "語根要素", "type": "root"},
-                ]
-
-        candidate_terms: list[str] = []
-        if len(components) <= 1:
-            for m in re.finditer(r"\{\{root\|[^|}]+\|[^|}]+\|([^|}]+)", raw_etymology, flags=re.IGNORECASE):
-                candidate_terms.append(clean_token(m.group(1)))
-            for m in re.finditer(r"\{\{(?:der|inh|bor)\|[^|}]+\|[^|}]+\|([^|}]+)", raw_etymology, flags=re.IGNORECASE):
-                candidate_terms.append(clean_token(m.group(1)))
-            for m in re.finditer(r"\{\{m\|[^|}]+\|([^|}]+)(?:\|([^|}]+))?", raw_etymology, flags=re.IGNORECASE):
-                first = clean_token(m.group(1))
-                candidate_terms.append(first)
-
-            base = word.lower().strip()
-            unique_terms: list[str] = []
-            for t in candidate_terms:
-                if not t:
-                    continue
-                normalized = t.lower().strip("-")
-                if normalized == base:
-                    continue
-                if t not in unique_terms:
-                    unique_terms.append(t)
-
-            if unique_terms:
-                components = []
-                for idx, term in enumerate(unique_terms[:3]):
-                    if term.startswith("*"):
-                        add_component(term, "印欧祖語などの祖語形", "proto_root")
-                    elif idx == 0:
-                        add_component(term, "語源要素", "prefix")
-                    else:
-                        add_component(term, "語源要素", "root")
-
-        return components
+        return extract_etymology_components(raw_etymology, word, cls._compact_wikitext)
 
     @classmethod
     def _extract_language_chain(cls, raw_etymology: str) -> list[dict]:
         chain: list[dict] = []
-        for match in re.finditer(r"\{\{(bor|der|inh)\|([^}]*)\}\}", raw_etymology, flags=re.IGNORECASE):
-            relation = match.group(1).lower()
+        for match in re.finditer(
+            r"\{\{((?:bor|der|inh)\+?)\|([^}]*)\}\}",
+            raw_etymology,
+            flags=re.IGNORECASE,
+        ):
+            relation = match.group(1).lower().rstrip("+")
             args = [x.strip() for x in match.group(2).split("|") if x.strip()]
             positional = [a for a in args if "=" not in a and not a.startswith(":")]
             if len(positional) < 3:

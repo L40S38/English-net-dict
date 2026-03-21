@@ -8,6 +8,14 @@ KNOWN_POS_LABELS: frozenset[str] = frozenset(
     {"noun", "verb", "adjective", "adverb", "pronoun", "preposition", "conjunction"}
 )
 
+# 平文説明や比較メモで頻出する一般語。語源成分としては採用しない。
+ETYMOLOGY_PLUS_STOPWORDS: frozenset[str] = frozenset(
+    {"variant", "form", "cognate", "noun", "verb", "compare", "compar", "etc", "cf"}
+)
+
+# 候補語列フォールバック時に除外するメタ語。
+ETYMOLOGY_META_LEMMA_BLOCKLIST: frozenset[str] = frozenset({"etc", "e.g", "i.e", "cf", "compar"})
+
 # 日本語の「語源ラベル」（接尾辞・接頭辞・品詞形成など）に含まれる語。これらを含む文字列は無視する。
 # 日本語由来の単語（津波・空手など）は含めないので、一律に日本語を弾かない。
 JAPANESE_LABEL_SUBSTRINGS: tuple[str, ...] = (

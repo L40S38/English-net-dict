@@ -66,17 +66,33 @@ class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
         parts = [p.strip() for p in inner.split("|")]
         if not parts:
             return " "
-        name = parts[0].lower()
+        # der+/bor+/inh+ などは抽出上 der/bor/inh と同等に扱う。
+        name = parts[0].lower().rstrip("+")
         args = parts[1:]
         positional = [a for a in args if a and "=" not in a and not a.startswith(":")]
         if not positional:
             return " "
 
-        if name in {"af", "affix", "prefix"} and len(positional) >= 2:
+        if name in {"af", "affix", "prefix", "pre"} and len(positional) >= 2:
             core = positional[1:]
             if len(core) >= 2:
                 return " + ".join(core[:3])
             return positional[-1]
+        # {{surf|en|re-|turn}} / {{surface analysis|en|full-|fill}} を平文の A + B に展開する。
+        if name in {"surf", "surface analysis"} and len(positional) >= 2:
+            core = positional[1:]
+            if len(core) >= 2:
+                return " + ".join(core[:3])
+            return positional[-1]
+        # {{suf|en|stem|ly|id2=...}}（例: tentatively の語源）。_template_to_text が未対応だとテンプレが空白に
+        # 置換され「From  .」→ 句読点前の空白潰しで etymology 抜粋が「From.」だけになるため、平文「stem + -ly」に展開する。
+        if name in {"suf", "suffix"} and len(positional) >= 3:
+            stem = WiktionaryScraper._normalize_template_term(positional[1])
+            suf = WiktionaryScraper._normalize_template_term(positional[2])
+            if stem and suf:
+                affix = suf if suf.startswith("-") else f"-{suf}"
+                return f"{stem} + {affix}"
+            return stem or suf or " "
         if name in {"bor", "der", "inh", "cog"}:
             lang_label = _LANG_NAMES.get(positional[1], "") if len(positional) >= 2 else ""
             term = WiktionaryScraper._normalize_template_term(positional[2]) if len(positional) >= 3 else ""
@@ -179,6 +195,39 @@ class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
                 titles.append(line)
         return titles
 
+    # en.wiktionary: ===Etymology=== / ===Etymology 1===（「Etymological」などは除外）
+    _EN_SECTION_ETYMOLOGY_HEADING = re.compile(r"^etymology(?:\s+\d+)?$", re.IGNORECASE)
+
+    @staticmethod
+    def _is_etymology_section_heading(line: str) -> bool:
+        """TOC 行が語源専用セクションか（Etymology / Etymology 1、語源…、由来…）。"""
+        raw = line.strip()
+        if not raw:
+            return False
+        if WiktionaryScraper._EN_SECTION_ETYMOLOGY_HEADING.fullmatch(raw):
+            return True
+        # ja.wiktionary 等
+        if raw.startswith("語源"):
+            return True
+        if raw.startswith("由来"):
+            return True
+        return False
+
+    @staticmethod
+    def _find_etymology_section_titles(sections: list[dict]) -> list[str]:
+        return [
+            str(sec.get("line", "")).strip()
+            for sec in sections
+            if WiktionaryScraper._is_etymology_section_heading(str(sec.get("line", "")))
+        ]
+
+    @staticmethod
+    def _strip_wiki_category_links(text: str) -> str:
+        """セクション末尾などに紛れ込む [[Category:...]] を除去（ページ下部カテゴリの混入対策）。"""
+        if not text:
+            return text
+        return re.sub(r"\[\[Category:[^\]]+\]\]", "", text, flags=re.IGNORECASE).strip()
+
     @staticmethod
     def _merge_unique_str_items(*values: list[str]) -> list[str]:
         merged: list[str] = []
@@ -198,6 +247,25 @@ class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
                     continue
                 if item not in merged:
                     merged.append(item)
+        return merged
+
+    @staticmethod
+    def _merge_unique_dict_items_by_text(*values: list[dict]) -> list[dict]:
+        """dict の text キーを主キーとして先勝ちマージする。"""
+        merged: list[dict] = []
+        seen_texts: set[str] = set()
+        for items in values:
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                text = str(item.get("text", "")).strip()
+                if text:
+                    if text in seen_texts:
+                        continue
+                    seen_texts.add(text)
+                elif item in merged:
+                    continue
+                merged.append(item)
         return merged
 
     @staticmethod
@@ -592,9 +660,11 @@ class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
                     continue
                 meanings = self._merge_unique_str_items(meanings, self._extract_section_glosses(wikitext, title, sections=sections))
             if not meanings:
-                ety_title = self._find_section_title(sections, "etymology", "語源")
-                if ety_title:
-                    excerpt = self._extract_section_body(wikitext, ety_title, max_chars=220, sections=sections)
+                ety_titles = self._find_etymology_section_titles(sections)
+                if ety_titles:
+                    excerpt = self._extract_section_body(
+                        wikitext, ety_titles[0], max_chars=220, sections=sections,
+                    )
                     if excerpt:
                         meanings = [excerpt]
 
@@ -629,29 +699,27 @@ class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
             wikitext = str(parsed.get("wikitext") or "")
             sections = parsed.get("sections") or []
             summary = self._compact_wikitext(wikitext)
-            etymology_title = self._find_section_title(sections, "etymology", "語源", "由来")
-            etymology_raw = self._extract_section_body_raw(wikitext, etymology_title, sections=sections) if etymology_title else None
-            etymology_excerpt = self._extract_section_body(wikitext, etymology_title, max_chars=1200, sections=sections) if etymology_title else None
-            etymology_titles = self._find_section_titles_prefix(sections, "etymology", "語源")
-            etymology_bodies = [
-                body for title in etymology_titles
-                if (body := self._extract_section_body_raw(wikitext, title, sections=sections))
-            ]
-            sources: list[str] = []
-            if etymology_raw:
-                sources.append(etymology_raw)
-            for body in etymology_bodies:
-                if body not in sources:
-                    sources.append(body)
-            if not etymology_excerpt and sources:
-                etymology_excerpt = self._compact_wikitext(sources[0], max_chars=1200)
+            # 語源は Etymology / Etymology 1… および 語源・由来 見出し配下のみ（全文や Category 行は対象外）
+            etymology_section_titles = self._find_etymology_section_titles(sections)
+            etymology_bodies: list[str] = []
+            for title in etymology_section_titles:
+                raw_body = self._extract_section_body_raw(wikitext, title, sections=sections)
+                if not raw_body:
+                    continue
+                cleaned = self._strip_wiki_category_links(raw_body)
+                if cleaned and cleaned not in etymology_bodies:
+                    etymology_bodies.append(cleaned)
+            sources = etymology_bodies
+            etymology_excerpt = (
+                self._compact_wikitext(etymology_bodies[0], max_chars=1200) if etymology_bodies else None
+            )
 
             etymology_components: list[dict] = []
             language_chain: list[dict] = []
             component_meanings: list[dict] = []
             for raw in sources:
                 comps = self._extract_etymology_components(raw, word)
-                etymology_components = self._merge_unique_dict_items(etymology_components, comps)
+                etymology_components = self._merge_unique_dict_items_by_text(etymology_components, comps)
                 chains = self._extract_language_chain(raw)
                 language_chain = self._merge_unique_dict_items(language_chain, chains)
                 cm = self._extract_component_meanings(raw, comps, word)
@@ -743,7 +811,10 @@ class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
                 elif key in {"etymology_components", "language_chain", "component_meanings", "etymology_variants"}:
                     ja_items = ja_value if isinstance(ja_value, list) else []
                     en_items = en_value if isinstance(en_value, list) else []
-                    merged[key] = self._merge_unique_dict_items(ja_items, en_items)
+                    if key == "etymology_components":
+                        merged[key] = self._merge_unique_dict_items_by_text(ja_items, en_items)
+                    else:
+                        merged[key] = self._merge_unique_dict_items(ja_items, en_items)
                 elif key in {"etymology_excerpt", "summary", "pronunciation_ipa"}:
                     merged[key] = self._merge_text_ja_first(
                         ja_value if isinstance(ja_value, str) else None,
