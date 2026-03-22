@@ -5,6 +5,7 @@ import re
 from app.services.scraper.etymology_extractors import (
     _ETY_AFTER_PLUS,
     _ETY_PLUS_RIGHT_OPERAND,
+    detect_same_word_foreign_origin,
     extract_etymology_components,
 )
 
@@ -92,6 +93,28 @@ _LANG_NAMES: dict[str, str] = {
     "xno": "アングロ・ノルマン語",
     "yo": "ヨルバ語",
     "zh": "中国語",
+}
+
+_LANG_CODE_TO_WIKI_HEADING: dict[str, str] = {
+    "la": "Latin",
+    "la-lat": "Latin",
+    "la-med": "Latin",
+    "la-vul": "Latin",
+    "la-new": "Latin",
+    "fr": "French",
+    "fro": "Old French",
+    "frm": "Middle French",
+    "xno": "Anglo-Norman",
+    "enm": "Middle English",
+    "ang": "Old English",
+    "grc": "Ancient Greek",
+    "non": "Old Norse",
+    "de": "German",
+    "nl": "Dutch",
+    "it": "Italian",
+    "es": "Spanish",
+    "pt": "Portuguese",
+    "ar": "Arabic",
 }
 
 
@@ -203,3 +226,97 @@ class WiktionaryParserMixin:
                 }
             )
         return variants
+
+    @classmethod
+    def _extract_etymology_blocks_from_language_section(cls, language_body: str) -> list[str]:
+        heading_matches = list(
+            re.finditer(r"^(={3,})\s*([^=\n]+?)\s*=+\s*$", language_body, flags=re.MULTILINE)
+        )
+        if not heading_matches:
+            return []
+
+        blocks: list[str] = []
+        for idx, heading in enumerate(heading_matches):
+            level = len(heading.group(1))
+            title = heading.group(2).strip()
+            if not cls._is_etymology_section_heading(title):
+                continue
+            block_end = len(language_body)
+            for nxt in heading_matches[idx + 1 :]:
+                if len(nxt.group(1)) <= level:
+                    block_end = nxt.start()
+                    break
+            body = language_body[heading.end() : block_end].strip()
+            if body and body not in blocks:
+                blocks.append(body)
+        return blocks
+
+    @classmethod
+    def _follow_same_word_etymology(
+        cls,
+        full_wikitext: str,
+        word: str,
+        etymology_bodies: list[str],
+        etymology_components: list[dict],
+    ) -> list[dict]:
+        if not etymology_bodies:
+            return etymology_components
+
+        merged = list(etymology_components or [])
+        queue: list[tuple[str, str]] = []
+        seen_queue: set[tuple[str, str]] = set()
+        visited: set[tuple[str, str]] = set()
+
+        for raw in etymology_bodies:
+            hit = detect_same_word_foreign_origin(raw, word)
+            if not hit:
+                continue
+            lang_code, term = hit
+            normalized = term.lower().strip().strip("-")
+            seed = (lang_code.lower(), normalized)
+            if seed in seen_queue:
+                continue
+            seen_queue.add(seed)
+            queue.append((lang_code.lower(), term))
+
+            lang_name = _LANG_NAMES.get(lang_code.lower(), lang_code)
+            origin = [{"text": term, "meaning": f"{lang_name}由来", "type": "root"}]
+            merged = cls._merge_unique_dict_items_by_text(merged, origin)
+
+        while queue:
+            lang_code, term = queue.pop(0)
+            normalized = term.lower().strip().strip("-")
+            marker = (lang_code, normalized)
+            if marker in visited:
+                continue
+            visited.add(marker)
+
+            heading = _LANG_CODE_TO_WIKI_HEADING.get(lang_code)
+            if not heading:
+                continue
+            language_body = cls._extract_language_section_raw(full_wikitext, heading)
+            if not language_body:
+                continue
+            etymology_blocks = cls._extract_etymology_blocks_from_language_section(language_body)
+            if not etymology_blocks:
+                continue
+
+            for block in etymology_blocks:
+                comps = extract_etymology_components(block, term, cls._compact_wikitext)
+                if comps:
+                    merged = cls._merge_unique_dict_items_by_text(merged, comps)
+                next_hit = detect_same_word_foreign_origin(block, term)
+                if not next_hit:
+                    continue
+                next_lang, next_term = next_hit
+                next_normalized = next_term.lower().strip().strip("-")
+                next_key = (next_lang.lower(), next_normalized)
+                if next_key in visited or next_key in seen_queue:
+                    continue
+                seen_queue.add(next_key)
+                queue.append((next_lang.lower(), next_term))
+                next_lang_name = _LANG_NAMES.get(next_lang.lower(), next_lang)
+                origin = [{"text": next_term, "meaning": f"{next_lang_name}由来", "type": "root"}]
+                merged = cls._merge_unique_dict_items_by_text(merged, origin)
+
+        return merged

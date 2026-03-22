@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import exists, func, or_, select
 from sqlalchemy.orm import Session, joinedload
@@ -31,10 +32,11 @@ from app.schemas import (
     WordListResponse,
     WordRead,
 )
-from app.services.etymology_component_service import get_component_cache, normalize_component_text
-from app.services.scraper.wiktionary import WiktionaryScraper
 from app.services import word_service
+from app.services.etymology_component_service import get_component_cache, normalize_component_text
 from app.services.lemma_service import detect_lemma, detect_lemma_candidates, suggest_inflection_action
+from app.services.scraper.wiktionary import WiktionaryScraper
+from app.services.spelling_suggestions import build_spellchecker, collect_spelling_suggestions
 from app.services.word_merge_service import link_to_lemma, merge_into_lemma
 from app.services.word_ingest_service import IngestOptions, ingest_word_or_phrase
 from app.utils.pos_labels import normalize_part_of_speech
@@ -77,6 +79,21 @@ def _replace_definitions(word: Word, definitions: list[dict]) -> None:
 
 def _split_comma_items(text: str) -> list[str]:
     return word_service.split_comma_items(text)
+
+
+def _serialize_lemma_candidates(candidates: list) -> list[dict]:
+    return [
+        {
+            "lemma": item.lemma_word,
+            "lemma_word_id": item.lemma_word_id,
+            "inflection_type": item.inflection_type,
+            "has_own_content": item.has_own_content,
+            "confidence": item.confidence,
+            "source": item.source,
+            "score": item.score,
+        }
+        for item in candidates
+    ]
 
 
 def _replace_derivations(db: Session, word: Word, derivations: list[dict]) -> None:
@@ -426,15 +443,50 @@ async def check_inflection(payload: InflectionCheckRequest, db: Session = Depend
         deduped.append(item)
 
     scraper = WiktionaryScraper()
+    db_words = list(db.scalars(select(Word.word)))
+    by_lower = {str(w).strip().lower(): str(w).strip() for w in db_words if str(w).strip()}
+    spellchecker = build_spellchecker(
+        list(by_lower.values()),
+        merge_db_vocabulary=payload.spellchecker_merge_db,
+    )
     results: list[InflectionCheckResult] = []
     for word_text in deduped:
         candidates = await detect_lemma_candidates(word_text, db, scraper=scraper)
+        spelling_candidates_payload: list[dict] = []
+        selected_spelling: str | None = None
         selected = candidates[0] if candidates else None
+        if not selected:
+            for spelling_info in collect_spelling_suggestions(
+                word_text,
+                by_lower,
+                spellchecker,
+                use_db_near=payload.use_db_near,
+            ):
+                spelling = str(spelling_info.get("spelling", "")).strip()
+                if not spelling:
+                    continue
+                spelling_lemmas = await detect_lemma_candidates(spelling, db, scraper=scraper)
+                if selected is None and spelling_lemmas:
+                    selected_spelling = spelling
+                    selected = spelling_lemmas[0]
+                spelling_candidates_payload.append(
+                    {
+                        "spelling": spelling,
+                        "source": spelling_info.get("source") or "",
+                        "lemma_candidates": _serialize_lemma_candidates(spelling_lemmas),
+                        "selected_lemma": spelling_lemmas[0].lemma_word if spelling_lemmas else None,
+                        "lemma_resolution": (
+                            "resolved_from_inflection"
+                            if spelling_lemmas and spelling_lemmas[0].lemma_word.lower() != spelling.lower()
+                            else ("direct" if spelling_lemmas else "manual")
+                        ),
+                    }
+                )
         suggestion = suggest_inflection_action(selected)
         results.append(
             InflectionCheckResult(
                 word=word_text,
-                is_inflected=selected is not None,
+                is_inflected=(selected is not None) or bool(spelling_candidates_payload),
                 selected_lemma=(selected.lemma_word if selected else None),
                 selected_lemma_word_id=(selected.lemma_word_id if selected else None),
                 selected_inflection_type=(selected.inflection_type if selected else None),
@@ -442,18 +494,14 @@ async def check_inflection(payload: InflectionCheckRequest, db: Session = Depend
                 selected_confidence=(selected.confidence if selected else None),
                 selected_source=(selected.source if selected else None),
                 selected_score=(selected.score if selected else None),
-                lemma_candidates=[
-                    {
-                        "lemma": item.lemma_word,
-                        "lemma_word_id": item.lemma_word_id,
-                        "inflection_type": item.inflection_type,
-                        "has_own_content": item.has_own_content,
-                        "confidence": item.confidence,
-                        "source": item.source,
-                        "score": item.score,
-                    }
-                    for item in candidates
-                ],
+                selected_spelling=selected_spelling,
+                lemma_resolution=(
+                    "resolved_from_inflection"
+                    if selected_spelling and selected and selected.lemma_word.lower() != selected_spelling.lower()
+                    else ("direct" if selected else None)
+                ),
+                lemma_candidates=_serialize_lemma_candidates(candidates),
+                spelling_candidates=spelling_candidates_payload,
                 suggestion=suggestion or "register_as_is",
             )
         )

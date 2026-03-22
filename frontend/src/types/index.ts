@@ -293,6 +293,8 @@ export interface InflectionCheckResult {
   is_inflected: boolean;
   selected_lemma?: string | null;
   selected_lemma_word_id?: number | null;
+  selected_spelling?: string | null;
+  lemma_resolution?: "direct" | "resolved_from_inflection" | "manual" | null;
   selected_inflection_type?: string | null;
   selected_has_own_content?: boolean | null;
   selected_confidence?: "high" | "medium" | "low" | null;
@@ -306,6 +308,21 @@ export interface InflectionCheckResult {
     confidence?: "high" | "medium" | "low" | null;
     source?: "db_forms" | "possessive" | "wiktionary" | "nltk" | null;
     score?: number | null;
+  }>;
+  spelling_candidates?: Array<{
+    spelling: string;
+    source?: string | null;
+    selected_lemma?: string | null;
+    lemma_resolution?: "direct" | "resolved_from_inflection" | "manual" | null;
+    lemma_candidates?: Array<{
+      lemma: string;
+      lemma_word_id?: number | null;
+      inflection_type?: string | null;
+      has_own_content?: boolean | null;
+      confidence?: "high" | "medium" | "low" | null;
+      source?: "db_forms" | "possessive" | "wiktionary" | "nltk" | null;
+      score?: number | null;
+    }>;
   }>;
   suggestion?: InflectionAction | null;
 }

@@ -201,6 +201,8 @@ class WordCheckResponse(BaseModel):
 class InflectionCheckRequest(BaseModel):
     word: str | None = None
     words: list[str] = Field(default_factory=list)
+    use_db_near: bool = False
+    spellchecker_merge_db: bool = False
 
 
 class InflectionCheckResult(BaseModel):
@@ -213,7 +215,10 @@ class InflectionCheckResult(BaseModel):
     selected_confidence: Literal["high", "medium", "low"] | None = None
     selected_source: Literal["db_forms", "possessive", "wiktionary", "nltk"] | None = None
     selected_score: int | None = None
+    selected_spelling: str | None = None
+    lemma_resolution: Literal["direct", "resolved_from_inflection", "manual"] | None = None
     lemma_candidates: list[dict] = Field(default_factory=list)
+    spelling_candidates: list[dict] = Field(default_factory=list)
     suggestion: Literal["merge", "link", "register_as_is"] | None = None
 
 

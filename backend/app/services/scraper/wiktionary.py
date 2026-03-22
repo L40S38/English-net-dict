@@ -529,6 +529,21 @@ class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
             tail = tail[: next_lang.start()]
         return tail
 
+    @staticmethod
+    def _extract_language_section_raw(wikitext: str, lang_heading: str) -> str:
+        language_match = re.search(
+            rf"^==\s*{re.escape(lang_heading)}\s*==\s*$",
+            wikitext,
+            flags=re.MULTILINE | re.IGNORECASE,
+        )
+        if not language_match:
+            return ""
+        tail = wikitext[language_match.end() :]
+        next_lang = re.search(r"^==\s*[^=\n]+\s*==\s*$", tail, flags=re.MULTILINE)
+        if next_lang:
+            tail = tail[: next_lang.start()]
+        return tail
+
     @classmethod
     def _extract_first_usex_example(cls, text: str) -> str | None:
         for match in re.finditer(r"\{\{(?:ux|uxi)\|([^{}]*)\}\}", text, flags=re.IGNORECASE):
@@ -699,13 +714,11 @@ class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
             wikitext = str(parsed.get("wikitext") or "")
             sections = parsed.get("sections") or []
             summary = self._compact_wikitext(wikitext)
-            # 語源は Etymology / Etymology 1… および 語源・由来 見出し配下のみ（全文や Category 行は対象外）
-            etymology_section_titles = self._find_etymology_section_titles(sections)
+            # 語源は英語セクション内の Etymology / Etymology 1… / 語源・由来 見出し配下のみ対象にする。
+            # 全文探索だと Translingual 側の Etymology が先に拾われる場合がある（例: run / all）。
+            english_body = self._extract_english_section_raw(wikitext)
             etymology_bodies: list[str] = []
-            for title in etymology_section_titles:
-                raw_body = self._extract_section_body_raw(wikitext, title, sections=sections)
-                if not raw_body:
-                    continue
+            for raw_body in self._extract_etymology_blocks_from_language_section(english_body):
                 cleaned = self._strip_wiki_category_links(raw_body)
                 if cleaned and cleaned not in etymology_bodies:
                     etymology_bodies.append(cleaned)
@@ -724,6 +737,9 @@ class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
                 language_chain = self._merge_unique_dict_items(language_chain, chains)
                 cm = self._extract_component_meanings(raw, comps, word)
                 component_meanings = self._merge_unique_dict_items(component_meanings, cm)
+            etymology_components = self._follow_same_word_etymology(
+                wikitext, word, sources, etymology_components
+            )
             etymology_variants = self._extract_etymology_variants(etymology_bodies or sources, word) if (etymology_bodies or sources) else []
 
             pronunciation_ipa = self._extract_ipa(wikitext, sections)

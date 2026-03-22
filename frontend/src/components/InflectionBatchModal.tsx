@@ -6,11 +6,24 @@ import type { InflectionAction } from "../types";
 export interface InflectionBatchItem {
   word: string;
   selectedLemma?: string | null;
+  selectedSpelling?: string | null;
+  lemmaResolution?: "direct" | "resolved_from_inflection" | "manual" | null;
   selectedInflectionType?: string | null;
   lemmaCandidates?: Array<{
     lemma: string;
     lemmaWordId?: number | null;
     inflectionType?: string | null;
+  }>;
+  spellingCandidates?: Array<{
+    spelling: string;
+    source?: string | null;
+    selectedLemma?: string | null;
+    lemmaResolution?: "direct" | "resolved_from_inflection" | "manual" | null;
+    lemmaCandidates?: Array<{
+      lemma: string;
+      lemmaWordId?: number | null;
+      inflectionType?: string | null;
+    }>;
   }>;
   suggestion: InflectionAction;
 }
@@ -18,6 +31,7 @@ export interface InflectionBatchItem {
 export interface InflectionBatchDecision {
   action: InflectionAction;
   lemma: string | null;
+  spelling: string | null;
 }
 
 interface InflectionBatchModalProps {
@@ -35,12 +49,30 @@ export function InflectionBatchModal({
   onClose,
   onConfirm,
 }: InflectionBatchModalProps) {
+  const getLemmaCandidatesBySpelling = (
+    item: InflectionBatchItem,
+    selectedSpelling: string | null,
+  ): NonNullable<InflectionBatchItem["lemmaCandidates"]> => {
+    if (!selectedSpelling) {
+      return item.lemmaCandidates ?? [];
+    }
+    const matched = (item.spellingCandidates ?? []).find((entry) => entry.spelling === selectedSpelling);
+    if (matched?.lemmaCandidates && matched.lemmaCandidates.length > 0) {
+      return matched.lemmaCandidates;
+    }
+    return item.lemmaCandidates ?? [];
+  };
+
   const initialDecisions = useMemo<Record<string, InflectionBatchDecision>>(() => {
     const next: Record<string, InflectionBatchDecision> = {};
     for (const item of items) {
+      const defaultSpelling =
+        item.selectedSpelling ?? item.spellingCandidates?.[0]?.spelling ?? null;
+      const defaultLemmaCandidates = getLemmaCandidatesBySpelling(item, defaultSpelling);
       next[item.word] = {
         action: item.suggestion,
-        lemma: item.selectedLemma ?? item.lemmaCandidates?.[0]?.lemma ?? null,
+        lemma: item.selectedLemma ?? defaultLemmaCandidates?.[0]?.lemma ?? null,
+        spelling: defaultSpelling,
       };
     }
     return next;
@@ -86,7 +118,11 @@ export function InflectionBatchModal({
             const inflectionLabel = item.selectedInflectionType
               ? (INFLECTION_LABELS[item.selectedInflectionType] ?? item.selectedInflectionType)
               : "原形";
-            const selected = decisions[item.word] ?? { action: "register_as_is", lemma: null };
+            const selected = decisions[item.word] ?? {
+              action: "register_as_is",
+              lemma: null,
+              spelling: null,
+            };
             return (
               <div key={item.word} className="inflection-batch-row">
                 <div>
@@ -95,8 +131,41 @@ export function InflectionBatchModal({
                     {selected.lemma ? `lemma: ${selected.lemma}` : "lemma: (なし)"} / 種別:{" "}
                     {inflectionLabel}
                   </div>
+                  {item.lemmaResolution === "resolved_from_inflection" && (
+                    <div className="muted">候補は活用形から原形へ解決済み</div>
+                  )}
                 </div>
                 <div className="inflection-batch-controls">
+                  {(item.spellingCandidates ?? []).length > 0 && (
+                    <select
+                      className="inflection-batch-select"
+                      value={selected.spelling ?? ""}
+                      onChange={(e) => {
+                        const spelling = e.target.value || null;
+                        const nextCandidates = getLemmaCandidatesBySpelling(item, spelling);
+                        setDecisions((prev) => ({
+                          ...prev,
+                          [item.word]: {
+                            ...(prev[item.word] ?? {
+                              action: item.suggestion,
+                              lemma: null,
+                              spelling: null,
+                            }),
+                            spelling,
+                            lemma: nextCandidates[0]?.lemma ?? null,
+                          },
+                        }));
+                      }}
+                    >
+                      <option value="">(綴り候補なし)</option>
+                      {(item.spellingCandidates ?? []).map((candidate) => (
+                        <option key={`${item.word}:spelling:${candidate.spelling}`} value={candidate.spelling}>
+                          {candidate.spelling}
+                          {candidate.source ? ` [${candidate.source}]` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                   <select
                     className="inflection-batch-select"
                     value={selected.lemma ?? ""}
@@ -104,14 +173,18 @@ export function InflectionBatchModal({
                       setDecisions((prev) => ({
                         ...prev,
                         [item.word]: {
-                          ...(prev[item.word] ?? { action: item.suggestion, lemma: null }),
+                          ...(prev[item.word] ?? {
+                            action: item.suggestion,
+                            lemma: null,
+                            spelling: null,
+                          }),
                           lemma: e.target.value || null,
                         },
                       }))
                     }
                   >
                     <option value="">(lemmaなし)</option>
-                    {(item.lemmaCandidates ?? []).map((candidate) => (
+                    {getLemmaCandidatesBySpelling(item, selected.spelling ?? null).map((candidate) => (
                       <option key={`${item.word}:${candidate.lemma}`} value={candidate.lemma}>
                         {candidate.lemma}
                       </option>
@@ -124,7 +197,11 @@ export function InflectionBatchModal({
                       setDecisions((prev) => ({
                         ...prev,
                         [item.word]: {
-                          ...(prev[item.word] ?? { action: item.suggestion, lemma: null }),
+                          ...(prev[item.word] ?? {
+                            action: item.suggestion,
+                            lemma: null,
+                            spelling: null,
+                          }),
                           action: e.target.value as InflectionAction,
                         },
                       }))
@@ -143,6 +220,7 @@ export function InflectionBatchModal({
                         [item.word]: initialDecisions[item.word] ?? {
                           action: item.suggestion,
                           lemma: item.selectedLemma ?? item.lemmaCandidates?.[0]?.lemma ?? null,
+                          spelling: item.selectedSpelling ?? item.spellingCandidates?.[0]?.spelling ?? null,
                         },
                       }))
                     }

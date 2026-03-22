@@ -23,6 +23,7 @@ __pycache__/
 .cursor/
 
 # Script output / user-specific input
-backend/app/scripts/words_to_add.txt
+backend/app/scripts/*.txt
 backend/app/scripts/*.csv
 backend/tmp*
+*.ipynb

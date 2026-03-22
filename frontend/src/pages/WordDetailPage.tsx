@@ -209,11 +209,24 @@ export function WordDetailPage() {
               {
                 word: inflectionResult.word,
                 selectedLemma: inflectionResult.selected_lemma ?? null,
+                selectedSpelling: inflectionResult.selected_spelling ?? null,
+                lemmaResolution: inflectionResult.lemma_resolution ?? null,
                 selectedInflectionType: inflectionResult.selected_inflection_type ?? null,
                 lemmaCandidates: (inflectionResult.lemma_candidates ?? []).map((candidate) => ({
                   lemma: candidate.lemma,
                   lemmaWordId: candidate.lemma_word_id ?? null,
                   inflectionType: candidate.inflection_type ?? null,
+                })),
+                spellingCandidates: (inflectionResult.spelling_candidates ?? []).map((entry) => ({
+                  spelling: entry.spelling,
+                  source: entry.source ?? null,
+                  selectedLemma: entry.selected_lemma ?? null,
+                  lemmaResolution: entry.lemma_resolution ?? null,
+                  lemmaCandidates: (entry.lemma_candidates ?? []).map((candidate) => ({
+                    lemma: candidate.lemma,
+                    lemmaWordId: candidate.lemma_word_id ?? null,
+                    inflectionType: candidate.inflection_type ?? null,
+                  })),
                 })),
                 suggestion: inflectionResult.suggestion ?? "register_as_is",
               },

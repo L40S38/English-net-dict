@@ -21,8 +21,54 @@ _ETY_AFTER_PLUS = r"(?:\s|[\u00ad\u200b-\u200f\u202a-\u202e\ufeff])*"
 _ETY_PLUS_RIGHT_OPERAND = (
     r"[^\W\d_][^\s,.;:)]{0,31}|[-–—\u2010][a-zA-Z\u00c0-\u024f]{1,30}"
 )
+# 本来は語源由来として全言語コードを許容したいが、ノイズ・誤検出・保守コストの観点から
+# 現状は実データで必要な言語だけを暫定 allowlist で絞っている（不足言語は段階的に追加）。
+_ETYMON_M_LANG_ALLOWLIST: frozenset[str] = frozenset(
+    {
+        "en",
+        "enm",
+        "ang",
+        "ja",
+        "la",
+        "la-lat",
+        "la-med",
+        "la-vul",
+        "grc",
+        "fro",
+        "frm",
+        "xno",
+        "gem-pro",
+        "gmw-pro",
+        "ine-pro",
+        "cel-pro",
+        "ath-pro",
+        "non",
+        "odt",
+        "ofs",
+        "osx",
+        "goh",
+        "dum",
+        "ml.",
+        "vl.",
+    }
+)
 
 AddComponent = Callable[[str, str, str], None]
+
+_ETYMON_LANG_ORIGIN_LABELS: dict[str, str] = {
+    "la": "ラテン語由来",
+    "la-lat": "後期ラテン語由来",
+    "la-med": "中世ラテン語由来",
+    "la-vul": "俗ラテン語由来",
+    "fr": "フランス語由来",
+    "fro": "古フランス語由来",
+    "frm": "中期フランス語由来",
+    "grc": "古代ギリシャ語由来",
+    "ang": "古英語由来",
+    "enm": "中英語由来",
+    "xno": "アングロ・ノルマン語由来",
+    "ja": "日本語由来",
+}
 
 
 def clean_token(value: str) -> str:
@@ -31,6 +77,28 @@ def clean_token(value: str) -> str:
     token = re.sub(r"^[\s\(\[\{'\"]+", "", token)
     if "#" in token:
         token = token.split("#", 1)[0].rstrip()
+    # テンプレ引数に混ざる wiki マークアップ残骸を除去する（例: [[numerō]]、'''even'''）。
+    token = token.replace("'''", "").replace("''", "")
+    token = token.replace("[[", "").replace("]]", "")
+    token = token.replace("[", "").replace("]", "")
+    # wiki 展開後に残る孤立した ')' を除去し、平衡な括弧は保持する（例: in) numerō → in numerō）。
+    if ")" in token:
+        balanced_chars: list[str] = []
+        open_parens = 0
+        for ch in token:
+            if ch == "(":
+                open_parens += 1
+                balanced_chars.append(ch)
+            elif ch == ")":
+                if open_parens > 0:
+                    open_parens -= 1
+                    balanced_chars.append(ch)
+            else:
+                balanced_chars.append(ch)
+        token = "".join(balanced_chars)
+    # surf の lang:morpheme 形式（例: ang:ā）から morpheme 部分だけを残す。
+    if re.fullmatch(r"[a-z]{2,3}:.+", token):
+        token = token.split(":", 1)[1]
     # 末尾除去: 文字クラス内の「,.」はカンマ〜ピリオドの範囲になりハイフン(U+002D)を含むため、
     # 「over-」の末尾ハイフンが削られ「over」になる。ピリオドは \. で区切って範囲にしない。
     token = re.sub(r"[\s\]\}',\"。．、,\.;:]+$", "", token)
@@ -63,6 +131,243 @@ def _strip_leading_lang(args: list[str]) -> list[str]:
 
 def _contains_latin(text: str) -> bool:
     return bool(re.search(r"[a-zA-Z\u00c0-\u024f]", text or ""))
+
+
+def _is_language_code_token(text: str) -> bool:
+    t = (text or "").strip().lower()
+    return bool(re.fullmatch(r"[a-z]{2,3}(?:-[a-z0-9-]+)?", t))
+
+
+def _is_named_template_arg(text: str) -> bool:
+    t = (text or "").strip()
+    if not t or "=" not in t or t.startswith(":"):
+        return False
+    eq_idx = t.find("=")
+    lt_idx = t.find("<")
+    if lt_idx != -1 and eq_idx > lt_idx:
+        return False
+    name = t[:eq_idx].strip()
+    return bool(re.fullmatch(r"[A-Za-z0-9_-]+", name))
+
+
+def _split_top_level_pipes(text: str) -> list[str]:
+    parts: list[str] = []
+    buf: list[str] = []
+    brace_depth = 0
+    angle_depth = 0
+    i = 0
+    while i < len(text):
+        two = text[i : i + 2]
+        if two == "{{":
+            brace_depth += 1
+            buf.append(two)
+            i += 2
+            continue
+        if two == "}}" and brace_depth > 0:
+            brace_depth -= 1
+            buf.append(two)
+            i += 2
+            continue
+        ch = text[i]
+        if ch == "<":
+            angle_depth += 1
+        elif ch == ">" and angle_depth > 0:
+            angle_depth -= 1
+        if ch == "|" and brace_depth == 0 and angle_depth == 0:
+            parts.append("".join(buf))
+            buf = []
+            i += 1
+            continue
+        buf.append(ch)
+        i += 1
+    parts.append("".join(buf))
+    return parts
+
+
+def _iter_template_bodies(raw: str, names: frozenset[str]) -> list[str]:
+    names_pat = "|".join(re.escape(name) for name in sorted(names))
+    pattern = re.compile(r"\{\{\s*(?:" + names_pat + r")\s*\|", flags=re.IGNORECASE)
+    results: list[str] = []
+    idx = 0
+    while idx < len(raw):
+        match = pattern.search(raw, idx)
+        if not match:
+            break
+        body_start = match.end()
+        depth = 1
+        i = body_start
+        while i < len(raw):
+            if raw.startswith("{{", i):
+                depth += 1
+                i += 2
+                continue
+            if raw.startswith("}}", i):
+                depth -= 1
+                if depth == 0:
+                    results.append(raw[body_start:i])
+                    idx = i + 2
+                    break
+                i += 2
+                continue
+            i += 1
+        else:
+            idx = body_start
+    return results
+
+
+def _extract_angle_segment(text: str, start: int) -> tuple[str | None, int]:
+    if start < 0 or start >= len(text) or text[start] != "<":
+        return None, start
+    depth = 0
+    i = start
+    while i < len(text):
+        ch = text[i]
+        if ch == "<":
+            depth += 1
+        elif ch == ">":
+            depth -= 1
+            if depth == 0:
+                return text[start + 1 : i], i + 1
+        i += 1
+    return None, start + 1
+
+
+def _parse_etymon_term(raw_term: str) -> tuple[str | None, str]:
+    term = (raw_term or "").strip()
+    if not term:
+        return None, ""
+    # etymon 引数の inline modifier（<id:...>, <ety:...> 等）は語形抽出時には除外する。
+    term = term.split("<", 1)[0].strip()
+    term = term.replace("'''", "").replace("''", "")
+    if ":" in term:
+        lang, tail = term.split(":", 1)
+        if _is_language_code_token(lang):
+            return lang.lower(), tail.strip()
+    return None, term
+
+
+def _normalize_etymon_keyword(raw_keyword: str) -> str:
+    kw = ":" + (raw_keyword or "").strip().lstrip(":").lower()
+    if kw in {":derived"}:
+        return ":der"
+    if kw in {":inherited"}:
+        return ":inh"
+    if kw in {":borrowed"}:
+        return ":bor"
+    if kw in {":affix"}:
+        return ":af"
+    if kw in {":back-formation"}:
+        return ":bf"
+    if kw in {":clipping"}:
+        return ":clip"
+    return kw
+
+
+def _collect_ety_chain_terms(raw_term: str) -> list[tuple[str, str]]:
+    collected: list[tuple[str, str]] = []
+    visited: set[str] = set()
+
+    def walk(text: str) -> None:
+        lower = text.lower()
+        idx = 0
+        while True:
+            pos = lower.find("<ety:", idx)
+            if pos == -1:
+                return
+            segment, next_idx = _extract_angle_segment(text, pos)
+            if segment is None:
+                idx = pos + 1
+                continue
+            idx = next_idx
+            normalized_segment = segment.strip()
+            if normalized_segment in visited:
+                continue
+            visited.add(normalized_segment)
+            if not normalized_segment.lower().startswith("ety:"):
+                continue
+            payload = normalized_segment[4:].strip()
+            if not payload:
+                continue
+            first_lt = payload.find("<")
+            if first_lt == -1:
+                continue
+            keyword = _normalize_etymon_keyword(payload[:first_lt].strip() or ":from")
+            children = payload[first_lt:]
+            child_idx = 0
+            while child_idx < len(children):
+                child_start = children.find("<", child_idx)
+                if child_start == -1:
+                    break
+                child, child_end = _extract_angle_segment(children, child_start)
+                if child is None:
+                    child_idx = child_start + 1
+                    continue
+                child_idx = child_end
+                child_text = child.strip()
+                _, parsed_term = _parse_etymon_term(child_text)
+                token = clean_token(parsed_term)
+                core = token.lstrip("-").rstrip("-")
+                if token and looks_like_morpheme(core):
+                    collected.append((keyword, token))
+                walk(child_text)
+
+    walk(raw_term or "")
+    return collected
+
+
+def _infer_etymon_component_type(keyword: str, token: str) -> tuple[str, str]:
+    kw = _normalize_etymon_keyword(keyword)
+    if kw in {":af", ":afeq"}:
+        if token.startswith("-"):
+            return "接尾辞要素", "suffix"
+        if token.endswith("-"):
+            return "接頭要素", "prefix"
+        return "語根要素", "root"
+    if kw in {":bf", ":clip", ":deverbal"}:
+        return "語源要素", "root"
+    return "語源要素", "root"
+
+
+def _extract_etymon_templates(raw: str, word: str, add: AddComponent) -> None:
+    base = (word or "").lower().strip().strip("-")
+    for body in _iter_template_bodies(raw, frozenset({"etymon", "ety"})):
+        args = [x.strip() for x in _split_top_level_pipes(body)]
+        if not args:
+            continue
+        current_lang: str | None = None
+        current_keyword = ":from"
+        for arg in args:
+            if not arg:
+                continue
+            if _is_named_template_arg(arg):
+                continue
+            if current_lang is None and _is_language_code_token(arg):
+                current_lang = arg.lower()
+                continue
+            if current_lang and current_lang != "en":
+                break
+            if arg.startswith(":"):
+                current_keyword = _normalize_etymon_keyword(arg)
+                continue
+            if _is_language_code_token(arg):
+                # `:af|en|...` のような keyword 直下の補助言語指定は語源要素ではないためスキップする。
+                continue
+            _, parsed_term = _parse_etymon_term(arg)
+            token = clean_token(parsed_term)
+            core = token.lstrip("-").rstrip("-")
+            if not token or not core or not looks_like_morpheme(core):
+                continue
+            if token.lower().strip("-") != base:
+                meaning, comp_type = _infer_etymon_component_type(current_keyword, token)
+                add(token, meaning, comp_type)
+            for nested_keyword, nested_token in _collect_ety_chain_terms(arg):
+                nested_core = nested_token.lstrip("-").rstrip("-")
+                if not nested_token or not nested_core or not looks_like_morpheme(nested_core):
+                    continue
+                if nested_token.lower().strip("-") == base:
+                    continue
+                nested_meaning, nested_type = _infer_etymon_component_type(nested_keyword, nested_token)
+                add(nested_token, nested_meaning, nested_type)
 
 
 def _looks_like_cjk_language_label(text: str) -> bool:
@@ -101,7 +406,12 @@ def _extract_suf_templates(raw: str, add: AddComponent) -> None:
         raw,
         flags=re.IGNORECASE,
     ):
-        args = _split_pipe_args_skip_lang(match.group(1))
+        raw_args = [x.strip() for x in match.group(1).split("|") if x.strip()]
+        if not raw_args:
+            continue
+        if raw_args[0].lower() != "en":
+            continue
+        args = _strip_leading_lang(raw_args)
         if len(args) < 2:
             continue
         stem = normalize_template_arg(args[0])
@@ -126,9 +436,15 @@ def _extract_surf_templates(raw: str, add: AddComponent) -> None:
         flags=re.IGNORECASE,
     ):
         args = _split_pipe_args_skip_lang(match.group(1))
+        had_plus = False
+        had_plus_suf = False
         while args and args[0].startswith("+"):
+            had_plus = True
+            if args[0].lower() in {"+suf", "+suffix"}:
+                had_plus_suf = True
             args = args[1:]
-        args = _strip_leading_lang(args)
+        if had_plus:
+            args = _strip_leading_lang(args)
         if not args:
             continue
         morpheme_parts: list[str] = []
@@ -139,7 +455,9 @@ def _extract_surf_templates(raw: str, add: AddComponent) -> None:
             if not looks_like_morpheme(text.lstrip("-").rstrip("-")):
                 continue
             morpheme_parts.append(text)
-        for text in morpheme_parts:
+        for idx, text in enumerate(morpheme_parts):
+            if had_plus_suf and idx > 0 and not text.startswith("-"):
+                text = f"-{text}"
             if text.startswith("-"):
                 add(text, "接尾辞要素", "suffix")
             elif text.endswith("-"):
@@ -221,12 +539,48 @@ def _extract_backformation_templates(raw: str, add: AddComponent) -> None:
         args = _strip_leading_lang(raw_args)
         if not args:
             continue
-        term = normalize_template_arg(args[0])
+        term = re.sub(r"<[^>]+>", "", args[0]).strip()
         if not term or "=" in term:
             continue
         if not looks_like_morpheme(term.lstrip("-").rstrip("-")):
             continue
         add(term, "語根要素", "root")
+
+
+def _extract_deverbal_templates(raw: str, add: AddComponent) -> None:
+    # {{deverbal|en|check up}} のような句動詞由来を分割し、check / up を root として追加する。
+    for match in re.finditer(r"\{\{deverbal\|([^}]*)\}\}", raw, flags=re.IGNORECASE):
+        positional = [x.strip() for x in match.group(1).split("|") if x.strip() and "=" not in x]
+        while positional and re.fullmatch(r"[a-z]{2,3}(?:-[a-z0-9-]+)?", positional[0].lower()):
+            positional = positional[1:]
+        if not positional:
+            continue
+        # 1つ目の語句（例: "check up"）だけを対象にし、空白区切りで語根を追加する。
+        parts = [clean_token(x) for x in positional[0].split()]
+        for part in parts:
+            if not part:
+                continue
+            core = part.lstrip("-").rstrip("-")
+            if not looks_like_morpheme(core):
+                continue
+            add(part, "語源要素", "root")
+
+
+def detect_same_word_foreign_origin(raw_etymology: str, word: str) -> tuple[str, str] | None:
+    # {{der|en|la|exterior}} / {{bor+|en|fr|expertise}} のような「同単語の別言語由来」を検出する。
+    base = word.lower().strip().strip("-")
+    for match in re.finditer(
+        r"\{\{(?:der|inh|bor|uder|lbor|ubor)\+?\|([^|}]+)\|([^|}]+)\|([^|}\s]+)",
+        raw_etymology,
+        flags=re.IGNORECASE,
+    ):
+        source_lang = (match.group(2) or "").strip().lower()
+        term = clean_token(match.group(3))
+        if not source_lang or not term:
+            continue
+        if term.lower().strip().strip("-") == base:
+            return source_lang, term
+    return None
 
 
 def _extract_af_templates(raw: str, add: AddComponent) -> None:
@@ -236,7 +590,12 @@ def _extract_af_templates(raw: str, add: AddComponent) -> None:
         raw,
         flags=re.IGNORECASE,
     ):
-        args = _split_pipe_args_skip_lang(match.group(1))
+        raw_args = [x.strip() for x in match.group(1).split("|") if x.strip()]
+        if not raw_args:
+            continue
+        if raw_args[0].lower() != "en":
+            continue
+        args = _strip_leading_lang(raw_args)
         if len(args) < 2:
             continue
         morpheme_parts: list[str] = []
@@ -276,7 +635,9 @@ def _extract_pre_templates(raw: str, add: AddComponent) -> None:
         add(second, "語根要素", "root")
 
 
-def _try_der_linked_morphemes(components: list[dict], raw: str, add: AddComponent) -> None:
+def _try_der_linked_morphemes(
+    components: list[dict], raw: str, word: str, add: AddComponent
+) -> None:
     # {{der|en|fro|...|From [[a]] [[bandon]]}} のように第3引数が説明文で、[[link]] に形態素が並ぶケース。
     # abandon / a+ban の特例と、リンクが2個以上あるとき末尾2つを prefix/root にする（der| のみ対象）。
     if components:
@@ -287,6 +648,9 @@ def _try_der_linked_morphemes(components: list[dict], raw: str, add: AddComponen
             continue
         ety_text = args[2]
         links = [x.strip() for x in re.findall(r"\[\[([^\]|]+)", ety_text) if x.strip()]
+        # 対象語自身（self-word）は語源成分に採用しない。
+        base = word.lower().strip().strip("-")
+        links = [x for x in links if x.lower().strip().strip("-") != base]
         if "a" in links and "bandon" in links:
             components.clear()
             add("a", "〜へ、〜の方へ", "prefix")
@@ -354,7 +718,9 @@ def _try_plain_plus_on_compacted(
             add(right, "語根要素", "root")
 
 
-def _try_der_plain_third_arg(components: list[dict], raw: str, add: AddComponent) -> None:
+def _try_der_plain_third_arg(
+    components: list[dict], raw: str, word: str, add: AddComponent
+) -> None:
     # まだ成分が空のとき、{{uder|en|la|remūnerātiō}} / {{lbor|en|la|...}} / {{bor+|...}} など
     # 第4パイプ位置が単一見出し語になるテンプレの先頭1件だけを root にする。
     if components:
@@ -366,7 +732,7 @@ def _try_der_plain_third_arg(components: list[dict], raw: str, add: AddComponent
     )
     if plain_der:
         term = clean_token(plain_der.group(1))
-        if term:
+        if term and term.lower().strip("-") != word.lower().strip():
             components.clear()
             add(term, "語源要素", "root")
 
@@ -409,9 +775,14 @@ def _maybe_fill_from_candidate_terms(
         flags=re.IGNORECASE,
     ):
         candidate_terms.append(clean_token(m.group(1)))
-    for m in re.finditer(r"\{\{m\|[^|}]+\|([^|}]+)(?:\|([^|}]+))?", raw, flags=re.IGNORECASE):
-        first = clean_token(m.group(1))
+    for m in re.finditer(r"\{\{m\|([^|}]+)\|([^|}]+)(?:\|([^|}]+))?", raw, flags=re.IGNORECASE):
+        lang = (m.group(1) or "").strip().lower()
+        if lang not in _ETYMON_M_LANG_ALLOWLIST:
+            continue
+        first = clean_token(m.group(2))
         candidate_terms.append(first)
+    for m in re.finditer(r"\{\{(?:doublet|dbt)\|en\|([^|}]+)", raw, flags=re.IGNORECASE):
+        candidate_terms.append(clean_token(m.group(1)))
 
     base = word.lower().strip()
     unique_terms: list[str] = []
@@ -428,15 +799,19 @@ def _maybe_fill_from_candidate_terms(
 
     if not unique_terms:
         return
-    components.clear()
-    # 語源上重要語（例: astounen）の取りこぼし防止のため件数上限は設けない。ノイズは sanitize で抑制する。
+    existing_texts = {str(c.get("text", "")).lower().strip("-") for c in components}
+    # 語源上重要語（例: astounen）の取りこぼし防止のため件数上限は設けない。既存成分を保持しつつ追記する。
     for idx, term in enumerate(unique_terms):
+        normalized_term = term.lower().strip("-")
+        if normalized_term in existing_texts:
+            continue
         if term.startswith("*"):
             add(term, "印欧祖語などの祖語形", "proto_root")
-        elif idx == 0:
+        elif not components and idx == 0:
             add(term, "語源要素", "prefix")
         else:
             add(term, "語源要素", "root")
+        existing_texts.add(normalized_term)
 
 
 def extract_etymology_components(
@@ -444,8 +819,13 @@ def extract_etymology_components(
     word: str,
     compact_fn: Callable[[str, int], str],
 ) -> list[dict]:
-    # 呼び出し順：suf → surf（+修飾子除去）→ af → pre → compound → confix → back-formation → derリンク特例
+    # 呼び出し順：suf → surf（+修飾子除去）→ af → pre → compound → confix → back-formation → deverbal
+    # → derリンク特例
     # → 平文+（原文/compact）→ der系単一第4引数 → ASCII+ → 候補語列。
+    # 引用注(ref)に含まれる URL・本文は語源抽出ノイズになるため、先に除去する。
+    raw_etymology = re.sub(r"<ref[^>]*>.*?</ref>", "", raw_etymology, flags=re.IGNORECASE | re.DOTALL)
+    raw_etymology = re.sub(r"<ref[^>]*/\s*>", "", raw_etymology, flags=re.IGNORECASE)
+
     components: list[dict] = []
 
     def add_component(text: str, meaning: str, comp_type: str) -> None:
@@ -467,10 +847,19 @@ def extract_etymology_components(
     _extract_compound_templates(raw_etymology, add_component)
     _extract_confix_templates(raw_etymology, add_component)
     _extract_backformation_templates(raw_etymology, add_component)
-    _try_der_linked_morphemes(components, raw_etymology, add_component)
+    _extract_deverbal_templates(raw_etymology, add_component)
+    if not components:
+        _extract_etymon_templates(raw_etymology, word, add_component)
+    _try_der_linked_morphemes(components, raw_etymology, word, add_component)
     _try_plain_plus_unicode(components, raw_etymology, add_component)
     _try_plain_plus_on_compacted(components, raw_etymology, compact_fn, add_component)
-    _try_der_plain_third_arg(components, raw_etymology, add_component)
+    _try_der_plain_third_arg(components, raw_etymology, word, add_component)
     _try_ascii_plus_fallback(components, raw_etymology, add_component)
     _maybe_fill_from_candidate_terms(components, raw_etymology, word, add_component)
+    if not components:
+        same_word_origin = detect_same_word_foreign_origin(raw_etymology, word)
+        if same_word_origin:
+            lang_code, term = same_word_origin
+            meaning = _ETYMON_LANG_ORIGIN_LABELS.get(lang_code, f"{lang_code}由来")
+            add_component(term, meaning, "root")
     return components

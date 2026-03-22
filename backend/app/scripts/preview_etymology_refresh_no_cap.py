@@ -8,6 +8,7 @@
   uv run python -m app.scripts.preview_etymology_refresh_no_cap --limit 50 --output ./tmp-etymology-preview.md
   uv run python -m app.scripts.preview_etymology_refresh_no_cap --all --output tmp-etymology-refresh-preview.md
   # 全件を100語ずつ分割（1〜100語目、101〜200語目…）。429回避用に別実行する。
+  # 429 が続く場合は --delay 2.0 以上や --max-retries を増やす（Retry-After を自動で待つ）。
   uv run python -m app.scripts.preview_etymology_refresh_no_cap --all --batch 1 --output tmp-part-01.md
   uv run python -m app.scripts.preview_etymology_refresh_no_cap --all --batch 2 --output tmp-part-02.md
 """
@@ -16,8 +17,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import random
 import re
+import time
 from dataclasses import dataclass, field
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from tqdm import tqdm
 
@@ -29,6 +33,7 @@ from app.database import SessionLocal
 from app.models import Word
 from app.services.scraper.etymology_extractors import (
     _ETY_AFTER_PLUS,
+    _ETYMON_M_LANG_ALLOWLIST,
     _ETY_PLUS_RIGHT_OPERAND,
     clean_token as _clean_token,
     extract_etymology_components,
@@ -64,6 +69,8 @@ def _trace_etymology_extraction(raw: str, word: str) -> list[str]:
     """語源本文に対し、抽出ロジックがどのパターンを辿るか検討用の箇条書きを返す（本文と同じ順序）。"""
     lines: list[str] = []
     raw = raw or ""
+    raw = re.sub(r"<ref[^>]*>.*?</ref>", "", raw, flags=re.IGNORECASE | re.DOTALL)
+    raw = re.sub(r"<ref[^>]*/\s*>", "", raw, flags=re.IGNORECASE)
     if not raw.strip():
         lines.append("- （空の語源ブロック）")
         return lines
@@ -295,7 +302,7 @@ def _trace_etymology_extraction(raw: str, word: str) -> list[str]:
 
     if not components:
         plain_der = re.search(
-            r"\{\{der\+?\|[^|}]+\|[^|}]+\|([^|}\s]+)",
+            r"\{\{(?:der|inh|bor|uder|lbor|ubor)\+?\|[^|}]+\|[^|}]+\|([^|}\s]+)",
             raw,
             flags=re.IGNORECASE,
         )
@@ -332,13 +339,16 @@ def _trace_etymology_extraction(raw: str, word: str) -> list[str]:
         for m in re.finditer(r"\{\{root\|[^|}]+\|[^|}]+\|([^|}]+)", raw, flags=re.IGNORECASE):
             candidate_terms.append(_clean_token(m.group(1)))
         for m in re.finditer(
-            r"\{\{(?:der|inh|bor)\+?\|[^|}]+\|[^|}]+\|([^|}]+)",
+            r"\{\{(?:der|inh|bor|uder|lbor|ubor)\+?\|[^|}]+\|[^|}]+\|([^|}]+)",
             raw,
             flags=re.IGNORECASE,
         ):
             candidate_terms.append(_clean_token(m.group(1)))
-        for m in re.finditer(r"\{\{m\|[^|}]+\|([^|}]+)(?:\|([^|}]+))?", raw, flags=re.IGNORECASE):
-            candidate_terms.append(_clean_token(m.group(1)))
+        for m in re.finditer(r"\{\{m\|([^|}]+)\|([^|}]+)(?:\|([^|}]+))?", raw, flags=re.IGNORECASE):
+            lang = (m.group(1) or "").strip().lower()
+            if lang not in _ETYMON_M_LANG_ALLOWLIST:
+                continue
+            candidate_terms.append(_clean_token(m.group(2)))
 
         base = word.lower().strip()
         unique_terms: list[str] = []
@@ -385,54 +395,96 @@ def _etymology_sources_from_payload(scraper: WiktionaryScraper, payload: dict) -
     """WiktionaryScraper._scrape_host と同じ手順で語源セクション本文を列挙する。"""
     parsed = payload.get("parse") or {}
     wikitext = str(parsed.get("wikitext") or "")
-    sections = parsed.get("sections") or []
+    english_body = scraper._extract_english_section_raw(wikitext)
     sources: list[str] = []
-    for title in scraper._find_etymology_section_titles(sections):
-        raw_body = scraper._extract_section_body_raw(wikitext, title, sections=sections)
-        if not raw_body:
-            continue
+    for raw_body in scraper._extract_etymology_blocks_from_language_section(english_body):
         cleaned = scraper._strip_wiki_category_links(raw_body)
         if cleaned and cleaned not in sources:
             sources.append(cleaned)
     return sources
 
 
-async def _fetch_parse_retry(scraper: WiktionaryScraper, word: str, *, max_retries: int = 8) -> dict:
-    delay = 3.0
+def _retry_after_seconds(response: httpx.Response, fallback: float) -> float:
+    """429/503 応答の Retry-After（秒数または HTTP-date）を解釈する。無ければ fallback を使う。"""
+    ra = (response.headers.get("Retry-After") or "").strip()
+    if not ra:
+        return max(fallback, 2.0)
+    if ra.isdigit():
+        return max(float(ra), fallback, 2.0)
+    try:
+        dt = parsedate_to_datetime(ra)
+        wait = dt.timestamp() - time.time()
+        return max(wait, fallback, 2.0)
+    except (TypeError, ValueError, OSError):
+        return max(fallback, 2.0)
+
+
+async def _fetch_parse_retry(
+    scraper: WiktionaryScraper,
+    word: str,
+    *,
+    max_retries: int = 20,
+) -> dict:
+    # 429: Retry-After を最優先し、指数バックオフは補助。上限を緩めて長時間レート制限に耐える。
+    delay_429 = 5.0
+    delay_other = 3.0
     last_exc: Exception | None = None
     for attempt in range(max_retries):
         try:
             return await scraper._fetch_parse("en.wiktionary.org", word)
         except httpx.HTTPStatusError as exc:
             last_exc = exc
-            if exc.response.status_code == 429 and attempt < max_retries - 1:
-                await asyncio.sleep(delay)
-                delay = min(delay * 1.8, 120.0)
+            code = exc.response.status_code
+            if code in (429, 503) and attempt < max_retries - 1:
+                base = _retry_after_seconds(exc.response, delay_429)
+                jitter = random.uniform(0.0, min(8.0, base * 0.15))
+                wait = base + jitter
+                print(
+                    f"[warn] HTTP {code} for {word!r} (try {attempt + 1}/{max_retries}); "
+                    f"sleep {wait:.1f}s (Retry-After / backoff)...",
+                    flush=True,
+                )
+                await asyncio.sleep(wait)
+                delay_429 = min(delay_429 * 1.65, 360.0)
                 continue
             raise
         except (httpx.TimeoutException, httpx.RequestError) as exc:
             last_exc = exc
             if attempt < max_retries - 1:
-                await asyncio.sleep(delay)
-                delay = min(delay * 1.5, 90.0)
+                wait = delay_other + random.uniform(0.0, 2.0)
+                print(
+                    f"[warn] {type(exc).__name__} for {word!r} (try {attempt + 1}/{max_retries}); "
+                    f"sleep {wait:.1f}s...",
+                    flush=True,
+                )
+                await asyncio.sleep(wait)
+                delay_other = min(delay_other * 1.5, 120.0)
                 continue
             raise
     raise RuntimeError(f"fetch failed after retries: {last_exc!r}")
 
 
 async def _current_and_no_cap_from_en_wiktionary(
-    scraper: WiktionaryScraper, word: str,
+    scraper: WiktionaryScraper,
+    word: str,
+    *,
+    max_retries: int = 20,
 ) -> tuple[list[str], list[str], list[str]]:
     """EN Wiktionary を1回だけ取得し、成分テキスト2種と語源セクション原文（wikitext）を返す。"""
-    payload = await _fetch_parse_retry(scraper, word)
+    payload = await _fetch_parse_retry(scraper, word, max_retries=max_retries)
     sources = _etymology_sources_from_payload(scraper, payload)
     if not sources:
         return [], [], []
+    parsed = payload.get("parse") or {}
+    wikitext = str(parsed.get("wikitext") or "")
 
     etymology_components: list[dict] = []
     for raw in sources:
         comps = scraper._extract_etymology_components(raw, word)
         etymology_components = scraper._merge_unique_dict_items_by_text(etymology_components, comps)
+    etymology_components = scraper._follow_same_word_etymology(
+        wikitext, word, sources, etymology_components
+    )
     current_texts = [
         str(item.get("text", "")).strip() for item in etymology_components if str(item.get("text", "")).strip()
     ]
@@ -441,6 +493,9 @@ async def _current_and_no_cap_from_en_wiktionary(
     for raw in sources:
         components = extract_etymology_components(raw, word, WiktionaryScraper._compact_wikitext)
         merged_no_cap = scraper._merge_unique_dict_items_by_text(merged_no_cap, components)
+    merged_no_cap = scraper._follow_same_word_etymology(
+        wikitext, word, sources, merged_no_cap
+    )
     no_cap_texts = [
         str(item.get("text", "")).strip() for item in merged_no_cap if str(item.get("text", "")).strip()
     ]
@@ -582,11 +637,18 @@ async def main() -> None:
         "--delay",
         type=float,
         default=None,
-        help="各単語の処理後に待つ秒数（未指定時: --all なら 0.8、それ以外は 0）。",
+        help="各単語の処理後に待つ秒数（未指定時: --all なら 1.2、それ以外は 0）。429 が続くときは 2.0 以上推奨。",
+    )
+    parser.add_argument(
+        "--max-retries",
+        type=int,
+        default=20,
+        metavar="N",
+        help="API 取得の最大再試行回数（429/503 時は Retry-After と指数バックオフ）。既定: 20。",
     )
     args = parser.parse_args()
 
-    delay_between_words = args.delay if args.delay is not None else (0.8 if args.all else 0.0)
+    delay_between_words = args.delay if args.delay is not None else (1.2 if args.all else 0.0)
 
     if args.word and args.all:
         parser.error("--word と --all は同時に指定できません。")
@@ -596,6 +658,8 @@ async def main() -> None:
         parser.error("--batch は 1 以上である必要があります。")
     if args.batch is not None and args.batch_size < 1:
         parser.error("--batch-size は 1 以上である必要があります。")
+    if args.max_retries < 1:
+        parser.error("--max-retries は 1 以上である必要があります。")
 
     db = SessionLocal()
     scraper = WiktionaryScraper()
@@ -627,6 +691,7 @@ async def main() -> None:
             targets = _get_target_words(db, [], args.limit)
 
         print(f"[info] processing {len(targets)} word(s)...", flush=True)
+        print(f"[info] max API retries per word: {args.max_retries}", flush=True)
         if delay_between_words > 0:
             print(f"[info] delay between words: {delay_between_words}s", flush=True)
         rows: list[PreviewRow] = []
@@ -636,7 +701,9 @@ async def main() -> None:
             if args.all and idx > 0 and idx % 100 == 0:
                 print(f"[progress] {idx}/{len(targets)} words...", flush=True)
             current_components, no_cap_components, etym_sources = await _current_and_no_cap_from_en_wiktionary(
-                scraper, word.word
+                scraper,
+                word.word,
+                max_retries=args.max_retries,
             )
             stored_components = []
             if word.etymology:

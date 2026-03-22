@@ -5,6 +5,7 @@ import { BulkImport } from "../components/BulkImport";
 import { ConfirmModal } from "../components/ConfirmModal";
 import {
   InflectionBatchModal,
+  type InflectionBatchItem,
   type InflectionBatchDecision,
 } from "../components/InflectionBatchModal";
 import { WordCard } from "../components/WordCard";
@@ -148,17 +149,7 @@ export function HomePage() {
 
   const openInflectionModal = (params: {
     title: string;
-    items: Array<{
-      word: string;
-      selectedLemma?: string | null;
-      selectedInflectionType?: string | null;
-      lemmaCandidates?: Array<{
-        lemma: string;
-        lemmaWordId?: number | null;
-        inflectionType?: string | null;
-      }>;
-      suggestion: InflectionAction;
-    }>;
+    items: InflectionBatchItem[];
   }) =>
     new Promise<Record<string, InflectionBatchDecision> | null>((resolve) => {
       inflectionResolverRef.current = resolve;
@@ -231,11 +222,24 @@ export function HomePage() {
             items: inflected.map((item) => ({
               word: item.word,
               selectedLemma: item.selected_lemma ?? null,
+              selectedSpelling: item.selected_spelling ?? null,
+              lemmaResolution: item.lemma_resolution ?? null,
               selectedInflectionType: item.selected_inflection_type ?? null,
               lemmaCandidates: (item.lemma_candidates ?? []).map((candidate) => ({
                 lemma: candidate.lemma,
                 lemmaWordId: candidate.lemma_word_id ?? null,
                 inflectionType: candidate.inflection_type ?? null,
+              })),
+              spellingCandidates: (item.spelling_candidates ?? []).map((entry) => ({
+                spelling: entry.spelling,
+                source: entry.source ?? null,
+                selectedLemma: entry.selected_lemma ?? null,
+                lemmaResolution: entry.lemma_resolution ?? null,
+                lemmaCandidates: (entry.lemma_candidates ?? []).map((candidate) => ({
+                  lemma: candidate.lemma,
+                  lemmaWordId: candidate.lemma_word_id ?? null,
+                  inflectionType: candidate.inflection_type ?? null,
+                })),
               })),
               suggestion: item.suggestion ?? "register_as_is",
             })),
@@ -377,11 +381,24 @@ export function HomePage() {
                 {
                   word: result.word,
                   selectedLemma: result.selected_lemma ?? null,
+                  selectedSpelling: result.selected_spelling ?? null,
+                  lemmaResolution: result.lemma_resolution ?? null,
                   selectedInflectionType: result.selected_inflection_type ?? null,
                   lemmaCandidates: (result.lemma_candidates ?? []).map((candidate) => ({
                     lemma: candidate.lemma,
                     lemmaWordId: candidate.lemma_word_id ?? null,
                     inflectionType: candidate.inflection_type ?? null,
+                  })),
+                  spellingCandidates: (result.spelling_candidates ?? []).map((entry) => ({
+                    spelling: entry.spelling,
+                    source: entry.source ?? null,
+                    selectedLemma: entry.selected_lemma ?? null,
+                    lemmaResolution: entry.lemma_resolution ?? null,
+                    lemmaCandidates: (entry.lemma_candidates ?? []).map((candidate) => ({
+                      lemma: candidate.lemma,
+                      lemmaWordId: candidate.lemma_word_id ?? null,
+                      inflectionType: candidate.inflection_type ?? null,
+                    })),
                   })),
                   suggestion: result.suggestion ?? "register_as_is",
                 },
