@@ -35,7 +35,7 @@ class LemmaCandidate:
     lemma_word: str
     lemma_word_id: int | None
     inflection_type: str
-    has_own_content: bool
+    has_own_content: bool | None
     confidence: Literal["high", "medium", "low"] = "medium"
     source: Literal["db_forms", "possessive", "wiktionary", "nltk"] = "wiktionary"
     score: int = 0
@@ -243,7 +243,34 @@ def _sort_and_dedupe_candidates(candidates: list[LemmaCandidate]) -> list[LemmaC
     )
 
 
-async def detect_lemma_candidates(word: str, db: Session, scraper: WiktionaryScraper | None = None) -> list[LemmaCandidate]:
+async def detect_word_has_own_content(
+    word: str,
+    *,
+    scraper: WiktionaryScraper | None = None,
+    cache: dict[str, bool | None] | None = None,
+) -> bool | None:
+    normalized = _normalize(word)
+    if not normalized:
+        return None
+    if cache is not None and normalized in cache:
+        return cache[normalized]
+
+    wiktionary_scraper = scraper or WiktionaryScraper()
+    try:
+        scraped = await wiktionary_scraper.scrape(normalized)
+    except Exception:  # noqa: BLE001
+        own_content: bool | None = None
+    else:
+        own_content = _has_own_content(scraped) if isinstance(scraped, dict) and not scraped.get("error") else None
+
+    if cache is not None:
+        cache[normalized] = own_content
+    return own_content
+
+
+async def detect_lemma_candidates(
+    word: str, db: Session, scraper: WiktionaryScraper | None = None
+) -> list[LemmaCandidate]:
     target = _normalize(word)
     if not target:
         return []
@@ -253,15 +280,15 @@ async def detect_lemma_candidates(word: str, db: Session, scraper: WiktionaryScr
     candidates.extend(_possessive_candidates(db, target))
 
     wiktionary_scraper = scraper or WiktionaryScraper()
+    own_content_cache: dict[str, bool | None] = {}
     try:
         scraped = await wiktionary_scraper.scrape(target)
     except Exception:  # noqa: BLE001
         scraped = {}
     if isinstance(scraped, dict):
+        # ページ全体の `summary` は非英語見出し・Translingual 等も含むため lemma 抽出に使わない。
+        # `definitions[].meaning_en` は WiktionaryScraper が ==English== セクションからのみ取得する。
         possible_texts: list[str] = []
-        summary = scraped.get("summary")
-        if isinstance(summary, str):
-            possible_texts.append(summary)
         definitions = scraped.get("definitions")
         if isinstance(definitions, list):
             for item in definitions:
@@ -270,7 +297,7 @@ async def detect_lemma_candidates(word: str, db: Session, scraper: WiktionaryScr
                 meaning_en = item.get("meaning_en")
                 if isinstance(meaning_en, str):
                     possible_texts.append(meaning_en)
-        own_content = _has_own_content(scraped)
+        own_content_cache[target] = _has_own_content(scraped)
         for text in possible_texts:
             extracted = _extract_lemma_from_inflection_text(text)
             if not extracted:
@@ -278,12 +305,17 @@ async def detect_lemma_candidates(word: str, db: Session, scraper: WiktionaryScr
             lemma, inflection_type = extracted
             lemma_row = db.scalar(select(Word).where(Word.word.ilike(lemma)))
             score = 70 + (10 if lemma_row else 0)
+            lemma_own_content = await detect_word_has_own_content(
+                lemma,
+                scraper=wiktionary_scraper,
+                cache=own_content_cache,
+            )
             candidates.append(
                 LemmaCandidate(
                     lemma_word=lemma,
                     lemma_word_id=lemma_row.id if lemma_row else None,
                     inflection_type=inflection_type,
-                    has_own_content=own_content,
+                    has_own_content=lemma_own_content,
                     confidence="medium",
                     source="wiktionary",
                     score=score,
@@ -293,12 +325,17 @@ async def detect_lemma_candidates(word: str, db: Session, scraper: WiktionaryScr
     lemma_by_nltk = _lemmatize_with_pos_priority(target)
     if lemma_by_nltk:
         lemma_row = db.scalar(select(Word).where(Word.word.ilike(lemma_by_nltk)))
+        lemma_own_content = await detect_word_has_own_content(
+            lemma_by_nltk,
+            scraper=wiktionary_scraper,
+            cache=own_content_cache,
+        )
         candidates.append(
             LemmaCandidate(
                 lemma_word=lemma_by_nltk,
                 lemma_word_id=lemma_row.id if lemma_row else None,
                 inflection_type="inflection",
-                has_own_content=False,
+                has_own_content=lemma_own_content,
                 confidence="low",
                 source="nltk",
                 score=40 + (10 if lemma_row else 0),

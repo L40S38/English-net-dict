@@ -11,22 +11,22 @@ from app.database import get_db
 from app.models import Definition, Derivation, Etymology, RelatedWord, Word
 from app.schemas import (
     BulkWordRequest,
-    InflectionCheckRequest,
-    InflectionCheckResponse,
-    InflectionCheckResult,
-    WordCheckFound,
-    WordCheckResponse,
     DefinitionRead,
+    DefinitionUpdate,
     DerivationCreate,
     DerivationRead,
     DerivationUpdate,
-    DefinitionUpdate,
     EtymologyComponentSearchResponse,
     EtymologyRead,
     EtymologyUpdate,
+    InflectionCheckRequest,
+    InflectionCheckResponse,
+    InflectionCheckResult,
     RelatedWordCreate,
     RelatedWordRead,
     RelatedWordUpdate,
+    WordCheckFound,
+    WordCheckResponse,
     WordCreateRequest,
     WordFullUpdate,
     WordListResponse,
@@ -34,11 +34,16 @@ from app.schemas import (
 )
 from app.services import word_service
 from app.services.etymology_component_service import get_component_cache, normalize_component_text
-from app.services.lemma_service import detect_lemma, detect_lemma_candidates, suggest_inflection_action
+from app.services.lemma_service import (
+    detect_lemma,
+    detect_lemma_candidates,
+    detect_word_has_own_content,
+    suggest_inflection_action,
+)
 from app.services.scraper.wiktionary import WiktionaryScraper
 from app.services.spelling_suggestions import build_spellchecker, collect_spelling_suggestions
-from app.services.word_merge_service import link_to_lemma, merge_into_lemma
 from app.services.word_ingest_service import IngestOptions, ingest_word_or_phrase
+from app.services.word_merge_service import link_to_lemma, merge_into_lemma
 from app.utils.pos_labels import normalize_part_of_speech
 
 router = APIRouter(prefix="/api/words", tags=["words"])
@@ -449,8 +454,14 @@ async def check_inflection(payload: InflectionCheckRequest, db: Session = Depend
         list(by_lower.values()),
         merge_db_vocabulary=payload.spellchecker_merge_db,
     )
+    own_content_cache: dict[str, bool] = {}
     results: list[InflectionCheckResult] = []
     for word_text in deduped:
+        word_has_own_content = await detect_word_has_own_content(
+            word_text,
+            scraper=scraper,
+            cache=own_content_cache,
+        )
         candidates = await detect_lemma_candidates(word_text, db, scraper=scraper)
         spelling_candidates_payload: list[dict] = []
         selected_spelling: str | None = None
@@ -487,6 +498,7 @@ async def check_inflection(payload: InflectionCheckRequest, db: Session = Depend
             InflectionCheckResult(
                 word=word_text,
                 is_inflected=(selected is not None) or bool(spelling_candidates_payload),
+                word_has_own_content=word_has_own_content,
                 selected_lemma=(selected.lemma_word if selected else None),
                 selected_lemma_word_id=(selected.lemma_word_id if selected else None),
                 selected_inflection_type=(selected.inflection_type if selected else None),

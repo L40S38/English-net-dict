@@ -332,6 +332,37 @@ export interface InflectionCheckResponse {
   results?: InflectionCheckResult[];
 }
 
+export interface MigrationInflectionTarget {
+  id: number;
+  word: string;
+}
+
+export interface MigrationInflectionTargetsResponse {
+  words: MigrationInflectionTarget[];
+  total: number;
+}
+
+export interface MigrationInflectionApplyDecision {
+  word_id: number;
+  action: "merge" | "link";
+  lemma_word_id: number;
+  inflection_type?: string | null;
+}
+
+export interface MigrationInflectionApplyResult {
+  word_id: number;
+  action: "merge" | "link";
+  status: "applied" | "skipped" | "error";
+  detail: string;
+}
+
+export interface MigrationInflectionApplyResponse {
+  applied: number;
+  skipped: number;
+  errors: number;
+  results: MigrationInflectionApplyResult[];
+}
+
 export interface GroupBulkAddItemsResponse {
   added: number;
   skipped: number;

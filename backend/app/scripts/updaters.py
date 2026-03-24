@@ -12,14 +12,13 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.models import Etymology, Word
-from app.services.phrase_service import get_or_create_phrase, link_phrase_to_word, normalize_phrase_text
+from app.scripts.patch_base import FieldDiff, is_multi_token, normalize_phrase_entries, scrape_all
 from app.services.gpt_service import enrich_core_image_and_branches, generate_structured_word_data
 from app.services.phrase_meaning_service import clean_line, needs_one_line_summary, resolve_meaning_ja
+from app.services.phrase_service import get_or_create_phrase, link_phrase_to_word, normalize_phrase_text
 from app.services.scraper.wiktionary import WiktionaryScraper
-from app.services.word_service import apply_structured_payload
+from app.services.word_service import apply_etymology_update, apply_structured_payload
 from app.services.wordnet_service import get_wordnet_snapshot
-
-from app.scripts.patch_base import FieldDiff, is_multi_token, normalize_phrase_entries, scrape_all
 
 _PLACEHOLDER_MEANINGS = {"", "Wiktionaryの派生語"}
 
@@ -50,6 +49,75 @@ def _snapshot_diffs(before: dict[str, Any], after: dict[str, Any], keys: list[st
         if before.get(key) != after.get(key):
             diffs.append(FieldDiff(name=key, before=before.get(key), after=after.get(key)))
     return diffs
+
+
+def _etymology_snapshot(word: Word) -> dict[str, Any]:
+    def _safe_id(value: Any) -> int:
+        ident = getattr(value, "id", None)
+        return ident if isinstance(ident, int) else -1
+
+    ety = word.etymology
+    if not ety:
+        return {
+            "has_etymology": False,
+            "origin_word": None,
+            "origin_language": None,
+            "core_image": "",
+            "raw_description": None,
+            "components": [],
+            "language_chain": [],
+            "component_meanings": [],
+            "variants": [],
+            "branches": [],
+        }
+    return {
+        "has_etymology": True,
+        "origin_word": ety.origin_word,
+        "origin_language": ety.origin_language,
+        "core_image": ety.core_image or "",
+        "raw_description": ety.raw_description,
+        "components": [
+            {"text": c.component_text, "meaning": c.meaning, "type": c.type}
+            for c in sorted(ety.component_items, key=lambda x: (x.sort_order, x.id))
+        ],
+        "language_chain": [
+            {"lang": link.lang, "lang_name": link.lang_name, "word": link.word, "relation": link.relation}
+            for link in sorted(
+                [link for link in ety.language_chain_links if link.variant_id is None],
+                key=lambda x: (x.sort_order, x.id),
+            )
+        ],
+        "component_meanings": [
+            {"text": cm.component_text, "meaning": cm.meaning}
+            for cm in sorted(
+                [cm for cm in ety.component_meanings if cm.variant_id is None],
+                key=_safe_id,
+            )
+        ],
+        "variants": [
+            {
+                "label": v.label,
+                "excerpt": v.excerpt,
+                "components": [
+                    {"text": c.component_text, "meaning": c.meaning, "type": c.type}
+                    for c in sorted(v.component_items, key=lambda x: (x.sort_order, x.id))
+                ],
+                "component_meanings": [
+                    {"text": cm.component_text, "meaning": cm.meaning}
+                    for cm in sorted(v.component_meanings, key=_safe_id)
+                ],
+                "language_chain": [
+                    {"lang": link.lang, "lang_name": link.lang_name, "word": link.word, "relation": link.relation}
+                    for link in sorted(v.language_chain_links, key=lambda x: (x.sort_order, x.id))
+                ],
+            }
+            for v in sorted(ety.variants, key=lambda x: (x.sort_order, x.id))
+        ],
+        "branches": [
+            {"label": b.label, "meaning_en": b.meaning_en, "meaning_ja": b.meaning_ja}
+            for b in sorted(ety.branches, key=lambda x: (x.sort_order, x.id))
+        ],
+    }
 
 
 def _normalize_structured_forms(structured: dict) -> dict:
@@ -257,6 +325,61 @@ async def refresh_word_data(
     )
 
 
+def _safe_list(value: object) -> list:
+    return value if isinstance(value, list) else []
+
+
+async def refresh_etymology_only(
+    db: Session,
+    word: Word,
+    *,
+    scraper: WiktionaryScraper | None = None,
+) -> list[FieldDiff]:
+    before = _etymology_snapshot(word)
+    scraper_impl = scraper or WiktionaryScraper()
+    scraped = await scraper_impl.scrape(word.word)
+    if not isinstance(scraped, dict) or scraped.get("error"):
+        error_text = (
+            str(scraped.get("error", "unknown scrape error"))
+            if isinstance(scraped, dict)
+            else "invalid payload"
+        )
+        raise RuntimeError(f"failed to scrape etymology for {word.word}: {error_text}")
+
+    if not word.etymology:
+        word.etymology = Etymology(word_id=word.id)
+
+    existing = word.etymology
+    payload = {
+        "components": _safe_list(scraped.get("etymology_components")),
+        "language_chain": _safe_list(scraped.get("language_chain")),
+        "component_meanings": _safe_list(scraped.get("component_meanings")),
+        "etymology_variants": _safe_list(scraped.get("etymology_variants")),
+        "raw_description": str(scraped.get("etymology_excerpt") or existing.raw_description or "").strip() or None,
+        # 語源専用更新では既存の origin/core_image/branches を保持する。
+        "origin_word": existing.origin_word,
+        "origin_language": existing.origin_language,
+        "core_image": existing.core_image,
+        "branches": [
+            {"label": b.label or "", "meaning_en": b.meaning_en, "meaning_ja": b.meaning_ja}
+            for b in sorted(existing.branches, key=lambda x: (x.sort_order, x.id))
+        ],
+    }
+    apply_etymology_update(db, existing, payload)
+    after = _etymology_snapshot(word)
+    return _snapshot_diffs(
+        before,
+        after,
+        [
+            "raw_description",
+            "components",
+            "language_chain",
+            "component_meanings",
+            "variants",
+        ],
+    )
+
+
 def _phrase_state(word: Word) -> tuple[list[dict[str, str]], dict[str, str], list[str]]:
     phrases = [{"phrase": p.text, "meaning": p.meaning or ""} for p in sorted(word.phrases, key=lambda x: x.id)]
     related_notes = {rw.related_word: (rw.note or "") for rw in word.related_words}
@@ -273,7 +396,9 @@ async def enrich_phrase_meanings(
 ) -> list[FieldDiff]:
     before_phrases, before_notes, before_derivations = _phrase_state(word)
 
-    normalized_phrases = [{"phrase": p.text, "meaning": p.meaning or ""} for p in sorted(word.phrases, key=lambda x: x.id)]
+    normalized_phrases = [
+        {"phrase": p.text, "meaning": p.meaning or ""} for p in sorted(word.phrases, key=lambda x: x.id)
+    ]
     phrase_map: dict[str, dict[str, str]] = {
         entry["phrase"].strip().lower(): entry for entry in normalized_phrases if entry.get("phrase", "").strip()
     }

@@ -208,6 +208,7 @@ class InflectionCheckRequest(BaseModel):
 class InflectionCheckResult(BaseModel):
     word: str
     is_inflected: bool
+    word_has_own_content: bool | None = None
     selected_lemma: str | None = None
     selected_lemma_word_id: int | None = None
     selected_inflection_type: str | None = None
@@ -225,6 +226,41 @@ class InflectionCheckResult(BaseModel):
 class InflectionCheckResponse(BaseModel):
     result: InflectionCheckResult | None = None
     results: list[InflectionCheckResult] = Field(default_factory=list)
+
+
+class MigrationInflectionTarget(BaseModel):
+    id: int
+    word: str
+
+
+class MigrationInflectionTargetsResponse(BaseModel):
+    words: list[MigrationInflectionTarget] = Field(default_factory=list)
+    total: int = 0
+
+
+class MigrationInflectionApplyDecision(BaseModel):
+    word_id: int
+    action: Literal["merge", "link"]
+    lemma_word_id: int
+    inflection_type: str | None = None
+
+
+class MigrationInflectionApplyRequest(BaseModel):
+    decisions: list[MigrationInflectionApplyDecision] = Field(default_factory=list)
+
+
+class MigrationInflectionApplyResult(BaseModel):
+    word_id: int
+    action: Literal["merge", "link"]
+    status: Literal["applied", "skipped", "error"]
+    detail: str = ""
+
+
+class MigrationInflectionApplyResponse(BaseModel):
+    applied: int = 0
+    skipped: int = 0
+    errors: int = 0
+    results: list[MigrationInflectionApplyResult] = Field(default_factory=list)
 
 
 class PhraseBase(BaseModel):

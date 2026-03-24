@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 
 import { Layout } from "./components/Layout";
 import { DevInflectionModalPage } from "./pages/DevInflectionModalPage";
+import { DevInflectionMigrationPage } from "./pages/DevInflectionMigrationPage";
 import { EtymologyComponentPage } from "./pages/EtymologyComponentPage";
 import { EtymologySearchPage } from "./pages/EtymologySearchPage";
 import { GroupDetailPage } from "./pages/GroupDetailPage";
@@ -25,6 +26,9 @@ function App() {
         <Route path="/words/:wordKey/edit" element={<WordEditPage />} />
         {import.meta.env.DEV && (
           <Route path="/dev/inflection-modal" element={<DevInflectionModalPage />} />
+        )}
+        {import.meta.env.DEV && (
+          <Route path="/dev/migration/inflection" element={<DevInflectionMigrationPage />} />
         )}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

@@ -4,9 +4,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.migrations import run_alembic_migrations
 from app.config import settings
-from app.routers import chat, etymology_components, groups, images, phrases, words
+from app.migrations import run_alembic_migrations
+from app.routers import chat, etymology_components, groups, images, migration, phrases, words
 
 
 def create_app() -> FastAPI:
@@ -24,6 +24,7 @@ def create_app() -> FastAPI:
     app.include_router(chat.router)
     app.include_router(groups.router)
     app.include_router(phrases.router)
+    app.include_router(migration.router)
 
     static_dir = Path(settings.data_dir)
     static_dir.mkdir(parents=True, exist_ok=True)

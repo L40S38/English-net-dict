@@ -1,13 +1,39 @@
 from __future__ import annotations
 
+import asyncio
+import json
+import logging
+import random
 import re
+import time
+from email.utils import parsedate_to_datetime
+from pathlib import Path
 from urllib.parse import quote
 
 import httpx
 
+from app.config import DATA_DIR
 from app.services.scraper.base import BaseScraper
 from app.services.scraper.wiktionary_parsers import WiktionaryParserMixin
 
+logger = logging.getLogger(__name__)
+
+_SCRAPE_CACHE_DIR = DATA_DIR / "scrape_cache"
+
+
+def _retry_after_seconds(response: httpx.Response, fallback: float) -> float:
+    """429/503 応答の Retry-After（秒数または HTTP-date）を解釈する。"""
+    ra = (response.headers.get("Retry-After") or "").strip()
+    if not ra:
+        return max(fallback, 2.0)
+    if ra.isdigit():
+        return max(float(ra), fallback, 2.0)
+    try:
+        dt = parsedate_to_datetime(ra)
+        wait = dt.timestamp() - time.time()
+        return max(wait, fallback, 2.0)
+    except (TypeError, ValueError, OSError):
+        return max(fallback, 2.0)
 
 _LANG_NAMES: dict[str, str] = {
     "en": "英語", "enm": "中英語", "ang": "古英語",
@@ -34,8 +60,54 @@ _FORM_NOISE_TOKENS = {"of", "from", "for", "to", "by", "and", "or", "the", "a", 
 
 class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
     source_name = "wiktionary"
+    _FETCH_MAX_RETRIES = 20
+    _FETCH_BASE_DELAY_429 = 5.0
+    _FETCH_BASE_DELAY_OTHER = 3.0
 
     _GENERIC_COMPONENT_MEANINGS = {"語源要素", "語根要素", "接頭要素"}
+
+    def __init__(self, *, cache_dir: Path | None = None, use_cache: bool = True) -> None:
+        self._cache_dir = cache_dir or _SCRAPE_CACHE_DIR
+        self._use_cache = use_cache
+        self._memory_cache: dict[str, dict] = {}
+        if self._use_cache:
+            self._cache_dir.mkdir(parents=True, exist_ok=True)
+
+    @staticmethod
+    def _cache_key(word: str) -> str:
+        return word.strip().lower()
+
+    def _cache_path(self, word: str) -> Path:
+        key = self._cache_key(word)
+        safe = key.replace("/", "__SLASH__").replace("\\", "__BSLASH__")
+        return self._cache_dir / f"{safe}.json"
+
+    def _load_cache(self, word: str) -> dict | None:
+        key = self._cache_key(word)
+        if key in self._memory_cache:
+            return self._memory_cache[key]
+        if not self._use_cache:
+            return None
+        path = self._cache_path(word)
+        if not path.exists():
+            return None
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            self._memory_cache[key] = data
+            return data
+        except (json.JSONDecodeError, OSError):
+            return None
+
+    def _save_cache(self, word: str, data: dict) -> None:
+        key = self._cache_key(word)
+        self._memory_cache[key] = data
+        if not self._use_cache:
+            return
+        try:
+            path = self._cache_path(word)
+            path.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+        except OSError:
+            pass
     _POS_SECTION_MAP: dict[str, str] = {
         "noun": "noun",
         "proper noun": "noun",
@@ -630,10 +702,66 @@ class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
                 "(KHTML, like Gecko) Chrome/123.0 Safari/537.36"
             )
         }
+        delay_429 = self._FETCH_BASE_DELAY_429
+        delay_other = self._FETCH_BASE_DELAY_OTHER
+        last_error: Exception | None = None
+
         async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
-            res = await client.get(url, params=params, headers=headers)
-            res.raise_for_status()
-            return res.json()
+            for attempt in range(self._FETCH_MAX_RETRIES):
+                try:
+                    res = await client.get(url, params=params, headers=headers)
+                    if res.status_code in (429, 503) and attempt < self._FETCH_MAX_RETRIES - 1:
+                        base = _retry_after_seconds(res, delay_429)
+                        jitter = random.uniform(0.0, min(8.0, base * 0.15))
+                        wait = base + jitter
+                        logger.warning(
+                            "HTTP %d for %r (try %d/%d); sleep %.1fs",
+                            res.status_code, word, attempt + 1, self._FETCH_MAX_RETRIES, wait,
+                        )
+                        await asyncio.sleep(wait)
+                        delay_429 = min(delay_429 * 1.65, 360.0)
+                        continue
+                    res.raise_for_status()
+                    return res.json()
+                except httpx.HTTPStatusError as exc:
+                    last_error = exc
+                    code = exc.response.status_code
+                    if code in (429, 503) and attempt < self._FETCH_MAX_RETRIES - 1:
+                        base = _retry_after_seconds(exc.response, delay_429)
+                        jitter = random.uniform(0.0, min(8.0, base * 0.15))
+                        wait = base + jitter
+                        logger.warning(
+                            "HTTP %d for %r (try %d/%d); sleep %.1fs",
+                            code, word, attempt + 1, self._FETCH_MAX_RETRIES, wait,
+                        )
+                        await asyncio.sleep(wait)
+                        delay_429 = min(delay_429 * 1.65, 360.0)
+                        continue
+                    if code in (403, 500, 502, 504) and attempt < self._FETCH_MAX_RETRIES - 1:
+                        wait = delay_other + random.uniform(0.0, 2.0)
+                        logger.warning(
+                            "HTTP %d for %r (try %d/%d); sleep %.1fs",
+                            code, word, attempt + 1, self._FETCH_MAX_RETRIES, wait,
+                        )
+                        await asyncio.sleep(wait)
+                        delay_other = min(delay_other * 1.5, 120.0)
+                        continue
+                    raise
+                except (httpx.TimeoutException, httpx.RequestError) as exc:
+                    last_error = exc
+                    if attempt < self._FETCH_MAX_RETRIES - 1:
+                        wait = delay_other + random.uniform(0.0, 2.0)
+                        logger.warning(
+                            "%s for %r (try %d/%d); sleep %.1fs",
+                            type(exc).__name__, word, attempt + 1, self._FETCH_MAX_RETRIES, wait,
+                        )
+                        await asyncio.sleep(wait)
+                        delay_other = min(delay_other * 1.5, 120.0)
+                        continue
+                    raise
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("unexpected fetch_parse retry flow")
 
     async def _scrape_component_host(self, host: str, source: str, component_text: str) -> dict:
         try:
@@ -713,10 +841,10 @@ class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
 
             wikitext = str(parsed.get("wikitext") or "")
             sections = parsed.get("sections") or []
-            summary = self._compact_wikitext(wikitext)
             # 語源は英語セクション内の Etymology / Etymology 1… / 語源・由来 見出し配下のみ対象にする。
             # 全文探索だと Translingual 側の Etymology が先に拾われる場合がある（例: run / all）。
             english_body = self._extract_english_section_raw(wikitext)
+            summary = self._compact_wikitext(english_body)
             etymology_bodies: list[str] = []
             for raw_body in self._extract_etymology_blocks_from_language_section(english_body):
                 cleaned = self._strip_wiki_category_links(raw_body)
@@ -742,7 +870,7 @@ class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
             )
             etymology_variants = self._extract_etymology_variants(etymology_bodies or sources, word) if (etymology_bodies or sources) else []
 
-            pronunciation_ipa = self._extract_ipa(wikitext, sections)
+            pronunciation_ipa = self._extract_ipa(english_body, sections)
             derived_terms: list[str] = []
             synonyms: list[str] = []
             antonyms: list[str] = []
@@ -750,15 +878,15 @@ class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
             definitions = self._extract_definitions_with_examples(wikitext)
 
             if title := self._find_section_title(sections, "derived terms", "派生語"):
-                derived_terms = self._extract_section_items(wikitext, title, sections=sections)
+                derived_terms = self._extract_section_items(english_body, title, sections=sections)
             if title := self._find_section_title(sections, "synonyms", "類義語"):
-                synonyms = self._extract_section_items(wikitext, title, sections=sections)
+                synonyms = self._extract_section_items(english_body, title, sections=sections)
             if title := self._find_section_title(sections, "antonyms", "対義語"):
-                antonyms = self._extract_section_items(wikitext, title, sections=sections)
+                antonyms = self._extract_section_items(english_body, title, sections=sections)
             if title := self._find_section_title(sections, "phrases", "idioms", "成句"):
-                phrases = self._extract_section_items(wikitext, title, sections=sections)
+                phrases = self._extract_section_items(english_body, title, sections=sections)
 
-            forms = self._extract_forms(word, wikitext)
+            forms = self._extract_forms(word, english_body)
 
             return {
                 "source": source,
@@ -781,11 +909,17 @@ class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
             return {"source": source, "url": page_url, "error": str(exc)}
 
     async def scrape(self, word: str) -> dict:
+        cached = self._load_cache(word)
+        if cached is not None:
+            return cached
+
         english = await self._scrape_host("en.wiktionary.org", "wiktionary_en", word)
         japanese = await self._scrape_host("ja.wiktionary.org", "wiktionary_ja", word)
         if not english.get("error") and japanese.get("error"):
+            self._save_cache(word, english)
             return english
         if english.get("error") and not japanese.get("error"):
+            self._save_cache(word, japanese)
             return japanese
         if not english.get("error") and not japanese.get("error"):
             merged = dict(english)
@@ -838,14 +972,16 @@ class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
                     )
                 elif not en_value and ja_value:
                     merged[key] = ja_value
+            self._save_cache(word, merged)
             return merged
 
-        return {
+        error_result = {
             "source": "wiktionary_en",
             "fallback_source": "wiktionary_ja",
             "url": english.get("url"),
             "error": f"en: {english.get('error')} / ja: {japanese.get('error')}",
         }
+        return error_result
 
     async def scrape_component_page(self, component_text: str) -> dict:
         english = await self._scrape_component_host("en.wiktionary.org", "wiktionary_en", component_text)

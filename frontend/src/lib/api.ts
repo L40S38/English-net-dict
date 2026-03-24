@@ -14,6 +14,9 @@ import type {
   GroupImage,
   InflectionAction,
   InflectionCheckResponse,
+  MigrationInflectionApplyDecision,
+  MigrationInflectionApplyResponse,
+  MigrationInflectionTargetsResponse,
   Phrase,
   RelatedWord,
   Word,
@@ -452,6 +455,28 @@ export const phraseApi = {
   },
   async delete(phraseId: number) {
     await api.delete(`/api/phrases/${phraseId}`);
+  },
+};
+
+export const migrationApi = {
+  async listInflectionTargets(params?: { page?: number; page_size?: number }) {
+    const { data } = await api.get<MigrationInflectionTargetsResponse>(
+      "/api/migration/inflection/targets",
+      {
+        params: {
+          page: params?.page ?? 1,
+          page_size: params?.page_size ?? 100,
+        },
+      },
+    );
+    return data;
+  },
+  async applyInflection(decisions: MigrationInflectionApplyDecision[]) {
+    const { data } = await api.post<MigrationInflectionApplyResponse>(
+      "/api/migration/inflection/apply",
+      { decisions },
+    );
+    return data;
   },
 };
 

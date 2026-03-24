@@ -14,16 +14,37 @@ import json
 from pathlib import Path
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.models import Word
 from app.scripts.patch_base import add_common_args, create_session, prepare_database
-from app.services.lemma_service import detect_lemma_candidates, suggest_inflection_action
+from app.services.lemma_service import (
+    detect_lemma_candidates,
+    detect_word_has_own_content,
+    suggest_inflection_action,
+)
 from app.services.scraper.wiktionary import WiktionaryScraper
 from app.services.spelling_suggestions import build_spellchecker, collect_spelling_suggestions
 
 
 def _json(value: object) -> str:
     return json.dumps(value, ensure_ascii=False)
+
+
+def _format_spelling_hints(payload: list[dict]) -> str:
+    """Short string for console (spelling + source)."""
+    if not payload:
+        return ""
+    parts: list[str] = []
+    for item in payload[:10]:
+        sp = str(item.get("spelling", "") or "").strip()
+        src = str(item.get("source", "") or "").strip()
+        if sp:
+            parts.append(f"{sp}({src})" if src else sp)
+    if not parts:
+        return ""
+    suffix = " ..." if len(payload) > 10 else ""
+    return f" spelling={', '.join(parts)}{suffix}"
 
 
 def _serialize_lemma_candidates(candidates: list) -> list[dict]:
@@ -53,6 +74,15 @@ def _read_word_list(file_path: Path) -> list[str]:
     return words
 
 
+def _read_words_from_db(db: Session) -> list[str]:
+    stmt = (
+        select(Word.word)
+        .where(Word.lemma_word_id.is_(None))
+        .order_by(Word.id.asc())
+    )
+    return [word for word in db.scalars(stmt) if isinstance(word, str) and word.strip()]
+
+
 def _select_words(words: list[str], word_filter: str | None, limit: int | None) -> list[str]:
     filtered = words
     if word_filter:
@@ -67,6 +97,7 @@ async def run(
     file_path: Path,
     *,
     output_file: Path,
+    from_db: bool = False,
     dry_run: bool = False,
     limit: int | None = None,
     word_filter: str | None = None,
@@ -77,16 +108,17 @@ async def run(
     db = create_session()
     scraper = WiktionaryScraper()
     try:
-        raw_words = _read_word_list(file_path)
+        raw_words = _read_words_from_db(db) if from_db else _read_word_list(file_path)
         targets = _select_words(raw_words, word_filter=word_filter, limit=limit)
         total = len(targets)
         if total == 0:
-            print("No target words found in input.")
+            print("No target words found in DB." if from_db else "No target words found in input.")
             return
         rows: list[dict[str, str]] = []
         db_words = list(db.scalars(select(Word.word)))
         by_lower = {str(w).strip().lower(): str(w).strip() for w in db_words if str(w).strip()}
         spellchecker = build_spellchecker(list(by_lower.values()), merge_db_vocabulary=spellchecker_merge_db)
+        own_content_cache: dict[str, bool] = {}
         mode_parts: list[str] = []
         if use_db_near:
             mode_parts.append("db-near")
@@ -95,12 +127,19 @@ async def run(
         mode = f" ({', '.join(mode_parts)})" if mode_parts else " (pure-pyspell)"
         print(f"Targets: {total}" + (" (dry-run)" if dry_run else "") + mode)
         for idx, word in enumerate(targets, start=1):
+            word_has_own_content = await detect_word_has_own_content(
+                word,
+                scraper=scraper,
+                cache=own_content_cache,
+            )
             candidates = await detect_lemma_candidates(word, db, scraper=scraper)
             selected = candidates[0] if candidates else None
             selected_spelling = ""
             lemma_resolution = "direct" if selected else "manual"
             spelling_candidates_payload: list[dict] = []
-            if not selected:
+            # 語彙コンテンツが薄い lemma のときも、別綴り候補を出す（スペルミス疑いの調査用）
+            run_spelling = not selected or (selected is not None and not selected.has_own_content)
+            if run_spelling:
                 for suggestion in collect_spelling_suggestions(
                     word, by_lower, spellchecker, use_db_near=use_db_near
                 ):
@@ -133,7 +172,8 @@ async def run(
                 "lemma": selected.lemma_word if selected else "",
                 "lemma_word_id": str(selected.lemma_word_id) if selected and selected.lemma_word_id else "",
                 "inflection_type": selected.inflection_type if selected else "",
-                "has_own_content": str(selected.has_own_content) if selected else "",
+                "has_own_content": str(word_has_own_content),
+                "selected_has_own_content": str(selected.has_own_content) if selected else "",
                 "lemma_candidates": _json(_serialize_lemma_candidates(candidates)),
                 "spelling_candidates": _json(spelling_candidates_payload),
                 "selected_spelling": selected_spelling,
@@ -145,7 +185,11 @@ async def run(
             rows.append(row)
             print(
                 f"  [{idx}/{total}] {word} -> "
-                f"{row['lemma'] or '-'} ({row['inflection_type'] or 'not_inflected'}) suggestion={row['suggestion'] or '-'}"
+                f"{row['lemma'] or '-'} ({row['inflection_type'] or 'not_inflected'}) "
+                f"suggestion={row['suggestion'] or '-'} "
+                f"own_content={row['has_own_content']} "
+                f"selected_own_content={row['selected_has_own_content'] or '-'}"
+                f"{_format_spelling_hints(spelling_candidates_payload)}"
             )
 
         if dry_run:
@@ -157,6 +201,7 @@ async def run(
             "lemma_word_id",
             "inflection_type",
             "has_own_content",
+            "selected_has_own_content",
             "lemma_candidates",
             "spelling_candidates",
             "selected_spelling",
@@ -190,6 +235,11 @@ def main() -> None:
         help="Output CSV path",
     )
     parser.add_argument(
+        "--from-db",
+        action="store_true",
+        help="Read target words from DB (lemma_word_id IS NULL) instead of --file input.",
+    )
+    parser.add_argument(
         "--db-near",
         action=argparse.BooleanOptionalAction,
         default=False,
@@ -212,6 +262,7 @@ def main() -> None:
         run(
             file_path=args.file,
             output_file=args.output,
+            from_db=args.from_db,
             dry_run=args.dry_run,
             limit=args.limit,
             word_filter=args.word,

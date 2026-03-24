@@ -23,20 +23,24 @@ import time
 from dataclasses import dataclass, field
 from email.utils import parsedate_to_datetime
 from pathlib import Path
-from tqdm import tqdm
 
 import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from tqdm import tqdm
 
 from app.database import SessionLocal
 from app.models import Word
 from app.services.scraper.etymology_extractors import (
     _ETY_AFTER_PLUS,
-    _ETYMON_M_LANG_ALLOWLIST,
     _ETY_PLUS_RIGHT_OPERAND,
-    clean_token as _clean_token,
+    _ETYMON_M_LANG_ALLOWLIST,
     extract_etymology_components,
+)
+from app.services.scraper.etymology_extractors import (
+    clean_token as _clean_token,
+)
+from app.services.scraper.etymology_extractors import (
     normalize_template_arg as _normalize_template_arg,
 )
 from app.services.scraper.wiktionary import WiktionaryScraper
@@ -58,7 +62,8 @@ class PreviewRow:
 
 # トレース用に、人が読める短い説明（正規表現の意図）
 _PLUS_RAW_PATTERN_DESC = (
-    "平文「左 + 右」: `[^\\\\W\\\\d_][^\\\\s+]{0,31}\\\\s*+` + `_ETY_AFTER_PLUS`（LRM等） + `_ETY_PLUS_RIGHT_OPERAND`（joy / -ly）"
+    "平文「左 + 右」: `[^\\\\W\\\\d_][^\\\\s+]{0,31}\\\\s*+` + "
+    "`_ETY_AFTER_PLUS`（LRM等） + `_ETY_PLUS_RIGHT_OPERAND`（joy / -ly）"
 )
 _PLUS_ASCII_PATTERN_DESC = (
     "ASCII フォールバック: `\\\\b[A-Za-z]{1,6}\\\\s*+` + `_ETY_AFTER_PLUS` + `[A-Za-z]{2,16}|ハイフン+英字`"
@@ -171,7 +176,7 @@ def _trace_etymology_extraction(raw: str, word: str) -> list[str]:
             else:
                 add_component(text, "語根要素", "root")
         lines.append(
-            f"- **経路: surf|surface analysis** → "
+            "- **経路: surf|surface analysis** → "
             + " / ".join(f"`{p}`" for p in morpheme_parts)
             + f" : `{full}`"
         )
@@ -208,7 +213,9 @@ def _trace_etymology_extraction(raw: str, word: str) -> list[str]:
                 "prefix" if idx == 0 else "root",
             )
         lines.append(
-            f"- **経路: af|affix|prefix|pre** → " + " / ".join(f"`{p}`" for p in morpheme_parts) + f" : `{full}`"
+            "- **経路: af|affix|prefix|pre** → "
+            + " / ".join(f"`{p}`" for p in morpheme_parts)
+            + f" : `{full}`"
         )
 
     if not components:
@@ -329,7 +336,8 @@ def _trace_etymology_extraction(raw: str, word: str) -> list[str]:
             add_component(plus_match.group(1), "接頭要素", "prefix")
             add_component(plus_match.group(2), "語根要素", "root")
             lines.append(
-                f"- **経路: ASCII `+` フォールバック** → `{plus_match.group(1)}` + `{plus_match.group(2)}` · {_PLUS_ASCII_PATTERN_DESC}"
+                "- **経路: ASCII `+` フォールバック** → "
+                f"`{plus_match.group(1)}` + `{plus_match.group(2)}` · {_PLUS_ASCII_PATTERN_DESC}"
             )
         else:
             lines.append("- **経路: ASCII `+` フォールバック** … マッチなし")
@@ -634,6 +642,12 @@ async def main() -> None:
         help="Output markdown path.",
     )
     parser.add_argument(
+        "--export-diff-words",
+        type=Path,
+        default=None,
+        help="added_by_no_cap が空でない単語を1行1語で書き出すファイル。",
+    )
+    parser.add_argument(
         "--delay",
         type=float,
         default=None,
@@ -740,6 +754,13 @@ async def main() -> None:
         markdown = _build_markdown(rows, mode_note=mode_note)
         args.output.write_text(markdown, encoding="utf-8")
         print(f"[ok] wrote markdown: {args.output}")
+        if args.export_diff_words:
+            diff_words = [row.word for row in rows if row.added_by_no_cap]
+            args.export_diff_words.write_text("\n".join(diff_words) + ("\n" if diff_words else ""), encoding="utf-8")
+            print(
+                f"[ok] wrote diff word list: {args.export_diff_words} ({len(diff_words)} words)",
+                flush=True,
+            )
     finally:
         db.close()
 
