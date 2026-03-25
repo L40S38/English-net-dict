@@ -8,9 +8,8 @@ Create Date: 2026-03-20
 from __future__ import annotations
 
 from alembic import op
-
-from app.database import Base
-from app import models  # noqa: F401
+from core import models  # noqa: F401
+from core.database import Base
 
 # revision identifiers, used by Alembic.
 revision = "001_initial_schema"

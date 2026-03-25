@@ -2,7 +2,7 @@
 
 ```bash
 uv sync
-uv run uvicorn app.main:app --reload --port 8000
+uv run uvicorn server.main:app --reload --port 8000
 ```
 
 Environment variables:
@@ -10,31 +10,27 @@ Environment variables:
 - Copy `.env.example` to `.env`
 - Set `OPENAI_API_KEY` to enable GPT and image generation
 
-## パッチスクリプト（登録単語のデータ一括再取得）
+## 統一 CLI (`database_build`)
 
-画像以外のデータ（語義・例文・語源・派生語・関連語など）を再スクレープ＋構造化で更新する。
-
-```bash
-cd backend
-uv run python -m app.scripts.patch_refresh_word_data [--dry-run] [--limit N]
-```
-
-- `--dry-run`: 更新せずに対象単語を列挙するだけ
-- `--limit N`: 先頭 N 件だけ処理（試すとき用）
-
-## パッチスクリプト（コアイメージ/意味の分岐の補完）
-
-登録済み単語の語源マップ向けデータ（`core_image`, `branches`）を LLM で補完する。
+`database_build` の更新系/検査系は統一 CLI から実行します。
 
 ```bash
 cd backend
-uv run python -m app.scripts.patch_enrich_etymology_map [--dry-run] [--limit N] [--word WORD] [--only-missing]
+
+# 単語データ再取得
+uv run python -m database_build word refresh --dry-run --limit 20
+
+# 語源マップ補完（core_image / branches）
+uv run python -m database_build etymology enrich-map --only-missing --limit 20
+
+# 検査系
+uv run python -m database_build inspect tables
+uv run python -m database_build search --word hello
+uv run python -m database_build preview refresh --word hello
 ```
 
-- `--dry-run`: 更新せずに処理結果だけ表示
-- `--limit N`: 先頭 N 件だけ処理
-- `--word WORD`: 指定した1単語のみ処理（完全一致・大文字小文字無視）
-- `--only-missing`: `core_image` 未設定/汎用値 または `branches` 空の単語だけ処理
+旧 `patch_*.py` / `batch_*.py` は `database_build/tmp_script/` に退避し、
+内部的に `database_build` CLI（= `ops` 実装）へ委譲します。
 
 ## Lint / Format
 
