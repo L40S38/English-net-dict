@@ -33,10 +33,15 @@ def _item_to_read(item: WordGroupItem) -> WordGroupItemRead:
     phrase = item.phrase_ref
     phrase_text = phrase.text if phrase else item.phrase_text
     phrase_meaning = phrase.meaning if phrase else item.phrase_meaning
+    resolved_word_id = item.word_id
+    if item.item_type == "phrase" and resolved_word_id is None and phrase is not None:
+        links = phrase.word_links
+        if links:
+            resolved_word_id = links[0].word_id
     return WordGroupItemRead(
         id=item.id,
         item_type=item.item_type,
-        word_id=item.word_id,
+        word_id=resolved_word_id,
         definition_id=item.definition_id,
         phrase_id=item.phrase_id,
         phrase_text=phrase_text,
@@ -72,7 +77,7 @@ def _query_group(db: Session, group_id: int) -> WordGroup | None:
         .options(
             joinedload(WordGroup.items).joinedload(WordGroupItem.word_ref),
             joinedload(WordGroup.items).joinedload(WordGroupItem.definition_ref),
-            joinedload(WordGroup.items).joinedload(WordGroupItem.phrase_ref),
+            joinedload(WordGroup.items).joinedload(WordGroupItem.phrase_ref).joinedload(Phrase.word_links),
             joinedload(WordGroup.images),
         )
     )
@@ -200,7 +205,11 @@ def add_group_item(group_id: int, payload: WordGroupItemCreate, db: Session = De
     refreshed = db.scalar(
         select(WordGroupItem)
         .where(WordGroupItem.id == item.id)
-        .options(joinedload(WordGroupItem.word_ref), joinedload(WordGroupItem.definition_ref))
+        .options(
+            joinedload(WordGroupItem.word_ref),
+            joinedload(WordGroupItem.definition_ref),
+            joinedload(WordGroupItem.phrase_ref).joinedload(Phrase.word_links),
+        )
     )
     if not refreshed:
         raise HTTPException(status_code=404, detail="Item not found")
