@@ -11,6 +11,7 @@ import {
 import { WordCard } from "../components/WordCard";
 import { WordForm } from "../components/WordForm";
 import { LoadingBanner, Muted } from "../components/atom";
+import { createWordsWithInflectionCheck } from "../lib/createWordsWithInflectionCheck";
 import { wordApi } from "../lib/api";
 import { EMPTY_MESSAGES } from "../lib/constants";
 import type { InflectionAction, SortOrder, Word, WordSortBy } from "../types";
@@ -26,14 +27,6 @@ const SORT_ORDER_OPTIONS: Array<{ value: SortOrder; label: string }> = [
   { value: "desc", label: "降順" },
   { value: "asc", label: "昇順" },
 ];
-
-function resolveBulkChunkSize(): number {
-  const raw = Number(import.meta.env.VITE_BULK_CHUNK_SIZE ?? "5");
-  if (!Number.isFinite(raw)) {
-    return 5;
-  }
-  return Math.min(100, Math.max(1, Math.trunc(raw)));
-}
 
 function isPhrase(text: string): boolean {
   return text.trim().split(/\s+/).filter(Boolean).length >= 2;
@@ -85,7 +78,6 @@ function compareWords(a: Word, b: Word, sortBy: WordSortBy, sortOrder: SortOrder
 }
 
 export function HomePage() {
-  const BULK_CHUNK_SIZE = resolveBulkChunkSize();
   const [deletingWordId, setDeletingWordId] = useState<number | null>(null);
   const [sessionWords, setSessionWords] = useState<Word[]>([]);
   const [bulkProgress, setBulkProgress] = useState<{ completed: number; total: number } | null>(
@@ -208,76 +200,9 @@ export function HomePage() {
   const bulkMutation = useMutation({
     mutationFn: async (words: string[]) => {
       setBulkProgress({ completed: 0, total: words.length });
-      const allCreatedWords: Word[] = [];
-
-      for (let start = 0; start < words.length; start += BULK_CHUNK_SIZE) {
-        const chunk = words.slice(start, start + BULK_CHUNK_SIZE);
-        const inflectionCheck = await wordApi.checkInflection({ words: chunk });
-        const checkResults = inflectionCheck.results ?? [];
-        const inflected = checkResults.filter((item) => item.is_inflected);
-        let inflectionDecisions: Record<string, InflectionBatchDecision> = {};
-        if (inflected.length > 0) {
-          const selectedActions = await openInflectionModal({
-            title: `活用形チェック (${start + 1}-${Math.min(start + chunk.length, words.length)}件目)`,
-            items: inflected.map((item) => ({
-              word: item.word,
-              selectedLemma: item.selected_lemma ?? null,
-              selectedSpelling: item.selected_spelling ?? null,
-              lemmaResolution: item.lemma_resolution ?? null,
-              selectedInflectionType: item.selected_inflection_type ?? null,
-              lemmaCandidates: (item.lemma_candidates ?? []).map((candidate) => ({
-                lemma: candidate.lemma,
-                lemmaWordId: candidate.lemma_word_id ?? null,
-                inflectionType: candidate.inflection_type ?? null,
-              })),
-              spellingCandidates: (item.spelling_candidates ?? []).map((entry) => ({
-                spelling: entry.spelling,
-                source: entry.source ?? null,
-                selectedLemma: entry.selected_lemma ?? null,
-                lemmaResolution: entry.lemma_resolution ?? null,
-                lemmaCandidates: (entry.lemma_candidates ?? []).map((candidate) => ({
-                  lemma: candidate.lemma,
-                  lemmaWordId: candidate.lemma_word_id ?? null,
-                  inflectionType: candidate.inflection_type ?? null,
-                })),
-              })),
-              suggestion: item.suggestion ?? "register_as_is",
-            })),
-          });
-          if (!selectedActions) {
-            setBulkProgress({
-              completed: Math.min(start + chunk.length, words.length),
-              total: words.length,
-            });
-            continue;
-          }
-          inflectionDecisions = selectedActions;
-        }
-        for (const word of chunk) {
-          const matched = checkResults.find(
-            (item) => item.word.toLowerCase() === word.toLowerCase(),
-          );
-          if (matched?.is_inflected) {
-            const decision = inflectionDecisions[word];
-            const action = decision?.action ?? matched.suggestion ?? "register_as_is";
-            const lemmaWord = decision?.lemma ?? matched.selected_lemma ?? null;
-            const createdWords = await wordApi.create(word, {
-              inflection_action: action,
-              lemma_word: action === "register_as_is" ? null : lemmaWord,
-            });
-            allCreatedWords.push(...createdWords);
-          } else {
-            const createdWords = await wordApi.create(word);
-            allCreatedWords.push(...createdWords);
-          }
-        }
-        setBulkProgress({
-          completed: Math.min(start + chunk.length, words.length),
-          total: words.length,
-        });
-      }
-
-      return allCreatedWords;
+      return createWordsWithInflectionCheck(words, openInflectionModal, {
+        onChunkProgress: (completed, totalCount) => setBulkProgress({ completed, total: totalCount }),
+      });
     },
     onSuccess: async (createdWords) => {
       setSessionWords((prev) => {

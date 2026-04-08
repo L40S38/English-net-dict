@@ -13,7 +13,7 @@ Personal dictionary app with:
 ```bash
 cd backend
 uv sync
-uv run uvicorn app.main:app --reload --port 8000
+uv run uvicorn server.main:app --reload --port 8000
 ```
 
 ## Frontend
@@ -49,4 +49,3 @@ cd backend
 uv run pre-commit install
 uv run pre-commit run --all-files
 ```
-

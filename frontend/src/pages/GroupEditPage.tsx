@@ -1,13 +1,39 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { AxiosError } from "axios";
+import { useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
-import { PageHeader } from "../components/PageHeader";
 import { ConfirmModal } from "../components/ConfirmModal";
+import {
+  InflectionBatchModal,
+  type InflectionBatchDecision,
+  type InflectionBatchItem,
+} from "../components/InflectionBatchModal";
+import { PageHeader } from "../components/PageHeader";
 import { Card, Muted, Row, Stack } from "../components/atom";
+import { createWordsWithInflectionCheck } from "../lib/createWordsWithInflectionCheck";
 import { groupApi, wordApi } from "../lib/api";
 import { groupNameLengthErrorMessage, groupNameTooLong } from "../lib/groupNameLimits";
 import type { GroupSuggestCandidate } from "../types";
+
+function formatBulkFlowApiError(error: unknown): string {
+  if (error instanceof AxiosError) {
+    const data = error.response?.data;
+    if (data && typeof data === "object" && "detail" in data) {
+      const detail = (data as { detail: unknown }).detail;
+      if (typeof detail === "string") {
+        return detail;
+      }
+      if (Array.isArray(detail)) {
+        return detail.map((entry) => JSON.stringify(entry)).join("; ");
+      }
+    }
+    if (error.message) {
+      return error.message;
+    }
+  }
+  return "一括追加に失敗しました。しばらくしてから再度お試しください。";
+}
 
 export function GroupEditPage() {
   const params = useParams();
@@ -23,6 +49,23 @@ export function GroupEditPage() {
   const [bulkMissingWords, setBulkMissingWords] = useState<string[]>([]);
   const [bulkFoundWordIds, setBulkFoundWordIds] = useState<number[]>([]);
   const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
+  const [bulkFlowError, setBulkFlowError] = useState<string | null>(null);
+  const [bulkFlowProgress, setBulkFlowProgress] = useState<{ completed: number; total: number } | null>(
+    null,
+  );
+  const bulkFlowInFlightRef = useRef(false);
+  const [inflectionModalState, setInflectionModalState] = useState<{
+    open: boolean;
+    title: string;
+    items: InflectionBatchItem[];
+  }>({
+    open: false,
+    title: "",
+    items: [],
+  });
+  const inflectionResolverRef = useRef<
+    ((result: Record<string, InflectionBatchDecision> | null) => void) | null
+  >(null);
 
   const groupQuery = useQuery({
     queryKey: ["group", groupId],
@@ -75,8 +118,31 @@ export function GroupEditPage() {
     },
   });
 
-  const bulkCreateWordsMutation = useMutation({
-    mutationFn: (words: string[]) => wordApi.bulkCreate(words),
+  const openInflectionModal = (params: { title: string; items: InflectionBatchItem[] }) =>
+    new Promise<Record<string, InflectionBatchDecision> | null>((resolve) => {
+      inflectionResolverRef.current = resolve;
+      setInflectionModalState({
+        open: true,
+        title: params.title,
+        items: params.items,
+      });
+    });
+
+  const closeInflectionModal = (result: Record<string, InflectionBatchDecision> | null) => {
+    inflectionResolverRef.current?.(result);
+    inflectionResolverRef.current = null;
+    setInflectionModalState({ open: false, title: "", items: [] });
+  };
+
+  const bulkCreateWithInflectionMutation = useMutation({
+    mutationFn: (words: string[]) =>
+      createWordsWithInflectionCheck(words, openInflectionModal, {
+        onChunkProgress: (completed, totalCount) =>
+          setBulkFlowProgress({ completed, total: totalCount }),
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["words"] });
+    },
   });
 
   const group = groupQuery.data;
@@ -101,7 +167,7 @@ export function GroupEditPage() {
     removeItemMutation.isPending ||
     suggestMutation.isPending ||
     bulkAddMutation.isPending ||
-    bulkCreateWordsMutation.isPending;
+    bulkCreateWithInflectionMutation.isPending;
 
   const parseBulkWords = (raw: string) => {
     const unique = new Set<string>();
@@ -113,20 +179,43 @@ export function GroupEditPage() {
     return Array.from(unique);
   };
 
+  const isBulkWordFlowPending =
+    bulkAddMutation.isPending || bulkCreateWithInflectionMutation.isPending;
+  const bulkProgressPercent =
+    bulkFlowProgress && bulkFlowProgress.total > 0
+      ? Math.round((bulkFlowProgress.completed / bulkFlowProgress.total) * 100)
+      : 0;
+
   const runBulkAddFlow = async (missingWords: string[], foundWordIds: number[]) => {
-    let targetWordIds = [...foundWordIds];
-    if (missingWords.length > 0) {
-      const created = await bulkCreateWordsMutation.mutateAsync(missingWords);
-      targetWordIds = Array.from(new Set([...targetWordIds, ...created.map((item) => item.id)]));
+    if (bulkFlowInFlightRef.current) {
+      return;
     }
-    if (targetWordIds.length > 0) {
-      await bulkAddMutation.mutateAsync(targetWordIds);
-      await queryClient.invalidateQueries({ queryKey: ["words"] });
+    bulkFlowInFlightRef.current = true;
+    setBulkFlowError(null);
+    try {
+      let targetWordIds = [...foundWordIds];
+      if (missingWords.length > 0) {
+        const created = await bulkCreateWithInflectionMutation.mutateAsync(missingWords);
+        targetWordIds = Array.from(new Set([...targetWordIds, ...created.map((item) => item.id)]));
+      }
+      if (targetWordIds.length > 0) {
+        if (missingWords.length === 0) {
+          setBulkFlowProgress({ completed: 0, total: 1 });
+        }
+        await bulkAddMutation.mutateAsync(targetWordIds);
+        await queryClient.invalidateQueries({ queryKey: ["words"] });
+      }
+      setBulkText("");
+      setBulkMissingWords([]);
+      setBulkFoundWordIds([]);
+    } catch (error) {
+      setBulkFlowError(formatBulkFlowApiError(error));
+      setBulkMissingWords([]);
+      setBulkFoundWordIds([]);
+    } finally {
+      setBulkFlowProgress(null);
+      bulkFlowInFlightRef.current = false;
     }
-    setBulkText("");
-    setBulkMissingWords([]);
-    setBulkFoundWordIds([]);
-    setBulkConfirmOpen(false);
   };
 
   return (
@@ -300,16 +389,41 @@ export function GroupEditPage() {
               <textarea
                 rows={5}
                 value={bulkText}
-                onChange={(event) => setBulkText(event.target.value)}
+                onChange={(event) => {
+                  setBulkText(event.target.value);
+                  setBulkFlowError(null);
+                }}
                 placeholder="例: apple&#10;take off&#10;ASAP"
               />
             </label>
+            {bulkFlowError && (
+              <p role="alert" style={{ color: "#b91c1c", margin: "0.25rem 0 0" }}>
+                {bulkFlowError}
+              </p>
+            )}
+            {isBulkWordFlowPending && bulkFlowProgress && (
+              <div className="bulk-progress" aria-live="polite">
+                <div className="bulk-progress-label">
+                  進捗: {bulkFlowProgress.completed} / {bulkFlowProgress.total} ({bulkProgressPercent}%)
+                </div>
+                <div
+                  className="bulk-progress-track"
+                  role="progressbar"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={bulkProgressPercent}
+                >
+                  <div className="bulk-progress-fill" style={{ width: `${bulkProgressPercent}%` }} />
+                </div>
+              </div>
+            )}
             <button
               type="button"
-              disabled={bulkAddMutation.isPending || bulkCreateWordsMutation.isPending}
+              disabled={isBulkWordFlowPending}
               onClick={async () => {
                 const words = parseBulkWords(bulkText);
                 if (words.length === 0) return;
+                setBulkFlowError(null);
                 const checked = await wordApi.check(words);
                 const foundIds = checked.found.map((item) => item.id);
                 if (checked.not_found.length === 0) {
@@ -321,8 +435,8 @@ export function GroupEditPage() {
                 setBulkConfirmOpen(true);
               }}
             >
-              {bulkAddMutation.isPending || bulkCreateWordsMutation.isPending
-                ? "一括追加中..."
+              {isBulkWordFlowPending
+                ? `一括追加中... (${bulkFlowProgress?.completed ?? 0}/${bulkFlowProgress?.total ?? 0})`
                 : "確認して追加"}
             </button>
             {bulkMissingWords.length > 0 && (
@@ -515,10 +629,22 @@ export function GroupEditPage() {
         }
         confirmText="登録して追加"
         cancelText="登録済みのみ追加"
-        onConfirm={() => void runBulkAddFlow(bulkMissingWords, bulkFoundWordIds)}
+        disableActions={isBulkWordFlowPending}
+        onConfirm={() => {
+          setBulkConfirmOpen(false);
+          void runBulkAddFlow(bulkMissingWords, bulkFoundWordIds);
+        }}
         onCancel={() => {
+          setBulkConfirmOpen(false);
           void runBulkAddFlow([], bulkFoundWordIds);
         }}
+      />
+      <InflectionBatchModal
+        open={inflectionModalState.open}
+        title={inflectionModalState.title}
+        items={inflectionModalState.items}
+        onClose={() => closeInflectionModal(null)}
+        onConfirm={(actions) => closeInflectionModal(actions)}
       />
     </main>
   );

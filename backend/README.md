@@ -52,4 +52,3 @@ Runtime data is consolidated under the project-root data/ directory.
 
 Legacy locations such as `backend/data.db`, `backend/app/static/images/`, and
 `backend/.nltk_data/` are no longer used in this repository.
-

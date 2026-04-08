@@ -17,4 +17,3 @@ Rules:
 - Prefer phrases that look like department names if the intent is about departments.
 - If the intent includes Japanese keywords, treat candidates as matches if their Japanese meaning/example aligns
   OR their English meaning/word is a good translation/synonym of the Japanese intent (e.g., 「報酬」→ reward/compensation).
-

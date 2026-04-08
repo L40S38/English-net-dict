@@ -48,4 +48,3 @@
 
 ## Items
 {items_summary}
-

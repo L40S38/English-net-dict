@@ -30,4 +30,3 @@ You will receive JSON with:
 - Use available etymology evidence first; if weak, infer conservatively from definitions.
 - Do not hallucinate historical facts. Prefer broad but safe wording if uncertain.
 - Keep wording suitable for Japanese learners.
-

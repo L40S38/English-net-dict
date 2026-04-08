@@ -242,4 +242,3 @@ def generate_group_image(db: Session, group: WordGroup, user_prompt: str | None)
     db.add(image)
     db.flush()
     return image
-

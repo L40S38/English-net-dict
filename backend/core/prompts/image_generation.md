@@ -36,4 +36,3 @@
 
 - Meaning branches:
 {branches_summary}
-

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import asyncio
+import sqlite3
 from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import exists, func, or_, select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, joinedload
 
 from core.database import get_db
@@ -358,6 +361,57 @@ async def create_word(
     return [_to_word_read(db, word) for word in result_words]
 
 
+_BULK_ITEM_SQLITE_LOCK_RETRIES = 4
+_BULK_ITEM_SQLITE_LOCK_BACKOFF_S = 0.05
+
+
+def _is_sqlite_database_locked(exc: OperationalError) -> bool:
+    orig = getattr(exc, "orig", None)
+    if isinstance(orig, sqlite3.OperationalError):
+        return "locked" in str(orig).lower()
+    return False
+
+
+async def _ingest_bulk_item_with_commit(
+    db: Session,
+    item: str,
+    *,
+    scraper: WiktionaryScraper,
+    payload_cache: dict[str, dict],
+    meaning_cache: dict[str, str | None],
+    options: IngestOptions,
+    result_words: dict[int, Word],
+) -> None:
+    """One payload row per transaction; retry commit on transient SQLite lock."""
+    last_locked: OperationalError | None = None
+    for attempt in range(_BULK_ITEM_SQLITE_LOCK_RETRIES):
+        try:
+            result = await ingest_word_or_phrase(
+                db,
+                item,
+                scraper=scraper,
+                payload_cache=payload_cache,
+                meaning_cache=meaning_cache,
+                options=options,
+            )
+            for word in result.words:
+                result_words[word.id] = word
+            db.commit()
+            for word in result.words:
+                db.refresh(word)
+            return
+        except OperationalError as exc:
+            if not _is_sqlite_database_locked(exc):
+                raise
+            last_locked = exc
+            db.rollback()
+            if attempt + 1 >= _BULK_ITEM_SQLITE_LOCK_RETRIES:
+                raise
+            await asyncio.sleep(_BULK_ITEM_SQLITE_LOCK_BACKOFF_S * (2**attempt))
+    assert last_locked is not None
+    raise last_locked
+
+
 @router.post("/bulk", response_model=list[WordRead])
 async def bulk_create_words(
     payload: BulkWordRequest,
@@ -367,6 +421,10 @@ async def bulk_create_words(
     phrase_parallelism: int = Query(8, ge=1, le=32),
     db: Session = Depends(get_db),
 ) -> list[WordRead]:
+    """Ingest each list entry in its own DB transaction to reduce SQLite writer lock duration.
+
+    If processing stops on an error, earlier entries may already be persisted; callers can retry.
+    """
     options = IngestOptions(
         llm_mode=llm_mode,
         phrase_enrich_mode=phrase_enrich_mode,
@@ -380,17 +438,15 @@ async def bulk_create_words(
     for item in payload.words:
         if not item.strip():
             continue
-        result = await ingest_word_or_phrase(
+        await _ingest_bulk_item_with_commit(
             db,
             item,
             scraper=scraper,
             payload_cache=payload_cache,
             meaning_cache=meaning_cache,
             options=options,
+            result_words=result_words,
         )
-        for word in result.words:
-            result_words[word.id] = word
-    db.commit()
     words = list(result_words.values())
     for word in words:
         db.refresh(word)

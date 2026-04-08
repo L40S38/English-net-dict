@@ -107,4 +107,3 @@ def list_word_phrases(db: Session, word_id: int) -> list[Phrase]:
         .order_by(func.lower(Phrase.text), Phrase.id)
     )
     return list(db.scalars(stmt))
-
