@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import random
 import re
 import time
@@ -19,6 +20,12 @@ from core.services.scraper.wiktionary_parsers import WiktionaryParserMixin
 logger = logging.getLogger(__name__)
 
 _SCRAPE_CACHE_DIR = DATA_DIR / "scrape_cache"
+
+
+def _is_truthy_env(value: str | None, *, default: bool) -> bool:
+    if value is None:
+        return default
+    return value.strip().lower() not in {"0", "false", "off", "no"}
 
 
 def _retry_after_seconds(response: httpx.Response, fallback: float) -> float:
@@ -913,8 +920,18 @@ class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
         if cached is not None:
             return cached
 
-        english = await self._scrape_host("en.wiktionary.org", "wiktionary_en", word)
-        japanese = await self._scrape_host("ja.wiktionary.org", "wiktionary_ja", word)
+        parallel_locales = _is_truthy_env(
+            os.getenv("EN_DICT_WIKTIONARY_PARALLEL_LOCALES"),
+            default=True,
+        )
+        if parallel_locales:
+            english, japanese = await asyncio.gather(
+                self._scrape_host("en.wiktionary.org", "wiktionary_en", word),
+                self._scrape_host("ja.wiktionary.org", "wiktionary_ja", word),
+            )
+        else:
+            english = await self._scrape_host("en.wiktionary.org", "wiktionary_en", word)
+            japanese = await self._scrape_host("ja.wiktionary.org", "wiktionary_ja", word)
         if not english.get("error") and japanese.get("error"):
             self._save_cache(word, english)
             return english

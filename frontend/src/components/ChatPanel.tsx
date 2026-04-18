@@ -186,7 +186,7 @@ export function ChatPanel({
                 </ReactMarkdown>
               </div>
             ) : (
-              <p>{normalizeText(msg.content)}</p>
+              <p className="bubble-user-text">{normalizeText(msg.content)}</p>
             )}
             {msg.role === "assistant" && msg.citations.length > 0 && (
               <Muted as="small">
@@ -200,7 +200,7 @@ export function ChatPanel({
         ))}
         {pendingUserMessage && (
           <div className="bubble user">
-            <p>{normalizeText(pendingUserMessage)}</p>
+            <p className="bubble-user-text">{normalizeText(pendingUserMessage)}</p>
           </div>
         )}
         {sendPending && (
@@ -212,6 +212,7 @@ export function ChatPanel({
       </div>
       <Row
         as="form"
+        className="chat-input-row"
         onSubmit={(e) => {
           e.preventDefault();
           const content = input.trim();
@@ -219,11 +220,22 @@ export function ChatPanel({
           onSendMessage(content);
         }}
       >
-        <input
+        <textarea
+          className="chat-input"
           value={input}
           onChange={(e) => onInputChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              const content = input.trim();
+              if (!content) return;
+              if (sendPending || createPending) return;
+              onSendMessage(content);
+            }
+          }}
           placeholder={placeholder}
           disabled={sendPending || createPending}
+          rows={2}
         />
         <button type="submit" disabled={sendPending || createPending}>
           {sendPending ? "送信中..." : "送信"}

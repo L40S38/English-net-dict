@@ -201,6 +201,42 @@ async def _build_structured_payload(
     return structured
 
 
+async def build_structured_payloads_parallel(
+    words: list[str],
+    *,
+    scraper: WiktionaryScraper,
+    meaning_cache: dict[str, str | None],
+    options: IngestOptions | None = None,
+    concurrency: int = 4,
+) -> dict[str, dict]:
+    """Build structured payloads concurrently for normalized unique words."""
+    if not words:
+        return {}
+    limit = max(1, int(concurrency))
+    sem = asyncio.Semaphore(limit)
+    normalized_words: list[str] = []
+    seen: set[str] = set()
+    for word in words:
+        normalized = _normalize_text(word)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        normalized_words.append(normalized)
+
+    async def _build_one(word_text: str) -> tuple[str, dict]:
+        async with sem:
+            payload = await _build_structured_payload(
+                word_text,
+                scraper=scraper,
+                meaning_cache=meaning_cache,
+                options=options,
+            )
+            return word_text, payload
+
+    built = await asyncio.gather(*[_build_one(word_text) for word_text in normalized_words])
+    return {word_text: payload for word_text, payload in built}
+
+
 def _find_word(db: Session, normalized: str) -> Word | None:
     return db.scalar(select(Word).where(func.lower(Word.word) == normalized))
 

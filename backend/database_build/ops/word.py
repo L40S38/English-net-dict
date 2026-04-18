@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -19,7 +20,13 @@ from core.services.word_data_helpers import (
     normalize_structured_derivations_and_phrases as _normalize_structured_derivations_and_phrases,
 )
 from core.services.word_data_helpers import normalize_structured_forms as _normalize_structured_forms
-from core.services.word_ingest_service import ingest_word_or_phrase
+from core.services.word_ingest_service import (
+    IngestOptions,
+    build_structured_payloads_parallel,
+    ingest_word_or_phrase,
+    is_placeholder_token,
+    is_phrase_text,
+)
 from core.services.word_merge_service import link_to_lemma, merge_into_lemma
 from core.services.wordnet_service import get_wordnet_snapshot
 from database_build.ops.common import scrape_all
@@ -142,6 +149,9 @@ async def add_words_from_file(
     limit: int | None = None,
     word_filter: str | None = None,
     skip_inflection_check: bool = False,
+    parallel_payload_build: bool = True,
+    payload_parallelism: int = 4,
+    on_word_done: Callable[[str, float, str], None] | None = None,
 ) -> tuple[int, int, int]:
     logging.getLogger("core.services.web_word_search").setLevel(logging.ERROR)
     added = 0
@@ -153,10 +163,45 @@ async def add_words_from_file(
 
     raw_words = _read_word_list(file_path)
     targets = _select_words(raw_words, word_filter=word_filter, limit=limit)
+    if parallel_payload_build and targets:
+        prebuild_targets: list[str] = []
+        prebuild_seen: set[str] = set()
+        for source in targets:
+            normalized = source.strip().lower()
+            if not normalized:
+                continue
+            if is_phrase_text(normalized):
+                for token in normalized.split():
+                    token_value = token.strip()
+                    if not token_value or is_placeholder_token(token_value):
+                        continue
+                    if token_value in prebuild_seen:
+                        continue
+                    prebuild_seen.add(token_value)
+                    prebuild_targets.append(token_value)
+                continue
+            if normalized in prebuild_seen:
+                continue
+            prebuild_seen.add(normalized)
+            prebuild_targets.append(normalized)
+        if prebuild_targets:
+            built_payloads = await build_structured_payloads_parallel(
+                prebuild_targets,
+                scraper=scraper,
+                meaning_cache=phrase_cache,
+                options=IngestOptions(),
+                concurrency=payload_parallelism,
+            )
+            payload_cache.update(built_payloads)
     for source in targets:
+        started_at = time.perf_counter()
+        word_status = "error"
         normalized = source.strip().lower()
         if not normalized:
             skipped += 1
+            word_status = "skipped"
+            if on_word_done is not None:
+                on_word_done(source, time.perf_counter() - started_at, word_status)
             continue
         try:
             if not skip_inflection_check:
@@ -180,6 +225,7 @@ async def add_words_from_file(
                         db.rollback()
                     else:
                         db.commit()
+                    word_status = "added"
                     continue
                 if suggestion == "link" and candidate:
                     lemma_target = candidate.lemma_word.strip().lower()
@@ -206,6 +252,7 @@ async def add_words_from_file(
                         db.rollback()
                     else:
                         db.commit()
+                    word_status = "added"
                     continue
 
             result = await ingest_word_or_phrase(
@@ -217,8 +264,10 @@ async def add_words_from_file(
             )
             if result.created_count > 0:
                 added += result.created_count
+                word_status = "added"
             else:
                 skipped += 1
+                word_status = "skipped"
             if dry_run:
                 db.rollback()
             else:
@@ -226,4 +275,8 @@ async def add_words_from_file(
         except Exception:  # noqa: BLE001
             errors += 1
             db.rollback()
+            word_status = "error"
+        finally:
+            if on_word_done is not None:
+                on_word_done(source, time.perf_counter() - started_at, word_status)
     return added, skipped, errors
