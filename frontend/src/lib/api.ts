@@ -17,6 +17,7 @@ import type {
   MigrationInflectionApplyDecision,
   MigrationInflectionApplyResponse,
   MigrationInflectionTargetsResponse,
+  PhraseCheckResponse,
   Phrase,
   RelatedWord,
   Word,
@@ -110,6 +111,16 @@ export const wordApi = {
     sort_order?: SortOrder;
   }) {
     const { data } = await api.get<WordListResponse>("/api/words", { params });
+    return data;
+  },
+  async searchForGroup(params: {
+    q: string;
+    page?: number;
+    page_size?: number;
+    sort_by?: WordSortBy;
+    sort_order?: SortOrder;
+  }) {
+    const { data } = await api.get<WordListResponse>("/api/words/search-for-group", { params });
     return data;
   },
   async suggest(q: string, limit = 10) {
@@ -402,10 +413,13 @@ export const groupApi = {
   async removeItem(groupId: number, itemId: number) {
     await api.delete(`/api/groups/${groupId}/items/${itemId}`);
   },
-  async bulkAddItems(groupId: number, wordIds: number[]) {
+  async bulkAddItems(
+    groupId: number,
+    payload: { word_ids?: number[]; phrase_ids?: number[] },
+  ) {
     const { data } = await api.post<GroupBulkAddItemsResponse>(
       `/api/groups/${groupId}/bulk-add-items`,
-      { word_ids: wordIds },
+      payload,
     );
     return data;
   },
@@ -447,6 +461,10 @@ export const phraseApi = {
   },
   async create(payload: { text: string; meaning?: string }) {
     const { data } = await api.post<Phrase>("/api/phrases", payload);
+    return data;
+  },
+  async check(texts: string[]) {
+    const { data } = await api.post<PhraseCheckResponse>("/api/phrases/check", { texts });
     return data;
   },
   async update(phraseId: number, payload: { meaning: string }) {

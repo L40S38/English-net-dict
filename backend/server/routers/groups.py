@@ -226,7 +226,8 @@ def bulk_add_group_items(
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
     targets = [word_id for word_id in payload.word_ids if isinstance(word_id, int) and word_id > 0]
-    if not targets:
+    phrase_targets = [phrase_id for phrase_id in payload.phrase_ids if isinstance(phrase_id, int) and phrase_id > 0]
+    if not targets and not phrase_targets:
         return GroupBulkAddItemsResponse(added=0, skipped=0)
 
     existing_word_ids = set(
@@ -239,7 +240,21 @@ def bulk_add_group_items(
         )
     )
     existing_word_ids.discard(None)
+    existing_phrase_ids = set(
+        db.scalars(
+            select(WordGroupItem.phrase_id).where(
+                WordGroupItem.group_id == group_id,
+                WordGroupItem.item_type == "phrase",
+                WordGroupItem.phrase_id.is_not(None),
+            )
+        )
+    )
+    existing_phrase_ids.discard(None)
     valid_word_ids = set(db.scalars(select(Word.id).where(Word.id.in_(targets))))
+    phrase_map = {
+        phrase.id: phrase
+        for phrase in db.scalars(select(Phrase).where(Phrase.id.in_(phrase_targets)))
+    }
 
     added = 0
     skipped = 0
@@ -249,6 +264,22 @@ def bulk_add_group_items(
             continue
         db.add(WordGroupItem(group_id=group_id, item_type="word", word_id=word_id))
         existing_word_ids.add(word_id)
+        added += 1
+    for phrase_id in phrase_targets:
+        phrase = phrase_map.get(phrase_id)
+        if phrase is None or phrase_id in existing_phrase_ids:
+            skipped += 1
+            continue
+        db.add(
+            WordGroupItem(
+                group_id=group_id,
+                item_type="phrase",
+                phrase_id=phrase.id,
+                phrase_text=phrase.text[:255],
+                phrase_meaning=phrase.meaning or "",
+            )
+        )
+        existing_phrase_ids.add(phrase_id)
         added += 1
 
     db.commit()

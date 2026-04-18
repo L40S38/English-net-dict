@@ -6,12 +6,12 @@ from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import exists, func, or_, select
+from sqlalchemy import and_, case, exists, func, or_, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, joinedload, sessionmaker
 
 from core.database import get_db
-from core.models import Definition, Derivation, Etymology, RelatedWord, Word
+from core.models import Definition, Derivation, Etymology, Phrase, RelatedWord, Word, WordPhrase
 from core.schemas import (
     BulkWordRequest,
     DefinitionRead,
@@ -56,6 +56,7 @@ router = APIRouter(prefix="/api/words", tags=["words"])
 
 WordSortBy = Literal["last_viewed_at", "created_at", "updated_at", "word"]
 SortOrder = Literal["desc", "asc"]
+GROUP_SEARCH_MIN_HITS = 3
 
 
 def _word_query():
@@ -89,6 +90,40 @@ def _replace_definitions(word: Word, definitions: list[dict]) -> None:
 
 def _split_comma_items(text: str) -> list[str]:
     return word_service.split_comma_items(text)
+
+
+def _build_keywords(raw: str) -> list[str]:
+    # Support Japanese comma "、" and regular commas/spaces.
+    tokens = [t.strip() for t in raw.replace("、", ",").split(",")]
+    keywords = [t for token in tokens for t in token.split() if t]
+    if not keywords:
+        return [raw]
+    return keywords
+
+
+def _definition_matches(text: str):
+    pat = f"%{text}%"
+    return exists(
+        select(1)
+        .select_from(Definition)
+        .where(Definition.word_id == Word.id)
+        .where(
+            or_(
+                Definition.meaning_ja.ilike(pat),
+                Definition.meaning_en.ilike(pat),
+                Definition.example_en.ilike(pat),
+                Definition.example_ja.ilike(pat),
+            )
+        )
+    )
+
+
+def _or_predicates_from_keywords(keywords: list[str]) -> list:
+    predicates = []
+    for kw in keywords:
+        pat = f"%{kw}%"
+        predicates.append(or_(Word.word.ilike(pat), _definition_matches(kw)))
+    return predicates
 
 
 def _serialize_lemma_candidates(candidates: list) -> list[dict]:
@@ -222,32 +257,8 @@ def list_words(
     stmt = _word_query().order_by(*sort_clauses)
     if q:
         raw = q.strip()
-        # Support Japanese comma "、" and regular commas/spaces.
-        tokens = [t.strip() for t in raw.replace("、", ",").split(",")]
-        keywords = [t for token in tokens for t in token.split() if t]
-        if not keywords:
-            keywords = [raw]
-
-        def _definition_matches(text: str):
-            pat = f"%{text}%"
-            return exists(
-                select(1)
-                .select_from(Definition)
-                .where(Definition.word_id == Word.id)
-                .where(
-                    or_(
-                        Definition.meaning_ja.ilike(pat),
-                        Definition.meaning_en.ilike(pat),
-                        Definition.example_en.ilike(pat),
-                        Definition.example_ja.ilike(pat),
-                    )
-                )
-            )
-
-        predicates = []
-        for kw in keywords:
-            pat = f"%{kw}%"
-            predicates.append(or_(Word.word.ilike(pat), _definition_matches(kw)))
+        keywords = _build_keywords(raw)
+        predicates = _or_predicates_from_keywords(keywords)
 
         stmt = stmt.where(or_(*predicates)).order_by(
             # Keep "starts with" boost for English word matches only.
@@ -256,6 +267,78 @@ def list_words(
         )
     total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
     items = list(db.scalars(stmt.offset((page - 1) * page_size).limit(page_size)).unique())
+    return WordListResponse(items=[_to_word_read(db, x) for x in items], total=total)
+
+
+@router.get("/search-for-group", response_model=WordListResponse)
+def search_words_for_group(
+    q: str = Query(default="", min_length=0),
+    sort_by: WordSortBy = Query(default="last_viewed_at"),
+    sort_order: SortOrder = Query(default="desc"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> WordListResponse:
+    raw = q.strip()
+    if not raw:
+        return WordListResponse(items=[], total=0)
+
+    sort_clauses = word_service.word_sort_clauses(sort_by, sort_order)
+    keywords = _build_keywords(raw)
+    stage_priority: dict[int, int] = {}
+
+    def _merge_ids(word_ids: list[int], priority: int) -> None:
+        for word_id in word_ids:
+            current = stage_priority.get(word_id, 0)
+            if priority > current:
+                stage_priority[word_id] = priority
+
+    # Stage 1: phrase-first search.
+    phrase_pattern = f"%{raw}%"
+    stage1_stmt = (
+        select(WordPhrase.word_id)
+        .select_from(WordPhrase)
+        .join(Phrase, Phrase.id == WordPhrase.phrase_id)
+        .where(or_(Phrase.text.ilike(phrase_pattern), Phrase.meaning.ilike(phrase_pattern)))
+        .distinct()
+    )
+    _merge_ids(list(db.scalars(stage1_stmt)), priority=3)
+
+    # Stage 2: keyword AND search when stage1 is sparse.
+    if len(stage_priority) < GROUP_SEARCH_MIN_HITS and len(keywords) > 1:
+        and_predicates = _or_predicates_from_keywords(keywords)
+        stage2_stmt = select(Word.id).where(and_(*and_predicates))
+        _merge_ids(list(db.scalars(stage2_stmt)), priority=2)
+
+    # Stage 3: keyword OR search fallback.
+    if len(stage_priority) < GROUP_SEARCH_MIN_HITS:
+        or_predicates = _or_predicates_from_keywords(keywords)
+        stage3_stmt = select(Word.id).where(or_(*or_predicates))
+        _merge_ids(list(db.scalars(stage3_stmt)), priority=1)
+
+    if not stage_priority:
+        return WordListResponse(items=[], total=0)
+
+    ordered_ids_stmt = (
+        select(Word.id)
+        .where(Word.id.in_(list(stage_priority.keys())))
+        .order_by(
+            case(
+                *[(Word.id == word_id, priority) for word_id, priority in stage_priority.items()],
+                else_=0,
+            ).desc(),
+            or_(*[Word.word.ilike(f"{kw}%") for kw in keywords]).desc(),
+            *sort_clauses,
+        )
+    )
+    ordered_ids = list(db.scalars(ordered_ids_stmt))
+    total = len(ordered_ids)
+    paged_ids = ordered_ids[(page - 1) * page_size : page * page_size]
+    if not paged_ids:
+        return WordListResponse(items=[], total=total)
+    page_words = list(db.scalars(_word_query().where(Word.id.in_(paged_ids))).unique())
+    by_id = {word.id: word for word in page_words}
+    items = [by_id[word_id] for word_id in paged_ids if word_id in by_id]
     return WordListResponse(items=[_to_word_read(db, x) for x in items], total=total)
 
 

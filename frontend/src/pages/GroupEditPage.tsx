@@ -11,8 +11,9 @@ import {
 } from "../components/InflectionBatchModal";
 import { PageHeader } from "../components/PageHeader";
 import { Card, Muted, Row, Stack } from "../components/atom";
+import { createPhrasesBulk } from "../lib/createPhrasesBulk";
 import { createWordsWithInflectionCheck } from "../lib/createWordsWithInflectionCheck";
-import { groupApi, wordApi } from "../lib/api";
+import { groupApi, phraseApi, wordApi } from "../lib/api";
 import { groupNameLengthErrorMessage, groupNameTooLong } from "../lib/groupNameLimits";
 import type { GroupSuggestCandidate } from "../types";
 
@@ -46,8 +47,14 @@ export function GroupEditPage() {
   const [selectedCandidates, setSelectedCandidates] = useState<Set<string>>(new Set());
   const [groupNameErrorOpen, setGroupNameErrorOpen] = useState(false);
   const [bulkText, setBulkText] = useState("");
-  const [bulkMissingWords, setBulkMissingWords] = useState<string[]>([]);
-  const [bulkFoundWordIds, setBulkFoundWordIds] = useState<number[]>([]);
+  const [bulkMissing, setBulkMissing] = useState<{ words: string[]; phrases: string[] }>({
+    words: [],
+    phrases: [],
+  });
+  const [bulkFound, setBulkFound] = useState<{ wordIds: number[]; phraseIds: number[] }>({
+    wordIds: [],
+    phraseIds: [],
+  });
   const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
   const [bulkFlowError, setBulkFlowError] = useState<string | null>(null);
   const [bulkFlowProgress, setBulkFlowProgress] = useState<{ completed: number; total: number } | null>(
@@ -75,7 +82,7 @@ export function GroupEditPage() {
 
   const wordSearchQuery = useQuery({
     queryKey: ["group", "word-search", wordKeyword],
-    queryFn: () => wordApi.list({ q: wordKeyword.trim(), page_size: 20 }),
+    queryFn: () => wordApi.searchForGroup({ q: wordKeyword.trim(), page_size: 20 }),
     enabled: wordKeyword.trim().length > 0,
   });
 
@@ -111,7 +118,8 @@ export function GroupEditPage() {
   });
 
   const bulkAddMutation = useMutation({
-    mutationFn: (wordIds: number[]) => groupApi.bulkAddItems(groupId, wordIds),
+    mutationFn: (payload: { word_ids?: number[]; phrase_ids?: number[] }) =>
+      groupApi.bulkAddItems(groupId, payload),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["group", groupId] });
       await queryClient.invalidateQueries({ queryKey: ["groups"] });
@@ -144,6 +152,16 @@ export function GroupEditPage() {
       await queryClient.invalidateQueries({ queryKey: ["words"] });
     },
   });
+  const bulkCreatePhrasesMutation = useMutation({
+    mutationFn: (phrases: string[]) =>
+      createPhrasesBulk(phrases, {
+        onChunkProgress: (completed, totalCount) =>
+          setBulkFlowProgress({ completed, total: totalCount }),
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["words"] });
+    },
+  });
 
   const group = groupQuery.data;
   const currentNameDraft = groupDraft?.name ?? group?.name ?? "";
@@ -167,51 +185,78 @@ export function GroupEditPage() {
     removeItemMutation.isPending ||
     suggestMutation.isPending ||
     bulkAddMutation.isPending ||
-    bulkCreateWithInflectionMutation.isPending;
+    bulkCreateWithInflectionMutation.isPending ||
+    bulkCreatePhrasesMutation.isPending;
 
-  const parseBulkWords = (raw: string) => {
+  const parseBulkEntries = (raw: string) => {
     const unique = new Set<string>();
+    const words: string[] = [];
+    const phrases: string[] = [];
     for (const line of raw.split(/\r?\n/)) {
       const value = line.trim();
       if (!value || unique.has(value)) continue;
       unique.add(value);
+      if (/\s/.test(value)) {
+        phrases.push(value);
+      } else {
+        words.push(value);
+      }
     }
-    return Array.from(unique);
+    return { words, phrases };
   };
 
   const isBulkWordFlowPending =
-    bulkAddMutation.isPending || bulkCreateWithInflectionMutation.isPending;
+    bulkAddMutation.isPending ||
+    bulkCreateWithInflectionMutation.isPending ||
+    bulkCreatePhrasesMutation.isPending;
   const bulkProgressPercent =
     bulkFlowProgress && bulkFlowProgress.total > 0
       ? Math.round((bulkFlowProgress.completed / bulkFlowProgress.total) * 100)
       : 0;
 
-  const runBulkAddFlow = async (missingWords: string[], foundWordIds: number[]) => {
+  const runBulkAddFlow = async (
+    missingEntries: { words: string[]; phrases: string[] },
+    foundEntries: { wordIds: number[]; phraseIds: number[] },
+  ) => {
     if (bulkFlowInFlightRef.current) {
       return;
     }
     bulkFlowInFlightRef.current = true;
     setBulkFlowError(null);
     try {
-      let targetWordIds = [...foundWordIds];
-      if (missingWords.length > 0) {
-        const created = await bulkCreateWithInflectionMutation.mutateAsync(missingWords);
+      let targetWordIds = [...foundEntries.wordIds];
+      let targetPhraseIds = [...foundEntries.phraseIds];
+      if (missingEntries.words.length > 0) {
+        const created = await bulkCreateWithInflectionMutation.mutateAsync(missingEntries.words);
         targetWordIds = Array.from(new Set([...targetWordIds, ...created.map((item) => item.id)]));
       }
-      if (targetWordIds.length > 0) {
-        if (missingWords.length === 0) {
+      if (missingEntries.phrases.length > 0) {
+        await bulkCreatePhrasesMutation.mutateAsync(missingEntries.phrases);
+        const rechecked = await phraseApi.check(missingEntries.phrases);
+        if (rechecked.not_found.length > 0) {
+          throw new Error(`次の熟語を登録できませんでした: ${rechecked.not_found.join(", ")}`);
+        }
+        targetPhraseIds = Array.from(
+          new Set([...targetPhraseIds, ...rechecked.found.map((item) => item.id)]),
+        );
+      }
+      if (targetWordIds.length > 0 || targetPhraseIds.length > 0) {
+        if (missingEntries.words.length === 0 && missingEntries.phrases.length === 0) {
           setBulkFlowProgress({ completed: 0, total: 1 });
         }
-        await bulkAddMutation.mutateAsync(targetWordIds);
+        await bulkAddMutation.mutateAsync({
+          word_ids: targetWordIds,
+          phrase_ids: targetPhraseIds,
+        });
         await queryClient.invalidateQueries({ queryKey: ["words"] });
       }
       setBulkText("");
-      setBulkMissingWords([]);
-      setBulkFoundWordIds([]);
+      setBulkMissing({ words: [], phrases: [] });
+      setBulkFound({ wordIds: [], phraseIds: [] });
     } catch (error) {
       setBulkFlowError(formatBulkFlowApiError(error));
-      setBulkMissingWords([]);
-      setBulkFoundWordIds([]);
+      setBulkMissing({ words: [], phrases: [] });
+      setBulkFound({ wordIds: [], phraseIds: [] });
     } finally {
       setBulkFlowProgress(null);
       bulkFlowInFlightRef.current = false;
@@ -421,17 +466,27 @@ export function GroupEditPage() {
               type="button"
               disabled={isBulkWordFlowPending}
               onClick={async () => {
-                const words = parseBulkWords(bulkText);
-                if (words.length === 0) return;
+                const entries = parseBulkEntries(bulkText);
+                if (entries.words.length === 0 && entries.phrases.length === 0) return;
                 setBulkFlowError(null);
-                const checked = await wordApi.check(words);
-                const foundIds = checked.found.map((item) => item.id);
-                if (checked.not_found.length === 0) {
-                  await runBulkAddFlow([], foundIds);
+                const [checkedWords, checkedPhrases] = await Promise.all([
+                  wordApi.check(entries.words),
+                  phraseApi.check(entries.phrases),
+                ]);
+                const foundEntries = {
+                  wordIds: checkedWords.found.map((item) => item.id),
+                  phraseIds: checkedPhrases.found.map((item) => item.id),
+                };
+                const missingEntries = {
+                  words: checkedWords.not_found,
+                  phrases: checkedPhrases.not_found,
+                };
+                if (missingEntries.words.length === 0 && missingEntries.phrases.length === 0) {
+                  await runBulkAddFlow({ words: [], phrases: [] }, foundEntries);
                   return;
                 }
-                setBulkMissingWords(checked.not_found);
-                setBulkFoundWordIds(foundIds);
+                setBulkMissing(missingEntries);
+                setBulkFound(foundEntries);
                 setBulkConfirmOpen(true);
               }}
             >
@@ -439,8 +494,12 @@ export function GroupEditPage() {
                 ? `一括追加中... (${bulkFlowProgress?.completed ?? 0}/${bulkFlowProgress?.total ?? 0})`
                 : "確認して追加"}
             </button>
-            {bulkMissingWords.length > 0 && (
-              <Muted as="p">未登録: {bulkMissingWords.join(", ")}</Muted>
+            {(bulkMissing.words.length > 0 || bulkMissing.phrases.length > 0) && (
+              <Muted as="p">
+                未登録:
+                {bulkMissing.words.length > 0 ? ` 単語(${bulkMissing.words.join(", ")})` : ""}
+                {bulkMissing.phrases.length > 0 ? ` 熟語(${bulkMissing.phrases.join(", ")})` : ""}
+              </Muted>
             )}
           </Card>
 
@@ -621,22 +680,30 @@ export function GroupEditPage() {
       />
       <ConfirmModal
         open={bulkConfirmOpen}
-        title="未登録単語をDBに追加しますか？"
+        title="未登録単語/熟語をDBに追加しますか？"
         message={
-          bulkMissingWords.length > 0
-            ? `次の単語/熟語は未登録です。\n${bulkMissingWords.join(", ")}\n\nDB登録してからグループへ追加しますか？`
-            : "未登録単語はありません。"
+          bulkMissing.words.length > 0 || bulkMissing.phrases.length > 0
+            ? [
+                "次の項目は未登録です。",
+                bulkMissing.words.length > 0 ? `単語: ${bulkMissing.words.join(", ")}` : "",
+                bulkMissing.phrases.length > 0 ? `熟語: ${bulkMissing.phrases.join(", ")}` : "",
+                "",
+                "DB登録してからグループへ追加しますか？",
+              ]
+                .filter(Boolean)
+                .join("\n")
+            : "未登録項目はありません。"
         }
         confirmText="登録して追加"
         cancelText="登録済みのみ追加"
         disableActions={isBulkWordFlowPending}
         onConfirm={() => {
           setBulkConfirmOpen(false);
-          void runBulkAddFlow(bulkMissingWords, bulkFoundWordIds);
+          void runBulkAddFlow(bulkMissing, bulkFound);
         }}
         onCancel={() => {
           setBulkConfirmOpen(false);
-          void runBulkAddFlow([], bulkFoundWordIds);
+          void runBulkAddFlow({ words: [], phrases: [] }, bulkFound);
         }}
       />
       <InflectionBatchModal

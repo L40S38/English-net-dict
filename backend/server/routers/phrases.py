@@ -6,8 +6,21 @@ from sqlalchemy.orm import Session
 
 from core.database import get_db
 from core.models import Phrase, Word, WordPhrase
-from core.schemas import PhraseCreate, PhraseRead, PhraseUpdate
-from core.services.phrase_service import get_or_create_phrase, link_phrase_to_word, list_word_phrases, merge_meanings
+from core.schemas import (
+    PhraseCheckFound,
+    PhraseCheckRequest,
+    PhraseCheckResponse,
+    PhraseCreate,
+    PhraseRead,
+    PhraseUpdate,
+)
+from core.services.phrase_service import (
+    get_or_create_phrase,
+    link_phrase_to_word,
+    list_word_phrases,
+    merge_meanings,
+    normalize_phrase_text,
+)
 
 router = APIRouter(prefix="/api", tags=["phrases"])
 
@@ -45,6 +58,39 @@ def create_phrase(payload: PhraseCreate, db: Session = Depends(get_db)) -> Phras
     db.commit()
     db.refresh(phrase)
     return PhraseRead.model_validate(phrase)
+
+
+@router.post("/phrases/check", response_model=PhraseCheckResponse)
+def check_phrases(payload: PhraseCheckRequest, db: Session = Depends(get_db)) -> PhraseCheckResponse:
+    normalized_targets: list[str] = []
+    normalized_map: dict[str, str] = {}
+    for item in payload.texts:
+        value = normalize_phrase_text(item)
+        if not value:
+            continue
+        key = value.lower()
+        if key in normalized_map:
+            continue
+        normalized_map[key] = value
+        normalized_targets.append(value)
+
+    if not normalized_targets:
+        return PhraseCheckResponse(found=[], not_found=[])
+
+    lowered = [item.lower() for item in normalized_targets]
+    stmt = select(Phrase).where(func.lower(Phrase.text).in_(lowered))
+    matched_phrases = list(db.scalars(stmt))
+    by_lower = {phrase.text.lower(): phrase for phrase in matched_phrases}
+
+    found: list[PhraseCheckFound] = []
+    not_found: list[str] = []
+    for original in normalized_targets:
+        matched = by_lower.get(original.lower())
+        if matched:
+            found.append(PhraseCheckFound(id=matched.id, text=matched.text))
+        else:
+            not_found.append(original)
+    return PhraseCheckResponse(found=found, not_found=not_found)
 
 
 @router.put("/phrases/{phrase_id}", response_model=PhraseRead)

@@ -198,6 +198,20 @@ class WordCheckResponse(BaseModel):
     not_found: list[str] = Field(default_factory=list)
 
 
+class PhraseCheckRequest(BaseModel):
+    texts: list[str]
+
+
+class PhraseCheckFound(BaseModel):
+    id: int
+    text: str
+
+
+class PhraseCheckResponse(BaseModel):
+    found: list[PhraseCheckFound] = Field(default_factory=list)
+    not_found: list[str] = Field(default_factory=list)
+
+
 class InflectionCheckRequest(BaseModel):
     word: str | None = None
     words: list[str] = Field(default_factory=list)
@@ -606,6 +620,7 @@ class StructuredWordPayload(BaseModel):
 
 class GroupBulkAddItemsRequest(BaseModel):
     word_ids: list[int] = Field(default_factory=list)
+    phrase_ids: list[int] = Field(default_factory=list)
 
 
 class GroupBulkAddItemsResponse(BaseModel):

@@ -288,6 +288,16 @@ export interface WordCheckResponse {
   not_found: string[];
 }
 
+export interface PhraseCheckFound {
+  id: number;
+  text: string;
+}
+
+export interface PhraseCheckResponse {
+  found: PhraseCheckFound[];
+  not_found: string[];
+}
+
 export interface InflectionCheckResult {
   word: string;
   is_inflected: boolean;
