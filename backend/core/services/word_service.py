@@ -37,6 +37,7 @@ from core.services.scraper import build_scrapers
 from core.services.scraper.wiktionary import WiktionaryScraper
 from core.services.phrase_service import (
     get_or_create_phrase,
+    link_existing_phrases_for_word,
     link_phrase_to_word,
     normalize_phrase_text,
 )
@@ -484,6 +485,25 @@ def replace_word_phrases(db: Session, word: Word, phrase_entries: list[dict[str,
 
 
 def to_word_read(db: Session, word: Word) -> WordRead:
+    # region agent log
+    from core.utils.dbg_log import dbg as _dbg_read
+    _ety_read = word.etymology
+    _branches_read = list(_ety_read.branches) if _ety_read else []
+    _dbg_read(
+        "word_service.py:to_word_read(entry)",
+        "to_word_read called",
+        {
+            "word_id": word.id,
+            "word": word.word,
+            "definitions_count": len(word.definitions or []),
+            "branches_count": len(_branches_read),
+            "core_image": _ety_read.core_image if _ety_read else None,
+            "derivations_count": len(word.derivations or []),
+            "phrases_count": len(word.phrases or []),
+        },
+        hypothesis_id="I",
+    )
+    # endregion
     definitions = []
     for d in word.definitions:
         item = DefinitionRead.model_validate(d).model_dump()
@@ -867,21 +887,80 @@ async def rescrape(db: Session, word: Word) -> None:
         normalize_structured_derivations_and_phrases as _normalize_structured_derivations_and_phrases,
     )
     from core.services.word_data_helpers import normalize_structured_forms as _normalize_structured_forms
+    # region agent log
+    from core.utils.dbg_log import dbg as _dbg
+    # endregion
 
     wordnet_data = get_wordnet_snapshot(word.word)
     scraped_data = await scrape_all(word.word)
     structured = generate_structured_word_data(word.word, wordnet_data, scraped_data)
-    if needs_etymology_enrichment(word.word, structured):
+    # region agent log
+    _ety_initial = structured.get("etymology") if isinstance(structured, dict) else None
+    _branches_initial = _ety_initial.get("branches") if isinstance(_ety_initial, dict) else None
+    _dbg(
+        "word_service.py:rescrape(after_llm)",
+        "structured payload built (sync)",
+        {
+            "word": word.word,
+            "llm_mode": "sync",
+            "definitions_count": len(structured.get("definitions", []) or []) if isinstance(structured, dict) else None,
+            "core_image": _ety_initial.get("core_image") if isinstance(_ety_initial, dict) else None,
+            "branches_count": len(_branches_initial) if isinstance(_branches_initial, list) else None,
+        },
+        hypothesis_id="A",
+    )
+    # endregion
+    _need_enrich = needs_etymology_enrichment(word.word, structured)
+    # region agent log
+    _dbg(
+        "word_service.py:rescrape(needs_enrich)",
+        "needs_etymology_enrichment decision (sync)",
+        {"word": word.word, "needs_enrich": _need_enrich, "llm_mode": "sync"},
+        hypothesis_id="C",
+    )
+    # endregion
+    if _need_enrich:
         enriched = enrich_core_image_and_branches(
             word_text=word.word,
             definitions=structured.get("definitions", []),
             etymology_data=structured.get("etymology", {}),
         )
+        # region agent log
+        _enr_branches = (enriched or {}).get("branches") if isinstance(enriched, dict) else None
+        _dbg(
+            "word_service.py:rescrape(enriched_received)",
+            "enrichment result (sync)",
+            {
+                "word": word.word,
+                "llm_mode": "sync",
+                "enriched_is_none": enriched is None,
+                "enriched_core_image": (enriched or {}).get("core_image") if isinstance(enriched, dict) else None,
+                "enriched_branches_count": len(_enr_branches) if isinstance(_enr_branches, list) else 0,
+            },
+            hypothesis_id="B",
+        )
+        # endregion
         structured = apply_enriched_etymology(structured, enriched)
     structured = _normalize_structured_forms(structured)
     structured = _normalize_structured_derivations_and_phrases(structured)
     await _enrich_phrase_and_related_meanings(structured, WiktionaryScraper(), {})
+    # region agent log
+    _ety_final = structured.get("etymology") if isinstance(structured, dict) else None
+    _branches_final = _ety_final.get("branches") if isinstance(_ety_final, dict) else None
+    _dbg(
+        "word_service.py:rescrape(final)",
+        "final structured payload (sync)",
+        {
+            "word": word.word,
+            "llm_mode": "sync",
+            "final_branches_count": len(_branches_final) if isinstance(_branches_final, list) else 0,
+            "final_core_image": _ety_final.get("core_image") if isinstance(_ety_final, dict) else None,
+        },
+        hypothesis_id="A",
+    )
+    # endregion
     apply_structured_payload(db, word, structured)
+    link_existing_phrases_for_word(db, word)
 
 
 def enrich_etymology(db: Session, word: Word) -> Etymology:

@@ -743,6 +743,7 @@ def delete_word(word_id: int, db: Session = Depends(get_db)) -> dict:
     word = db.get(Word, word_id)
     if not word:
         raise HTTPException(status_code=404, detail="Word not found")
+    # Keep Phrase rows intact and only remove links through cascade, so re-added words can re-link later.
     db.delete(word)
     db.commit()
     return {"ok": True}

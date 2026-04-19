@@ -4,7 +4,7 @@ import re
 import unicodedata
 from collections import OrderedDict
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from core.models import Phrase, Word, WordPhrase
@@ -60,6 +60,30 @@ def find_phrase_by_text(db: Session, raw_text: str) -> Phrase | None:
     return db.scalar(stmt)
 
 
+def _tokenize_phrase_text(text: str) -> list[str]:
+    return [token for token in re.split(r"\s+", normalize_phrase_text(text).lower()) if token]
+
+
+def find_phrases_containing_token(db: Session, token: str) -> list[Phrase]:
+    normalized_token = normalize_phrase_text(token).lower()
+    if not normalized_token:
+        return []
+    stmt = (
+        select(Phrase)
+        .where(
+            or_(
+                func.lower(Phrase.text) == normalized_token,
+                func.lower(Phrase.text).like(f"{normalized_token} %"),
+                func.lower(Phrase.text).like(f"% {normalized_token}"),
+                func.lower(Phrase.text).like(f"% {normalized_token} %"),
+            )
+        )
+        .order_by(func.lower(Phrase.text), Phrase.id)
+    )
+    candidates = list(db.scalars(stmt))
+    return [phrase for phrase in candidates if normalized_token in _tokenize_phrase_text(phrase.text)]
+
+
 def get_or_create_phrase(db: Session, raw_text: str, meaning: str = "") -> Phrase:
     normalized = normalize_phrase_text(raw_text)
     if not normalized:
@@ -83,6 +107,17 @@ def link_phrase_to_word(db: Session, word: Word, phrase: Phrase) -> None:
         return
     db.add(WordPhrase(word_id=word.id, phrase_id=phrase.id))
     db.flush()
+
+
+def link_existing_phrases_for_word(db: Session, word: Word) -> int:
+    linked_count = 0
+    for phrase in find_phrases_containing_token(db, word.word):
+        exists_stmt = select(WordPhrase.id).where(WordPhrase.word_id == word.id, WordPhrase.phrase_id == phrase.id)
+        already_linked = db.scalar(exists_stmt) is not None
+        link_phrase_to_word(db, word, phrase)
+        if not already_linked:
+            linked_count += 1
+    return linked_count
 
 
 def replace_word_phrases(db: Session, word: Word, phrase_entries: list[dict[str, str]]) -> None:
