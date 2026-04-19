@@ -11,7 +11,17 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, joinedload, sessionmaker
 
 from core.database import get_db
-from core.models import Definition, Derivation, Etymology, Phrase, RelatedWord, Word, WordPhrase
+from core.models import (
+    Definition,
+    Derivation,
+    Etymology,
+    EtymologyComponentItem,
+    EtymologyComponentMeaning,
+    Phrase,
+    RelatedWord,
+    Word,
+    WordPhrase,
+)
 from core.schemas import (
     BulkWordRequest,
     DefinitionRead,
@@ -384,8 +394,25 @@ async def list_words_by_etymology_component(
     normalized_text = normalize_component_text(text)
     if not normalized_text:
         raise HTTPException(status_code=400, detail="text is required")
-    words = list(db.scalars(_word_query().order_by(Word.updated_at.desc())).unique())
-    filtered = [word for word in words if _has_etymology_component(word, normalized_text)]
+    matching_etymology_ids = (
+        select(EtymologyComponentItem.etymology_id)
+        .where(func.lower(EtymologyComponentItem.component_text) == normalized_text)
+        .union(
+            select(EtymologyComponentMeaning.etymology_id).where(
+                func.lower(EtymologyComponentMeaning.component_text) == normalized_text
+            )
+        )
+    )
+    matching_word_ids_subq = (
+        select(Etymology.word_id).where(Etymology.id.in_(matching_etymology_ids)).subquery()
+    )
+    filtered = list(
+        db.scalars(
+            _word_query()
+            .where(Word.id.in_(select(matching_word_ids_subq.c.word_id)))
+            .order_by(Word.updated_at.desc())
+        ).unique()
+    )
     resolved_meaning = _resolve_component_meaning(filtered, normalized_text)
     component_cache = get_component_cache(db, normalized_text)
     if component_cache and component_cache.resolved_meaning != resolved_meaning:

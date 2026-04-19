@@ -42,6 +42,7 @@ export function GroupEditPage() {
   const queryClient = useQueryClient();
 
   const [groupDraft, setGroupDraft] = useState<{ name: string; description: string } | null>(null);
+  const [wordKeywordInput, setWordKeywordInput] = useState("");
   const [wordKeyword, setWordKeyword] = useState("");
   const [aiKeywords, setAiKeywords] = useState("");
   const [selectedCandidates, setSelectedCandidates] = useState<Set<string>>(new Set());
@@ -329,11 +330,42 @@ export function GroupEditPage() {
             <h3>手動追加</h3>
             <label>
               <small>単語/熟語を検索</small>
-              <input
-                value={wordKeyword}
-                onChange={(event) => setWordKeyword(event.target.value)}
-                placeholder="登録済み単語を検索"
-              />
+              <Row>
+                <input
+                  value={wordKeywordInput}
+                  onChange={(event) => setWordKeywordInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      setWordKeyword(wordKeywordInput);
+                    }
+                  }}
+                  placeholder="登録済み単語を検索（Enterまたは検索ボタン）"
+                  style={{ flex: 1 }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setWordKeyword(wordKeywordInput)}
+                  disabled={
+                    wordSearchQuery.isFetching ||
+                    wordKeywordInput.trim().length === 0 ||
+                    wordKeywordInput === wordKeyword
+                  }
+                >
+                  {wordSearchQuery.isFetching ? "検索中..." : "検索"}
+                </button>
+                {wordKeyword && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setWordKeywordInput("");
+                      setWordKeyword("");
+                    }}
+                  >
+                    クリア
+                  </button>
+                )}
+              </Row>
             </label>
             {(wordSearchQuery.data?.items ?? []).map((word) => (
               <Card key={word.id} variant="sub" stack>
