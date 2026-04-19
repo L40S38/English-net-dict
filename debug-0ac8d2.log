@@ -1,1 +1,0 @@
-{"sessionId": "0ac8d2", "timestamp": 1776587950948, "location": "word_service.py:to_word_read(entry)", "message": "to_word_read called", "data": {"word_id": 464, "word": "in", "definitions_count": 8, "branches_count": 0, "core_image": "内部の概念", "derivations_count": 0, "phrases_count": 19}, "hypothesisId": "I"}

@@ -120,18 +120,7 @@ async def generate_structured_word_data_async(
     *,
     example_mode: ExampleMode = "parallel_async",
 ) -> dict:
-    # region agent log
-    from core.utils.dbg_log import dbg as _dbg
-    # endregion
     if not settings.openai_api_key:
-        # region agent log
-        _dbg(
-            "gpt_service_parallel.py:generate_structured_word_data_async",
-            "no_api_key -> fallback",
-            {"word": word},
-            hypothesis_id="E",
-        )
-        # endregion
         return g._fallback_structured(word, wordnet_data, scraped_data)
 
     prompt = g.load_prompt("word_structuring.md")
@@ -153,15 +142,7 @@ async def generate_structured_word_data_async(
         )
         text = g._strip_json_code_fence(completion.output_text or "")
         data = repair_nested_strings(json.loads(text))
-    except Exception as exc:  # noqa: BLE001
-        # region agent log
-        _dbg(
-            "gpt_service_parallel.py:generate_structured_word_data_async",
-            "exception -> fallback",
-            {"word": word, "error_type": type(exc).__name__, "error": str(exc)[:300]},
-            hypothesis_id="E",
-        )
-        # endregion
+    except Exception:  # noqa: BLE001
         return g._fallback_structured(word, wordnet_data, scraped_data)
 
     data.setdefault("forms", {})
@@ -225,9 +206,6 @@ async def enrich_core_image_and_branches_async(
         "definitions": definitions or [],
         "etymology": etymology_data or {},
     }
-    # region agent log
-    from core.utils.dbg_log import dbg as _dbg
-    # endregion
     try:
         client = AsyncOpenAI(api_key=settings.openai_api_key)
         completion = await client.responses.create(
@@ -240,37 +218,13 @@ async def enrich_core_image_and_branches_async(
         )
         text = g._strip_json_code_fence(completion.output_text or "")
         data = repair_nested_strings(json.loads(text))
-    except Exception as exc:  # noqa: BLE001
-        # region agent log
-        _dbg(
-            "gpt_service_parallel.py:enrich_core_image_and_branches_async",
-            "exception -> None",
-            {"word": word_text, "error_type": type(exc).__name__, "error": str(exc)[:300]},
-            hypothesis_id="B",
-        )
-        # endregion
+    except Exception:  # noqa: BLE001
         return None
 
     if not isinstance(data, dict):
-        # region agent log
-        _dbg(
-            "gpt_service_parallel.py:enrich_core_image_and_branches_async",
-            "non-dict response -> None",
-            {"word": word_text, "data_type": type(data).__name__},
-            hypothesis_id="B",
-        )
-        # endregion
         return None
     core_image = str(data.get("core_image", "")).strip()
     branches = g._normalize_branch_items(data.get("branches"))
     if not core_image and not branches:
-        # region agent log
-        _dbg(
-            "gpt_service_parallel.py:enrich_core_image_and_branches_async",
-            "empty result -> None",
-            {"word": word_text},
-            hypothesis_id="B",
-        )
-        # endregion
         return None
     return {"core_image": core_image, "branches": branches}

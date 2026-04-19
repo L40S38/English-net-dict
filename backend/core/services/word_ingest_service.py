@@ -34,9 +34,8 @@ from core.services.word_data_helpers import (
     normalize_structured_derivations_and_phrases as _normalize_structured_derivations_and_phrases,
 )
 from core.services.word_data_helpers import normalize_structured_forms as _normalize_structured_forms
-from core.services.word_service import apply_structured_payload
+from core.services.word_service import apply_structured_payload, enrich_etymology as enrich_existing_etymology
 from core.services.wordnet_service import get_wordnet_snapshot
-from core.utils.dbg_log import dbg as _dbg
 
 @dataclass
 class IngestResult:
@@ -178,33 +177,7 @@ async def _build_structured_payload(
         )
     else:
         structured = generate_structured_word_data(word_text, wordnet_data, scraped_data)
-    # region agent log
-    _ety_initial = structured.get("etymology") if isinstance(structured, dict) else None
-    _branches_initial = _ety_initial.get("branches") if isinstance(_ety_initial, dict) else None
-    _core_image_initial = _ety_initial.get("core_image") if isinstance(_ety_initial, dict) else None
-    _dbg(
-        "word_ingest_service.py:_build_structured_payload(after_llm)",
-        "structured payload built",
-        {
-            "word": word_text,
-            "llm_mode": mode.llm_mode,
-            "definitions_count": len(structured.get("definitions", []) or []) if isinstance(structured, dict) else None,
-            "core_image": _core_image_initial,
-            "branches_count": len(_branches_initial) if isinstance(_branches_initial, list) else None,
-            "raw_description_len": len(str((_ety_initial or {}).get("raw_description") or "")) if isinstance(_ety_initial, dict) else 0,
-        },
-        hypothesis_id="A",
-    )
-    # endregion
     _need_enrich = _needs_etymology_enrichment(word_text, structured)
-    # region agent log
-    _dbg(
-        "word_ingest_service.py:_build_structured_payload(needs_enrich)",
-        "needs_etymology_enrichment decision",
-        {"word": word_text, "needs_enrich": _need_enrich, "llm_mode": mode.llm_mode},
-        hypothesis_id="C",
-    )
-    # endregion
     if _need_enrich:
         if mode.llm_mode == "async":
             enriched = await enrich_core_image_and_branches_async(
@@ -218,37 +191,7 @@ async def _build_structured_payload(
                 definitions=structured.get("definitions", []),
                 etymology_data=structured.get("etymology", {}),
             )
-        # region agent log
-        _enr_branches = (enriched or {}).get("branches") if isinstance(enriched, dict) else None
-        _dbg(
-            "word_ingest_service.py:_build_structured_payload(enriched_received)",
-            "enrichment result",
-            {
-                "word": word_text,
-                "llm_mode": mode.llm_mode,
-                "enriched_is_none": enriched is None,
-                "enriched_core_image": (enriched or {}).get("core_image") if isinstance(enriched, dict) else None,
-                "enriched_branches_count": len(_enr_branches) if isinstance(_enr_branches, list) else 0,
-            },
-            hypothesis_id="B",
-        )
-        # endregion
         structured = _apply_enriched_etymology(structured, enriched)
-    # region agent log
-    _ety_final = structured.get("etymology") if isinstance(structured, dict) else None
-    _branches_final = _ety_final.get("branches") if isinstance(_ety_final, dict) else None
-    _dbg(
-        "word_ingest_service.py:_build_structured_payload(final)",
-        "final structured payload",
-        {
-            "word": word_text,
-            "llm_mode": mode.llm_mode,
-            "final_branches_count": len(_branches_final) if isinstance(_branches_final, list) else 0,
-            "final_core_image": _ety_final.get("core_image") if isinstance(_ety_final, dict) else None,
-        },
-        hypothesis_id="A",
-    )
-    # endregion
     structured = _normalize_structured_forms(structured)
     structured = _normalize_structured_derivations_and_phrases(structured)
     if mode.phrase_enrich_mode == "parallel":
@@ -311,26 +254,22 @@ async def _create_or_get_word(
     payload_cache: dict[str, dict],
     meaning_cache: dict[str, str | None],
     options: IngestOptions | None = None,
+    backfill_existing_etymology: bool = False,
 ) -> tuple[Word, bool]:
     existing = _find_word(db, normalized)
     if existing:
-        # region agent log
-        _ety = existing.etymology
-        _branches = list(_ety.branches) if _ety else []
-        _dbg(
-            "word_ingest_service.py:_create_or_get_word(existing_returned)",
-            "returning EXISTING word without rebuild",
-            {
-                "word": normalized,
-                "definitions_count": len(existing.definitions or []),
-                "branches_count": len(_branches),
-                "core_image": _ety.core_image if _ety else None,
-                "derivations_count": len(existing.derivations or []),
-                "phrases_count": len(existing.phrases or []),
-            },
-            hypothesis_id="F",
+        _existing_ety = existing.etymology
+        _existing_branches = list(_existing_ety.branches) if _existing_ety else []
+        _needs_etymology_backfill = (
+            _existing_ety is None
+            or len(_existing_branches) == 0
+            or _core_image_is_generic(existing.word, _existing_ety.core_image if _existing_ety else None)
         )
-        # endregion
+        if backfill_existing_etymology and _needs_etymology_backfill:
+            enrich_existing_etymology(db, existing)
+            db.flush()
+            _refreshed = _find_word(db, normalized) or existing
+            return _refreshed, False
         return existing, False
 
     structured = payload_cache.get(normalized)
@@ -345,14 +284,6 @@ async def _create_or_get_word(
 
     existing = _find_word(db, normalized)
     if existing:
-        # region agent log
-        _dbg(
-            "word_ingest_service.py:_create_or_get_word(existing_returned_after_build)",
-            "EXISTING found AFTER build (race) - skipping apply_structured_payload!",
-            {"word": normalized},
-            hypothesis_id="G",
-        )
-        # endregion
         return existing, False
 
     word = Word(word=normalized)
@@ -360,23 +291,6 @@ async def _create_or_get_word(
     db.flush()
     apply_structured_payload(db, word, structured)
     link_existing_phrases_for_word(db, word)
-    # region agent log
-    _ety_after = word.etymology
-    _branches_after = list(_ety_after.branches) if _ety_after else []
-    _dbg(
-        "word_ingest_service.py:_create_or_get_word(after_apply)",
-        "after apply_structured_payload",
-        {
-            "word": normalized,
-            "definitions_count": len(word.definitions or []),
-            "branches_count": len(_branches_after),
-            "core_image": _ety_after.core_image if _ety_after else None,
-            "derivations_count": len(word.derivations or []),
-            "phrases_count": len(word.phrases or []),
-        },
-        hypothesis_id="H",
-    )
-    # endregion
     return word, True
 
 
@@ -411,6 +325,7 @@ async def ingest_word_or_phrase(
             payload_cache=payload_cache,
             meaning_cache=meaning_cache,
             options=options,
+            backfill_existing_etymology=False,
         )
         return IngestResult(words=[word], created_count=1 if created else 0, split_applied=False)
 
@@ -431,6 +346,7 @@ async def ingest_word_or_phrase(
             payload_cache=payload_cache,
             meaning_cache=meaning_cache,
             options=options,
+            backfill_existing_etymology=True,
         )
         if created:
             created_count += 1
