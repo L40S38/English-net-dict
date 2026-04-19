@@ -512,7 +512,8 @@ async def create_word(
     db.commit()
     for word in result_words:
         db.refresh(word)
-    return [_to_word_read(db, word) for word in result_words]
+    response = [_to_word_read(db, word) for word in result_words]
+    return response
 
 
 _BULK_ITEM_SQLITE_LOCK_RETRIES = 4

@@ -96,6 +96,7 @@ export function HomePage() {
   });
   const [sortBy, setSortBy] = useState<WordSortBy>("last_viewed_at");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
+  const [isCheckingInflectionForm, setIsCheckingInflectionForm] = useState(false);
   const [inflectionModalState, setInflectionModalState] = useState<{
     open: boolean;
     title: string;
@@ -297,7 +298,10 @@ export function HomePage() {
               return false;
             }
           }
-          const inflection = await wordApi.checkInflection({ word });
+          setIsCheckingInflectionForm(true);
+          const inflection = await wordApi.checkInflection({ word }).finally(() => {
+            setIsCheckingInflectionForm(false);
+          });
           const result = inflection.result ?? inflection.results?.[0];
           if (result?.is_inflected) {
             const selectedActions = await openInflectionModal({
@@ -347,8 +351,8 @@ export function HomePage() {
           await createMutation.mutateAsync({ word });
           return true;
         }}
-        disabled={isBusy}
-        loading={createMutation.isPending}
+        disabled={isBusy || isCheckingInflectionForm}
+        loading={createMutation.isPending || isCheckingInflectionForm}
       />
       <BulkImport
         onImport={async (words) => {

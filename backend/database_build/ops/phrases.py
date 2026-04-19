@@ -178,7 +178,7 @@ async def split_phrase_words(
     tokens = _tokenize_phrase(phrase_text)
     if not tokens:
         return 0, 0, 0
-    phrase_meaning = resolve_meaning_ja_ddgs(phrase_text, ddgs_cache)
+    phrase_meaning = await resolve_meaning_ja_ddgs(phrase_text, ddgs_cache)
     added_words = 0
     phrases_appended = 0
     phrases_skipped = 0

@@ -5,8 +5,10 @@ patch_phrase_meanings と patch_refresh_word_data の両方で利用する。
 """
 from __future__ import annotations
 
+import asyncio
 import re
-from openai import OpenAI
+
+from openai import AsyncOpenAI
 
 from core.config import settings
 from core.services.scraper.wiktionary import WiktionaryScraper
@@ -78,7 +80,7 @@ def _hits_text(hits: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _meaning_from_hits_with_gpt_ja(term: str, source: str, hits: list[dict]) -> str | None:
+async def _meaning_from_hits_with_gpt_ja(term: str, source: str, hits: list[dict]) -> str | None:
     """検索スニペットから GPT で日本語の短い意味を1行得る."""
     if not hits:
         return None
@@ -105,8 +107,8 @@ def _meaning_from_hits_with_gpt_ja(term: str, source: str, hits: list[dict]) -> 
         f"スニペット:\n{_hits_text(hits)}"
     )
     try:
-        client = OpenAI(api_key=settings.openai_api_key)
-        completion = client.responses.create(
+        client = AsyncOpenAI(api_key=settings.openai_api_key)
+        completion = await client.responses.create(
             model=settings.openai_model_structured,
             temperature=0.0,
             input=[
@@ -119,7 +121,7 @@ def _meaning_from_hits_with_gpt_ja(term: str, source: str, hits: list[dict]) -> 
         return None
 
 
-def _summarize_one_line_ja(term: str, candidates: list[str]) -> str | None:
+async def _summarize_one_line_ja(term: str, candidates: list[str]) -> str | None:
     """複数の候補（英語・日本語混在可）を GPT で日本語1行に要約する."""
     cleaned = [clean_line(x, max_len=260) for x in candidates if clean_line(x, max_len=260)]
     if not cleaned:
@@ -137,8 +139,8 @@ def _summarize_one_line_ja(term: str, candidates: list[str]) -> str | None:
     evidence = "\n".join(f"- {item}" for item in cleaned[:8])
     user_input = f"表現: {term}\n証拠:\n{evidence}"
     try:
-        client = OpenAI(api_key=settings.openai_api_key)
-        completion = client.responses.create(
+        client = AsyncOpenAI(api_key=settings.openai_api_key)
+        completion = await client.responses.create(
             model=settings.openai_model_structured,
             temperature=0.0,
             input=[
@@ -152,28 +154,28 @@ def _summarize_one_line_ja(term: str, candidates: list[str]) -> str | None:
         return clean_line(cleaned[0], max_len=120) or None
 
 
-def _meaning_from_web_dictionary(term: str) -> str | None:
+async def _meaning_from_web_dictionary(term: str) -> str | None:
     global _WEB_DICT_UNAVAILABLE
     if _WEB_DICT_UNAVAILABLE:
         return None
-    result = search_web_dictionary([term], max_results_per_query=6)
+    result = await asyncio.to_thread(search_web_dictionary, [term], max_results_per_query=6)
     hits = result.get("hits", []) if isinstance(result, dict) else []
     if not isinstance(hits, list) or not hits:
         _WEB_DICT_UNAVAILABLE = True
         return None
-    return _meaning_from_hits_with_gpt_ja(term, "dictionary", hits)
+    return await _meaning_from_hits_with_gpt_ja(term, "dictionary", hits)
 
 
-def _meaning_from_web_general(term: str) -> str | None:
+async def _meaning_from_web_general(term: str) -> str | None:
     global _WEB_GENERAL_UNAVAILABLE
     if _WEB_GENERAL_UNAVAILABLE:
         return None
-    result = search_web_general([f"{term} meaning"], max_results_per_query=6)
+    result = await asyncio.to_thread(search_web_general, [f"{term} meaning"], max_results_per_query=6)
     hits = result.get("hits", []) if isinstance(result, dict) else []
     if not isinstance(hits, list) or not hits:
         _WEB_GENERAL_UNAVAILABLE = True
         return None
-    return _meaning_from_hits_with_gpt_ja(term, "general", hits)
+    return await _meaning_from_hits_with_gpt_ja(term, "general", hits)
 
 
 async def resolve_meaning_ja(
@@ -202,18 +204,18 @@ async def resolve_meaning_ja(
     wordnet = _meaning_from_wordnet(term)
     if wordnet:
         candidates.append(wordnet)
-    web_dict = _meaning_from_web_dictionary(term)
+    web_dict = await _meaning_from_web_dictionary(term)
     if web_dict:
         candidates.append(web_dict)
-    web_general = _meaning_from_web_general(term)
+    web_general = await _meaning_from_web_general(term)
     if web_general:
         candidates.append(web_general)
-    meaning = _summarize_one_line_ja(term, candidates)
+    meaning = await _summarize_one_line_ja(term, candidates)
     cache[key] = meaning
     return meaning
 
 
-def resolve_meaning_ja_ddgs(
+async def resolve_meaning_ja_ddgs(
     term: str,
     cache: dict[str, str | None],
     seed_candidates: list[str] | None = None,
@@ -229,12 +231,12 @@ def resolve_meaning_ja_ddgs(
         cleaned = clean_line(seed, max_len=260)
         if cleaned:
             candidates.append(cleaned)
-    web_dict = _meaning_from_web_dictionary(term)
+    web_dict = await _meaning_from_web_dictionary(term)
     if web_dict:
         candidates.append(web_dict)
-    web_general = _meaning_from_web_general(term)
+    web_general = await _meaning_from_web_general(term)
     if web_general:
         candidates.append(web_general)
-    meaning = _summarize_one_line_ja(term, candidates)
+    meaning = await _summarize_one_line_ja(term, candidates)
     cache[key] = meaning
     return meaning

@@ -32,7 +32,6 @@ from core.services.word_data_helpers import normalize_structured_forms as _norma
 from core.services.word_service import apply_structured_payload
 from core.services.wordnet_service import get_wordnet_snapshot
 
-
 @dataclass
 class IngestResult:
     words: list[Word]
@@ -313,7 +312,7 @@ async def ingest_word_or_phrase(
     if not phrase_text:
         raise ValueError("phrase is required")
     tokens = _unique_tokens(raw_text)
-    phrase_meaning = resolve_meaning_ja_ddgs(phrase_text, meaning_cache) or ""
+    phrase_meaning = (await resolve_meaning_ja_ddgs(phrase_text, meaning_cache)) or ""
     results: list[Word] = []
     created_count = 0
     for token in tokens:

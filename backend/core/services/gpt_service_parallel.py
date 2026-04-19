@@ -140,7 +140,7 @@ async def generate_structured_word_data_async(
                 {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
             ],
         )
-        text = completion.output_text.strip()
+        text = g._strip_json_code_fence(completion.output_text or "")
         data = repair_nested_strings(json.loads(text))
     except Exception:  # noqa: BLE001
         return g._fallback_structured(word, wordnet_data, scraped_data)

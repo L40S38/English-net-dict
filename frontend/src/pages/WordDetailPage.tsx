@@ -123,6 +123,7 @@ export function WordDetailPage() {
   const [showPhraseConfirm, setShowPhraseConfirm] = useState(false);
   const [showInflectionModal, setShowInflectionModal] = useState(false);
   const [inflectionResult, setInflectionResult] = useState<InflectionCheckResult | null>(null);
+  const [isCheckingInflection, setIsCheckingInflection] = useState(false);
   const partialMatchQuery = useQuery({
     queryKey: ["words", "partial", rawWordKey],
     queryFn: () => wordApi.list({ q: rawWordKey, page_size: 20 }),
@@ -139,14 +140,19 @@ export function WordDetailPage() {
   });
 
   const handleRegisterWithCheck = async () => {
-    const response = await wordApi.checkInflection({ word: rawWordKey });
-    const result = response.result ?? response.results?.[0] ?? null;
-    if (result?.is_inflected) {
-      setInflectionResult(result);
-      setShowInflectionModal(true);
-      return;
+    setIsCheckingInflection(true);
+    try {
+      const response = await wordApi.checkInflection({ word: rawWordKey });
+      const result = response.result ?? response.results?.[0] ?? null;
+      if (result?.is_inflected) {
+        setInflectionResult(result);
+        setShowInflectionModal(true);
+        return;
+      }
+      registerMutation.mutate({});
+    } finally {
+      setIsCheckingInflection(false);
     }
-    registerMutation.mutate({});
   };
 
   if (isNotFound && numericWordId === null) {
@@ -165,11 +171,11 @@ export function WordDetailPage() {
                 }
                 void handleRegisterWithCheck();
               }}
-              disabled={registerMutation.isPending}
+              disabled={isCheckingInflection || registerMutation.isPending}
             >
-              {registerMutation.isPending ? "登録中..." : "単語として登録する"}
+              {isCheckingInflection || registerMutation.isPending ? "登録中..." : "単語として登録する"}
             </button>
-            <button onClick={() => navigate("/")} disabled={registerMutation.isPending}>
+            <button onClick={() => navigate("/")} disabled={isCheckingInflection || registerMutation.isPending}>
               キャンセル
             </button>
           </Row>
