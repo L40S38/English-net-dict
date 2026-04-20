@@ -1,11 +1,16 @@
 import { Plus, Trash2 } from "lucide-react";
 import { Card, Field } from "./atom";
 import { ComponentFormBlock } from "./ComponentFormBlock";
-import { ComponentMeaningFormBlock, type ComponentMeaningItem } from "./ComponentMeaningFormBlock";
+import { ComponentMeaningFormBlock } from "./ComponentMeaningFormBlock";
 import { LanguageChainFormBlock } from "./LanguageChainFormBlock";
-import type { EtymologyComponent, EtymologyVariant, LanguageChainLink } from "../types";
+import type {
+  ComponentMeaningItem,
+  EtymologyComponent,
+  EtymologyVariant,
+  LanguageChainLink,
+} from "../types";
 
-interface Props {
+interface EtymologyVariantFormBlockProps {
   variant: EtymologyVariant;
   index: number;
   onUpdate: (index: number, next: EtymologyVariant) => void;
@@ -24,7 +29,12 @@ function toLanguageChain(input?: LanguageChainLink[]): LanguageChainLink[] {
   return input ?? [];
 }
 
-export function EtymologyVariantFormBlock({ variant, index, onUpdate, onRemove }: Props) {
+export function EtymologyVariantFormBlock({
+  variant,
+  index,
+  onUpdate,
+  onRemove,
+}: EtymologyVariantFormBlockProps) {
   const components = toComponents(variant.components);
   const componentMeanings = toComponentMeanings(variant.component_meanings);
   const languageChain = toLanguageChain(variant.language_chain);

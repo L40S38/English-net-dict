@@ -62,7 +62,8 @@ export function SearchHeader() {
     <header className="site-header">
       <div className="header-inner" ref={rootRef}>
         <Link to="/" className="site-title">
-          個人用 英語語源辞書
+          <img src="/rootmap-logo.svg" alt="" className="site-logo" aria-hidden="true" />
+          <span>My Own Rootmap</span>
         </Link>
         <form className="search-form" onSubmit={onSubmit}>
           <div className="suggest-container">

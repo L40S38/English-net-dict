@@ -1,4 +1,4 @@
-import axios from "axios";
+import axios, { AxiosError, type InternalAxiosRequestConfig } from "axios";
 import type {
   ChatMessage,
   ChatReply,
@@ -12,6 +12,12 @@ import type {
   GroupSuggestResponse,
   GroupBulkAddItemsResponse,
   GroupImage,
+  InflectionAction,
+  InflectionCheckResponse,
+  MigrationInflectionApplyDecision,
+  MigrationInflectionApplyResponse,
+  MigrationInflectionTargetsResponse,
+  PhraseCheckResponse,
   Phrase,
   RelatedWord,
   Word,
@@ -25,10 +31,76 @@ import type {
   WordSortBy,
   SortOrder,
 } from "../types";
+import { SHARED_API_BASE_URL_DEFAULT } from "./sharedConfig";
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000",
+  baseURL: import.meta.env.VITE_API_BASE_URL ?? SHARED_API_BASE_URL_DEFAULT,
 });
+
+const MAX_RETRY_COUNT = 3;
+const RETRY_BASE_DELAY_MS = 300;
+const CONNECTION_ERROR_EVENT = "api-connection-error";
+const CONNECTION_RECOVERED_EVENT = "api-connection-recovered";
+let hasActiveConnectionError = false;
+
+interface RetryRequestConfig extends InternalAxiosRequestConfig {
+  _retryCount?: number;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function isRetryableConnectionError(error: AxiosError): boolean {
+  if (error.response) {
+    return false;
+  }
+  if (error.code === "ERR_NETWORK" || error.code === "ECONNABORTED") {
+    return true;
+  }
+  return /network error/i.test(error.message ?? "");
+}
+
+function notifyConnectionError(): void {
+  hasActiveConnectionError = true;
+  window.dispatchEvent(
+    new CustomEvent(CONNECTION_ERROR_EVENT, {
+      detail: {
+        message: "サーバーに接続できません。ネットワークまたはサーバー状態を確認してください。",
+      },
+    }),
+  );
+}
+
+function notifyConnectionRecovered(): void {
+  if (!hasActiveConnectionError) {
+    return;
+  }
+  hasActiveConnectionError = false;
+  window.dispatchEvent(new CustomEvent(CONNECTION_RECOVERED_EVENT));
+}
+
+api.interceptors.response.use(
+  async (response) => {
+    notifyConnectionRecovered();
+    return response;
+  },
+  async (error: AxiosError) => {
+    const config = error.config as RetryRequestConfig | undefined;
+    if (!config || !isRetryableConnectionError(error)) {
+      throw error;
+    }
+    const retryCount = config._retryCount ?? 0;
+    if (retryCount >= MAX_RETRY_COUNT) {
+      notifyConnectionError();
+      throw error;
+    }
+    config._retryCount = retryCount + 1;
+    const delayMs = RETRY_BASE_DELAY_MS * 2 ** retryCount;
+    await sleep(delayMs);
+    return api.request(config);
+  },
+);
 
 export const wordApi = {
   async list(params?: {
@@ -39,6 +111,16 @@ export const wordApi = {
     sort_order?: SortOrder;
   }) {
     const { data } = await api.get<WordListResponse>("/api/words", { params });
+    return data;
+  },
+  async searchForGroup(params: {
+    q: string;
+    page?: number;
+    page_size?: number;
+    sort_by?: WordSortBy;
+    sort_order?: SortOrder;
+  }) {
+    const { data } = await api.get<WordListResponse>("/api/words/search-for-group", { params });
     return data;
   },
   async suggest(q: string, limit = 10) {
@@ -64,8 +146,18 @@ export const wordApi = {
     const { data } = await api.get<Word>(`/api/words/by-text/${encodeURIComponent(word)}`);
     return data;
   },
-  async create(word: string) {
-    const { data } = await api.post<Word[]>("/api/words", { word });
+  async create(
+    word: string,
+    options?: {
+      inflection_action?: InflectionAction | null;
+      lemma_word?: string | null;
+    },
+  ) {
+    const { data } = await api.post<Word[]>("/api/words", {
+      word,
+      inflection_action: options?.inflection_action ?? null,
+      lemma_word: options?.lemma_word ?? null,
+    });
     return data;
   },
   async bulkCreate(words: string[]) {
@@ -74,6 +166,13 @@ export const wordApi = {
   },
   async check(words: string[]) {
     const { data } = await api.post<WordCheckResponse>("/api/words/check", { words });
+    return data;
+  },
+  async checkInflection(payload: { word?: string; words?: string[] }) {
+    const { data } = await api.post<InflectionCheckResponse>(
+      "/api/words/check-inflection",
+      payload,
+    );
     return data;
   },
   async rescrape(wordId: number) {
@@ -314,10 +413,13 @@ export const groupApi = {
   async removeItem(groupId: number, itemId: number) {
     await api.delete(`/api/groups/${groupId}/items/${itemId}`);
   },
-  async bulkAddItems(groupId: number, wordIds: number[]) {
+  async bulkAddItems(
+    groupId: number,
+    payload: { word_ids?: number[]; phrase_ids?: number[] },
+  ) {
     const { data } = await api.post<GroupBulkAddItemsResponse>(
       `/api/groups/${groupId}/bulk-add-items`,
-      { word_ids: wordIds },
+      payload,
     );
     return data;
   },
@@ -361,12 +463,38 @@ export const phraseApi = {
     const { data } = await api.post<Phrase>("/api/phrases", payload);
     return data;
   },
+  async check(texts: string[]) {
+    const { data } = await api.post<PhraseCheckResponse>("/api/phrases/check", { texts });
+    return data;
+  },
   async update(phraseId: number, payload: { meaning: string }) {
     const { data } = await api.put<Phrase>(`/api/phrases/${phraseId}`, payload);
     return data;
   },
   async delete(phraseId: number) {
     await api.delete(`/api/phrases/${phraseId}`);
+  },
+};
+
+export const migrationApi = {
+  async listInflectionTargets(params?: { page?: number; page_size?: number }) {
+    const { data } = await api.get<MigrationInflectionTargetsResponse>(
+      "/api/migration/inflection/targets",
+      {
+        params: {
+          page: params?.page ?? 1,
+          page_size: params?.page_size ?? 100,
+        },
+      },
+    );
+    return data;
+  },
+  async applyInflection(decisions: MigrationInflectionApplyDecision[]) {
+    const { data } = await api.post<MigrationInflectionApplyResponse>(
+      "/api/migration/inflection/apply",
+      { decisions },
+    );
+    return data;
   },
 };
 

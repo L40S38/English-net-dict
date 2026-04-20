@@ -1,5 +1,4 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import axios from "axios";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
@@ -12,9 +11,12 @@ import { RelatedWords } from "../components/RelatedWords";
 import { WordCard } from "../components/WordCard";
 import { WordChatPanel } from "../components/WordChatPanel";
 import { WordDefinitions } from "../components/WordDefinitions";
+import { InflectionBatchModal } from "../components/InflectionBatchModal";
 import { Card, Muted, Row } from "../components/atom";
 import { wordApi } from "../lib/api";
-import { EMPTY_MESSAGES } from "../lib/constants";
+import { EMPTY_MESSAGES, INFLECTION_LABELS } from "../lib/constants";
+import { isNotFoundError } from "../lib/errors";
+import type { InflectionAction, InflectionCheckResult } from "../types";
 
 function isPhrase(text: string): boolean {
   return text.trim().split(/\s+/).filter(Boolean).length >= 2;
@@ -38,7 +40,10 @@ export function WordDetailPage() {
   });
 
   const registerMutation = useMutation({
-    mutationFn: () => wordApi.create(rawWordKey),
+    mutationFn: (options?: {
+      inflection_action?: InflectionAction | null;
+      lemma_word?: string | null;
+    }) => wordApi.create(rawWordKey, options),
     onSuccess: (createdWords) => {
       const first = createdWords[0];
       if (!first) {
@@ -78,23 +83,47 @@ export function WordDetailPage() {
     deleteWordMutation.isPending;
   const forms = word?.forms ?? {};
   const formEntries = [
-    ["三単現", String(forms.third_person_singular ?? "")],
-    ["現在分詞", String(forms.present_participle ?? "")],
-    ["過去形", String(forms.past_tense ?? "")],
-    ["過去分詞", String(forms.past_participle ?? "")],
-    ["複数形", String(forms.plural ?? "")],
-    ["比較級", String(forms.comparative ?? "")],
-    ["最上級", String(forms.superlative ?? "")],
-    ["可算/不可算", forms.uncountable ? "不可算あり" : ""],
-  ].filter(([, value]) => value);
+    {
+      key: "third_person_singular",
+      label: INFLECTION_LABELS.third_person_singular,
+      value: String(forms.third_person_singular ?? ""),
+    },
+    {
+      key: "present_participle",
+      label: INFLECTION_LABELS.present_participle,
+      value: String(forms.present_participle ?? ""),
+    },
+    {
+      key: "past_tense",
+      label: INFLECTION_LABELS.past_tense,
+      value: String(forms.past_tense ?? ""),
+    },
+    {
+      key: "past_participle",
+      label: INFLECTION_LABELS.past_participle,
+      value: String(forms.past_participle ?? ""),
+    },
+    { key: "plural", label: INFLECTION_LABELS.plural, value: String(forms.plural ?? "") },
+    {
+      key: "comparative",
+      label: INFLECTION_LABELS.comparative,
+      value: String(forms.comparative ?? ""),
+    },
+    {
+      key: "superlative",
+      label: INFLECTION_LABELS.superlative,
+      value: String(forms.superlative ?? ""),
+    },
+    { key: "uncountable", label: "可算/不可算", value: forms.uncountable ? "不可算" : "" },
+  ].filter((item) => item.value);
 
-  const isNotFound =
-    wordQuery.isError &&
-    axios.isAxiosError(wordQuery.error) &&
-    wordQuery.error.response?.status === 404;
+  const isNotFound = wordQuery.isError && isNotFoundError(wordQuery.error);
 
   const [deletingWordId, setDeletingWordId] = useState<number | null>(null);
   const [showPhraseConfirm, setShowPhraseConfirm] = useState(false);
+  const [showInflectionModal, setShowInflectionModal] = useState(false);
+  const [inflectionResult, setInflectionResult] = useState<InflectionCheckResult | null>(null);
+  const [isCheckingInflection, setIsCheckingInflection] = useState(false);
   const partialMatchQuery = useQuery({
     queryKey: ["words", "partial", rawWordKey],
     queryFn: () => wordApi.list({ q: rawWordKey, page_size: 20 }),
@@ -110,6 +139,22 @@ export function WordDetailPage() {
     onSettled: () => setDeletingWordId(null),
   });
 
+  const handleRegisterWithCheck = async () => {
+    setIsCheckingInflection(true);
+    try {
+      const response = await wordApi.checkInflection({ word: rawWordKey });
+      const result = response.result ?? response.results?.[0] ?? null;
+      if (result?.is_inflected) {
+        setInflectionResult(result);
+        setShowInflectionModal(true);
+        return;
+      }
+      registerMutation.mutate({});
+    } finally {
+      setIsCheckingInflection(false);
+    }
+  };
+
   if (isNotFound && numericWordId === null) {
     const partialItems = partialMatchQuery.data?.items ?? [];
     return (
@@ -124,13 +169,13 @@ export function WordDetailPage() {
                   setShowPhraseConfirm(true);
                   return;
                 }
-                registerMutation.mutate();
+                void handleRegisterWithCheck();
               }}
-              disabled={registerMutation.isPending}
+              disabled={isCheckingInflection || registerMutation.isPending}
             >
-              {registerMutation.isPending ? "登録中..." : "単語として登録する"}
+              {isCheckingInflection || registerMutation.isPending ? "登録中..." : "単語として登録する"}
             </button>
-            <button onClick={() => navigate("/")} disabled={registerMutation.isPending}>
+            <button onClick={() => navigate("/")} disabled={isCheckingInflection || registerMutation.isPending}>
               キャンセル
             </button>
           </Row>
@@ -159,9 +204,52 @@ export function WordDetailPage() {
           onCancel={() => setShowPhraseConfirm(false)}
           onConfirm={() => {
             setShowPhraseConfirm(false);
-            registerMutation.mutate();
+            registerMutation.mutate({});
           }}
         />
+        {showInflectionModal && inflectionResult && (
+          <InflectionBatchModal
+            open={showInflectionModal}
+            title="活用形の確認"
+            items={[
+              {
+                word: inflectionResult.word,
+                selectedLemma: inflectionResult.selected_lemma ?? null,
+                selectedSpelling: inflectionResult.selected_spelling ?? null,
+                lemmaResolution: inflectionResult.lemma_resolution ?? null,
+                selectedInflectionType: inflectionResult.selected_inflection_type ?? null,
+                lemmaCandidates: (inflectionResult.lemma_candidates ?? []).map((candidate) => ({
+                  lemma: candidate.lemma,
+                  lemmaWordId: candidate.lemma_word_id ?? null,
+                  inflectionType: candidate.inflection_type ?? null,
+                })),
+                spellingCandidates: (inflectionResult.spelling_candidates ?? []).map((entry) => ({
+                  spelling: entry.spelling,
+                  source: entry.source ?? null,
+                  selectedLemma: entry.selected_lemma ?? null,
+                  lemmaResolution: entry.lemma_resolution ?? null,
+                  lemmaCandidates: (entry.lemma_candidates ?? []).map((candidate) => ({
+                    lemma: candidate.lemma,
+                    lemmaWordId: candidate.lemma_word_id ?? null,
+                    inflectionType: candidate.inflection_type ?? null,
+                  })),
+                })),
+                suggestion: inflectionResult.suggestion ?? "register_as_is",
+              },
+            ]}
+            onClose={() => setShowInflectionModal(false)}
+            onConfirm={(decisions) => {
+              const decision = decisions[inflectionResult.word];
+              const action = decision?.action ?? "register_as_is";
+              const lemmaWord = decision?.lemma ?? inflectionResult.selected_lemma ?? null;
+              registerMutation.mutate({
+                inflection_action: action,
+                lemma_word: action === "register_as_is" ? null : lemmaWord,
+              });
+              setShowInflectionModal(false);
+            }}
+          />
+        )}
       </main>
     );
   }
@@ -201,9 +289,30 @@ export function WordDetailPage() {
         }
       />
       <Muted as="p">{word.phonetic || EMPTY_MESSAGES.noPhonetic}</Muted>
+      {word.lemma_word_id && (
+        <Muted as="p">
+          この単語は
+          <Link to={`/words/${word.lemma_word_id}`}> {word.lemma_word_text ?? "原形"} </Link>の
+          {INFLECTION_LABELS[word.inflection_type ?? "inflection"] ??
+            word.inflection_type ??
+            "活用形"}
+          です。
+        </Muted>
+      )}
       {formEntries.length > 0 && (
         <Muted as="p">
-          {formEntries.map(([label, value]) => `${label}: ${value}`).join(" / ")}
+          {formEntries.map((entry, idx) => {
+            const linked = word.inflected_forms?.find(
+              (item) => item.word.toLowerCase() === entry.value.toLowerCase(),
+            );
+            return (
+              <span key={entry.key}>
+                {idx > 0 ? " / " : ""}
+                {entry.label}:{" "}
+                {linked ? <Link to={`/words/${linked.word_id}`}>{entry.value}</Link> : entry.value}
+              </span>
+            );
+          })}
         </Muted>
       )}
       <div className="detail-layout">
@@ -215,7 +324,10 @@ export function WordDetailPage() {
         </div>
         <aside className="detail-side">
           <ImageViewer
-            word={word}
+            title="イメージ画像"
+            entityLabel={word.word}
+            images={word.images}
+            fetchDefaultPrompt={() => wordApi.getDefaultImagePrompt(word.id)}
             onGenerate={(prompt) => generateImageMutation.mutateAsync(prompt)}
             loading={generateImageMutation.isPending}
           />

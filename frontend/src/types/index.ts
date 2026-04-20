@@ -2,6 +2,12 @@ export type RelationType = "synonym" | "confusable" | "cognate" | "antonym";
 export type ComponentDisplayMode = "auto" | "word" | "morpheme" | "both";
 export type WordSortBy = "last_viewed_at" | "created_at" | "updated_at" | "word";
 export type SortOrder = "desc" | "asc";
+export type InflectionAction = "merge" | "link" | "register_as_is";
+
+export interface ComponentMeaningItem {
+  text: string;
+  meaning: string;
+}
 
 export interface Phrase {
   id: number;
@@ -50,7 +56,7 @@ export interface EtymologyVariant {
   label?: string;
   excerpt?: string;
   components?: EtymologyComponent[];
-  component_meanings?: Array<{ text: string; meaning: string }>;
+  component_meanings?: ComponentMeaningItem[];
   language_chain?: LanguageChainLink[];
 }
 
@@ -72,7 +78,7 @@ export interface Etymology {
   core_image?: string | null;
   branches: EtymologyBranch[];
   language_chain?: LanguageChainLink[];
-  component_meanings?: Array<{ text: string; meaning: string }>;
+  component_meanings?: ComponentMeaningItem[];
   etymology_variants?: EtymologyVariant[];
   raw_description?: string | null;
 }
@@ -118,6 +124,14 @@ export interface Word {
   images: WordImage[];
   /** 単語に紐づくチャットセッション数（一覧APIで返る） */
   chat_session_count?: number;
+  lemma_word_id?: number | null;
+  inflection_type?: string | null;
+  lemma_word_text?: string | null;
+  inflected_forms?: Array<{
+    word_id: number;
+    word: string;
+    inflection_type?: string | null;
+  }>;
 }
 
 export interface WordListResponse {
@@ -272,6 +286,91 @@ export interface WordCheckFound {
 export interface WordCheckResponse {
   found: WordCheckFound[];
   not_found: string[];
+}
+
+export interface PhraseCheckFound {
+  id: number;
+  text: string;
+}
+
+export interface PhraseCheckResponse {
+  found: PhraseCheckFound[];
+  not_found: string[];
+}
+
+export interface InflectionCheckResult {
+  word: string;
+  is_inflected: boolean;
+  selected_lemma?: string | null;
+  selected_lemma_word_id?: number | null;
+  selected_spelling?: string | null;
+  lemma_resolution?: "direct" | "resolved_from_inflection" | "manual" | null;
+  selected_inflection_type?: string | null;
+  selected_has_own_content?: boolean | null;
+  selected_confidence?: "high" | "medium" | "low" | null;
+  selected_source?: "db_forms" | "possessive" | "wiktionary" | "nltk" | null;
+  selected_score?: number | null;
+  lemma_candidates?: Array<{
+    lemma: string;
+    lemma_word_id?: number | null;
+    inflection_type?: string | null;
+    has_own_content?: boolean | null;
+    confidence?: "high" | "medium" | "low" | null;
+    source?: "db_forms" | "possessive" | "wiktionary" | "nltk" | null;
+    score?: number | null;
+  }>;
+  spelling_candidates?: Array<{
+    spelling: string;
+    source?: string | null;
+    selected_lemma?: string | null;
+    lemma_resolution?: "direct" | "resolved_from_inflection" | "manual" | null;
+    lemma_candidates?: Array<{
+      lemma: string;
+      lemma_word_id?: number | null;
+      inflection_type?: string | null;
+      has_own_content?: boolean | null;
+      confidence?: "high" | "medium" | "low" | null;
+      source?: "db_forms" | "possessive" | "wiktionary" | "nltk" | null;
+      score?: number | null;
+    }>;
+  }>;
+  suggestion?: InflectionAction | null;
+}
+
+export interface InflectionCheckResponse {
+  result?: InflectionCheckResult | null;
+  results?: InflectionCheckResult[];
+}
+
+export interface MigrationInflectionTarget {
+  id: number;
+  word: string;
+}
+
+export interface MigrationInflectionTargetsResponse {
+  words: MigrationInflectionTarget[];
+  total: number;
+}
+
+export interface MigrationInflectionApplyDecision {
+  word_id: number;
+  action: "merge" | "link";
+  lemma_word_id: number;
+  inflection_type?: string | null;
+}
+
+export interface MigrationInflectionApplyResult {
+  word_id: number;
+  action: "merge" | "link";
+  status: "applied" | "skipped" | "error";
+  detail: string;
+}
+
+export interface MigrationInflectionApplyResponse {
+  applied: number;
+  skipped: number;
+  errors: number;
+  results: MigrationInflectionApplyResult[];
 }
 
 export interface GroupBulkAddItemsResponse {
