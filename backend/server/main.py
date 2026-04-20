@@ -2,6 +2,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from core.config import settings
@@ -33,6 +34,23 @@ def create_app() -> FastAPI:
     @app.get("/health")
     def health() -> dict:
         return {"ok": True}
+
+    frontend_dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+    if frontend_dist.exists():
+        assets_dir = frontend_dist / "assets"
+        if assets_dir.exists():
+            app.mount("/assets", StaticFiles(directory=assets_dir), name="frontend-assets")
+
+        @app.get("/{full_path:path}", include_in_schema=False)
+        def spa_fallback(full_path: str) -> FileResponse:
+            candidate = (frontend_dist / full_path).resolve()
+            try:
+                candidate.relative_to(frontend_dist.resolve())
+            except ValueError:
+                return FileResponse(frontend_dist / "index.html")
+            if candidate.is_file():
+                return FileResponse(candidate)
+            return FileResponse(frontend_dist / "index.html")
 
     @app.on_event("startup")
     def startup() -> None:

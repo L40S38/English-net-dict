@@ -24,6 +24,20 @@ npm install
 npm run dev
 ```
 
+## Start Both (Single Command)
+
+Run from the project root:
+
+```bash
+# PowerShell (Windows)
+./start.ps1
+
+# Bash (macOS / Linux / Git Bash)
+./start.sh
+```
+
+This command runs backend dependency sync, frontend dependency install, frontend build, then starts FastAPI at `http://127.0.0.1:8000/` serving both API and built frontend.
+
 ## Lint / Format
 
 Backend:
