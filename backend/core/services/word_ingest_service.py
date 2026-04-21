@@ -1,12 +1,40 @@
 from __future__ import annotations
 
 import asyncio
+import json as _debug_json
+import os as _debug_os
 import re
+import sqlite3 as _debug_sqlite3
+import time as _debug_time
 from dataclasses import dataclass
+from pathlib import Path as _DebugPath
 from typing import Literal
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import OperationalError as _DebugOperationalError
 from sqlalchemy.orm import Session
+
+# #region agent log
+_DEBUG_LOG_PATH = _DebugPath(__file__).resolve().parents[3] / "debug-3d94a9.log"
+
+
+def _debug_log(hypothesis_id: str, message: str, data: dict | None = None, location: str = "word_ingest_service.py") -> None:
+    try:
+        payload = {
+            "sessionId": "3d94a9",
+            "runId": "run1",
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data or {},
+            "timestamp": int(_debug_time.time() * 1000),
+            "pid": _debug_os.getpid(),
+        }
+        with _DEBUG_LOG_PATH.open("a", encoding="utf-8") as fp:
+            fp.write(_debug_json.dumps(payload, default=str, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+# #endregion
 
 from core.models import Word
 from core.services.gpt_service import enrich_core_image_and_branches, generate_structured_word_data
@@ -256,7 +284,28 @@ async def _create_or_get_word(
     options: IngestOptions | None = None,
     backfill_existing_etymology: bool = False,
 ) -> tuple[Word, bool]:
+    # #region agent log
+    _entry_ts = _debug_time.monotonic()
+    _debug_log(
+        "H1",
+        "create_or_get_word_entry",
+        {"normalized": normalized, "backfill": backfill_existing_etymology},
+        location="word_ingest_service.py:_create_or_get_word:entry",
+    )
+    # #endregion
     existing = _find_word(db, normalized)
+    # #region agent log
+    _debug_log(
+        "H1",
+        "after_find_word",
+        {
+            "normalized": normalized,
+            "existing_id": getattr(existing, "id", None),
+            "elapsed_s": round(_debug_time.monotonic() - _entry_ts, 3),
+        },
+        location="word_ingest_service.py:_create_or_get_word:after_find",
+    )
+    # #endregion
     if existing:
         _existing_ety = existing.etymology
         _existing_branches = list(_existing_ety.branches) if _existing_ety else []
@@ -288,7 +337,65 @@ async def _create_or_get_word(
 
     word = Word(word=normalized)
     db.add(word)
-    db.flush()
+    # #region agent log
+    _flush_started = _debug_time.monotonic()
+    _elapsed_since_entry = _flush_started - _entry_ts
+    try:
+        _conn = db.connection()
+        _in_tx = bool(db.in_transaction())
+        _raw_conn = getattr(_conn, "connection", None)
+        _raw_info = str(type(_raw_conn))
+    except Exception as _conn_exc:  # noqa: BLE001
+        _in_tx = None
+        _raw_info = f"conn_err:{_conn_exc}"
+    _debug_log(
+        "H1",
+        "pre_flush_state",
+        {
+            "normalized": normalized,
+            "elapsed_since_create_or_get_entry_s": round(_elapsed_since_entry, 3),
+            "in_transaction": _in_tx,
+            "raw_conn_type": _raw_info,
+        },
+        location="word_ingest_service.py:_create_or_get_word:pre_flush",
+    )
+    try:
+        db.flush()
+    except _DebugOperationalError as _op_exc:
+        _flush_failed_at = _debug_time.monotonic()
+        _orig = getattr(_op_exc, "orig", None)
+        _err_code = None
+        _err_name = None
+        _err_msg = None
+        if isinstance(_orig, _debug_sqlite3.OperationalError):
+            _err_code = getattr(_orig, "sqlite_errorcode", None)
+            _err_name = getattr(_orig, "sqlite_errorname", None)
+            _err_msg = str(_orig)
+        _debug_log(
+            "H1",
+            "flush_operational_error",
+            {
+                "normalized": normalized,
+                "elapsed_since_create_or_get_entry_s": round(_flush_failed_at - _entry_ts, 3),
+                "elapsed_flush_wait_s": round(_flush_failed_at - _flush_started, 3),
+                "sqlite_errorcode": _err_code,
+                "sqlite_errorname": _err_name,
+                "sqlite_error_msg": _err_msg,
+            },
+            location="word_ingest_service.py:_create_or_get_word:flush_except",
+        )
+        raise
+    _flush_done = _debug_time.monotonic()
+    _debug_log(
+        "H1",
+        "flush_ok",
+        {
+            "normalized": normalized,
+            "elapsed_flush_s": round(_flush_done - _flush_started, 3),
+        },
+        location="word_ingest_service.py:_create_or_get_word:flush_ok",
+    )
+    # #endregion
     apply_structured_payload(db, word, structured)
     link_existing_phrases_for_word(db, word)
     return word, True
