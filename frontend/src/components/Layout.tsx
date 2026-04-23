@@ -113,6 +113,13 @@ export function Layout() {
                 {showMenuLabels && <span>語源検索</span>}
               </NavLink>
               <NavLink
+                to="/phrases"
+                className={({ isActive }) => `side-menu-item ${isActive ? "active" : ""}`}
+              >
+                <span className="side-menu-item-icon">P</span>
+                {showMenuLabels && <span>熟語</span>}
+              </NavLink>
+              <NavLink
                 to="/groups"
                 className={({ isActive }) => `side-menu-item ${isActive ? "active" : ""}`}
               >

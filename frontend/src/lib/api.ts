@@ -17,8 +17,10 @@ import type {
   MigrationInflectionApplyDecision,
   MigrationInflectionApplyResponse,
   MigrationInflectionTargetsResponse,
+  PhraseImage,
   PhraseCheckResponse,
   Phrase,
+  WordSummary,
   RelatedWord,
   Word,
   WordForms,
@@ -338,6 +340,17 @@ export const groupChatApi = {
   },
 };
 
+export const phraseChatApi = {
+  async sessions(phraseId: number) {
+    const { data } = await api.get<ChatSession[]>(`/api/phrases/${phraseId}/chat/sessions`);
+    return data;
+  },
+  async createSession(phraseId: number, title?: string) {
+    const { data } = await api.post<ChatSession>(`/api/phrases/${phraseId}/chat/sessions`, { title });
+    return data;
+  },
+};
+
 export const componentApi = {
   async list(params?: { q?: string; page?: number; page_size?: number }) {
     const { data } = await api.get<EtymologyComponentListResponse>("/api/etymology-components", {
@@ -470,6 +483,44 @@ export const phraseApi = {
   async update(phraseId: number, payload: { meaning: string }) {
     const { data } = await api.put<Phrase>(`/api/phrases/${phraseId}`, payload);
     return data;
+  },
+  async updateFull(
+    phraseId: number,
+    payload: {
+      text: string;
+      meaning: string;
+      definitions: Array<{
+        id?: number | null;
+        part_of_speech: string;
+        meaning_en: string;
+        meaning_ja: string;
+        example_en: string;
+        example_ja: string;
+        sort_order: number;
+      }>;
+      word_ids: number[];
+    },
+  ) {
+    const { data } = await api.put<Phrase>(`/api/phrases/${phraseId}/full`, payload);
+    return data;
+  },
+  async listWords(phraseId: number) {
+    const { data } = await api.get<WordSummary[]>(`/api/phrases/${phraseId}/words`);
+    return data;
+  },
+  async enrich(phraseId: number) {
+    const { data } = await api.post<Phrase>(`/api/phrases/${phraseId}/enrich`);
+    return data;
+  },
+  async generateImage(phraseId: number, prompt?: string) {
+    const { data } = await api.post<PhraseImage>(`/api/phrases/${phraseId}/generate-image`, {
+      prompt: prompt ?? null,
+    });
+    return data;
+  },
+  async getDefaultImagePrompt(phraseId: number) {
+    const { data } = await api.get<{ prompt: string }>(`/api/phrases/${phraseId}/default-image-prompt`);
+    return data.prompt;
   },
   async delete(phraseId: number) {
     await api.delete(`/api/phrases/${phraseId}`);

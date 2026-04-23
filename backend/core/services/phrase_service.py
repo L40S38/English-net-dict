@@ -7,7 +7,7 @@ from collections import OrderedDict
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from core.models import Phrase, Word, WordPhrase
+from core.models import Phrase, PhraseDefinition, Word, WordPhrase
 
 
 def normalize_phrase_text(text: str) -> str:
@@ -142,3 +142,62 @@ def list_word_phrases(db: Session, word_id: int) -> list[Phrase]:
         .order_by(func.lower(Phrase.text), Phrase.id)
     )
     return list(db.scalars(stmt))
+
+
+def list_phrase_words(db: Session, phrase_id: int) -> list[Word]:
+    stmt = (
+        select(Word)
+        .join(WordPhrase, WordPhrase.word_id == Word.id)
+        .where(WordPhrase.phrase_id == phrase_id)
+        .order_by(func.lower(Word.word), Word.id)
+    )
+    return list(db.scalars(stmt))
+
+
+def replace_definitions(db: Session, phrase: Phrase, definitions_payload: list[dict]) -> None:
+    phrase.definitions.clear()
+    db.flush()
+    for idx, item in enumerate(definitions_payload):
+        phrase.definitions.append(
+            PhraseDefinition(
+                part_of_speech=str(item.get("part_of_speech", "phrase")).strip() or "phrase",
+                meaning_en=str(item.get("meaning_en", "")).strip(),
+                meaning_ja=str(item.get("meaning_ja", "")).strip(),
+                example_en=str(item.get("example_en", "")).strip(),
+                example_ja=str(item.get("example_ja", "")).strip(),
+                sort_order=int(item.get("sort_order", idx)),
+            )
+        )
+    db.flush()
+
+
+def replace_word_links(db: Session, phrase: Phrase, word_ids: list[int]) -> None:
+    desired_ids = {int(word_id) for word_id in word_ids if int(word_id) > 0}
+    existing = {link.word_id: link for link in phrase.word_links}
+
+    for word_id, link in existing.items():
+        if word_id not in desired_ids:
+            phrase.word_links.remove(link)
+    for word_id in sorted(desired_ids):
+        if word_id in existing:
+            continue
+        db.add(WordPhrase(word_id=word_id, phrase_id=phrase.id))
+    db.flush()
+
+
+def apply_full_update(db: Session, phrase: Phrase, payload) -> Phrase:
+    normalized_text = normalize_phrase_text(payload.text)
+    if not normalized_text:
+        raise ValueError("phrase text is required")
+
+    if normalized_text.lower() != phrase.text.lower():
+        conflict_stmt = select(Phrase).where(func.lower(Phrase.text) == normalized_text.lower(), Phrase.id != phrase.id)
+        if db.scalar(conflict_stmt):
+            raise ValueError("phrase text already exists")
+        phrase.text = normalized_text
+
+    phrase.meaning = merge_meanings(payload.meaning or "")
+    replace_definitions(db, phrase, [item.model_dump() if hasattr(item, "model_dump") else item for item in payload.definitions])
+    replace_word_links(db, phrase, list(payload.word_ids))
+    db.flush()
+    return phrase

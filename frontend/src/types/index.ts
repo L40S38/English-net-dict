@@ -15,6 +15,34 @@ export interface Phrase {
   meaning: string;
   created_at: string;
   updated_at: string;
+  definitions?: PhraseDefinition[];
+  images?: PhraseImage[];
+  words?: WordSummary[];
+  chat_session_count?: number;
+}
+
+export interface PhraseDefinition {
+  id: number;
+  part_of_speech: string;
+  meaning_en: string;
+  meaning_ja: string;
+  example_en: string;
+  example_ja: string;
+  sort_order: number;
+}
+
+export interface PhraseImage {
+  id: number;
+  file_path: string;
+  prompt: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface WordSummary {
+  id: number;
+  word: string;
+  phonetic?: string | null;
 }
 
 export interface WordForms {
@@ -195,6 +223,7 @@ export interface ChatSession {
   component_text?: string | null;
   component_id?: number | null;
   group_id?: number | null;
+  phrase_id?: number | null;
   title: string;
   created_at: string;
   updated_at: string;

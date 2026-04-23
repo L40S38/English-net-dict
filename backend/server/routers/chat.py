@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from core.database import get_db
-from core.models import ChatSession, Word, WordGroup
+from core.models import ChatSession, Phrase, Word, WordGroup
 from core.schemas import (
     ChatMessageCreate,
     ChatMessageRead,
@@ -16,10 +16,12 @@ from core.services.chat_service import (
     auto_title_from_content,
     create_component_session,
     create_group_session,
+    create_phrase_session,
     create_session,
     delete_session,
     list_component_sessions,
     list_group_sessions,
+    list_phrase_sessions,
     list_messages,
     list_sessions,
     update_session_title,
@@ -69,6 +71,24 @@ def post_group_session(group_id: int, payload: ChatSessionCreate, db: Session = 
     if not db.get(WordGroup, group_id):
         raise HTTPException(status_code=404, detail="Group not found")
     session = create_group_session(db, group_id, payload.title)
+    db.commit()
+    db.refresh(session)
+    return ChatSessionRead.model_validate(session)
+
+
+@router.get("/phrases/{phrase_id}/chat/sessions", response_model=list[ChatSessionRead])
+def get_phrase_sessions(phrase_id: int, db: Session = Depends(get_db)) -> list[ChatSessionRead]:
+    if not db.get(Phrase, phrase_id):
+        raise HTTPException(status_code=404, detail="Phrase not found")
+    sessions = list_phrase_sessions(db, phrase_id)
+    return [ChatSessionRead.model_validate(s) for s in sessions]
+
+
+@router.post("/phrases/{phrase_id}/chat/sessions", response_model=ChatSessionRead)
+def post_phrase_session(phrase_id: int, payload: ChatSessionCreate, db: Session = Depends(get_db)) -> ChatSessionRead:
+    if not db.get(Phrase, phrase_id):
+        raise HTTPException(status_code=404, detail="Phrase not found")
+    session = create_phrase_session(db, phrase_id, payload.title)
     db.commit()
     db.refresh(session)
     return ChatSessionRead.model_validate(session)
@@ -131,7 +151,11 @@ def post_message(
         raise HTTPException(status_code=404, detail="Session not found")
     is_first_message = not list_messages(db, session_id)
     user, assistant = answer_in_session(db, session, payload.content)
-    if is_first_message and session.title in ("Word Chat", f"Component Chat: {session.component_text}"):
+    if is_first_message and session.title in (
+        "Word Chat",
+        f"Component Chat: {session.component_text}",
+        f"Phrase Chat: {session.phrase_id}",
+    ):
         session.title = auto_title_from_content(payload.content)
     db.commit()
     db.refresh(user)

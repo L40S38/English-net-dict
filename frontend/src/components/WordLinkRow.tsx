@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 
 import { Muted } from "./atom";
@@ -8,9 +9,18 @@ interface WordLinkRowProps {
   linkedWordId?: number | null;
   secondary?: string;
   status?: string;
+  trailing?: ReactNode;
+  disableValueLink?: boolean;
 }
 
-export function WordLinkRow({ value, linkedWordId, secondary, status }: WordLinkRowProps) {
+export function WordLinkRow({
+  value,
+  linkedWordId,
+  secondary,
+  status,
+  trailing,
+  disableValueLink = false,
+}: WordLinkRowProps) {
   const showTokenLinks = hasMultipleWordTokens(value);
   const tokens = showTokenLinks ? tokenizeForWordLinks(value) : [];
   const hasSecondary = Boolean(secondary?.trim());
@@ -30,22 +40,26 @@ export function WordLinkRow({ value, linkedWordId, secondary, status }: WordLink
             ),
           )
         ) : (
-          <Link
-            to={linkedWordId ? `/words/${linkedWordId}` : `/words/${encodeURIComponent(value)}`}
-          >
-            {value}
-          </Link>
+          <>
+            {disableValueLink ? (
+              <span>{value}</span>
+            ) : (
+              <Link to={linkedWordId ? `/words/${linkedWordId}` : `/words/${encodeURIComponent(value)}`}>
+                {value}
+              </Link>
+            )}
+          </>
         )}
       </div>
       {showSecondaryBelow ? (
         <>
           <Muted className="word-link-secondary">{secondary}</Muted>
-          <Muted className="word-link-status">{status ?? ""}</Muted>
+          <Muted className="word-link-status">{trailing ?? status ?? ""}</Muted>
         </>
       ) : (
         <>
           <Muted>{secondary ?? ""}</Muted>
-          <Muted>{status ?? ""}</Muted>
+          <Muted>{trailing ?? status ?? ""}</Muted>
         </>
       )}
     </div>

@@ -290,12 +290,60 @@ class PhraseUpdate(BaseModel):
     meaning: str = ""
 
 
+class PhraseDefinitionBase(BaseModel):
+    part_of_speech: str = "phrase"
+    meaning_en: str = ""
+    meaning_ja: str = ""
+    example_en: str = ""
+    example_ja: str = ""
+    sort_order: int = 0
+
+
+class PhraseDefinitionWrite(PhraseDefinitionBase):
+    id: int | None = None
+
+
+class PhraseDefinitionRead(PhraseDefinitionBase):
+    id: int
+
+    model_config = {"from_attributes": True}
+
+
+class PhraseImageRead(BaseModel):
+    id: int
+    file_path: str
+    prompt: str
+    is_active: bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class WordSummary(BaseModel):
+    id: int
+    word: str
+    phonetic: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
 class PhraseRead(PhraseBase):
     id: int
     created_at: datetime
     updated_at: datetime
+    definitions: list[PhraseDefinitionRead] = Field(default_factory=list)
+    images: list[PhraseImageRead] = Field(default_factory=list)
+    words: list[WordSummary] = Field(default_factory=list)
+    chat_session_count: int = 0
 
     model_config = {"from_attributes": True}
+
+
+class PhraseFullUpdate(BaseModel):
+    text: str
+    meaning: str = ""
+    definitions: list[PhraseDefinitionWrite] = Field(default_factory=list)
+    word_ids: list[int] = Field(default_factory=list)
 
 
 class WordRead(BaseModel):
@@ -547,6 +595,7 @@ class ChatSessionRead(BaseModel):
     component_text: str | None = None
     component_id: int | None = None
     group_id: int | None = None
+    phrase_id: int | None = None
     title: str
     created_at: datetime
     updated_at: datetime

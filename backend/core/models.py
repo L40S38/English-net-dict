@@ -265,12 +265,51 @@ class Phrase(Base, TimestampMixin):
     text: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     meaning: Mapped[str] = mapped_column(Text, default="")
 
+    definitions: Mapped[list["PhraseDefinition"]] = relationship(
+        back_populates="phrase_ref",
+        cascade="all, delete-orphan",
+        order_by="PhraseDefinition.sort_order, PhraseDefinition.id",
+    )
+    images: Mapped[list["PhraseImage"]] = relationship(
+        back_populates="phrase_ref",
+        cascade="all, delete-orphan",
+        order_by="PhraseImage.created_at.desc(), PhraseImage.id.desc()",
+    )
+    chat_sessions: Mapped[list["ChatSession"]] = relationship(back_populates="phrase_ref", cascade="all, delete-orphan")
     word_links: Mapped[list["WordPhrase"]] = relationship(
         back_populates="phrase_ref",
         cascade="all, delete-orphan",
         order_by="WordPhrase.id",
     )
     group_items: Mapped[list["WordGroupItem"]] = relationship(back_populates="phrase_ref")
+
+
+class PhraseDefinition(Base):
+    __tablename__ = "phrase_definitions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    phrase_id: Mapped[int] = mapped_column(ForeignKey("phrases.id", ondelete="CASCADE"), index=True)
+    part_of_speech: Mapped[str] = mapped_column(String(64), default="phrase")
+    meaning_en: Mapped[str] = mapped_column(Text, default="")
+    meaning_ja: Mapped[str] = mapped_column(Text, default="")
+    example_en: Mapped[str] = mapped_column(Text, default="")
+    example_ja: Mapped[str] = mapped_column(Text, default="")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+
+    phrase_ref: Mapped[Phrase] = relationship(back_populates="definitions")
+
+
+class PhraseImage(Base):
+    __tablename__ = "phrase_images"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    phrase_id: Mapped[int] = mapped_column(ForeignKey("phrases.id", ondelete="CASCADE"), index=True)
+    file_path: Mapped[str] = mapped_column(String(512))
+    prompt: Mapped[str] = mapped_column(Text)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    phrase_ref: Mapped[Phrase] = relationship(back_populates="images")
 
 
 class WordPhrase(Base):
@@ -381,9 +420,10 @@ class ChatSession(Base):
     __tablename__ = "chat_sessions"
     __table_args__ = (
         CheckConstraint(
-            "(word_id IS NOT NULL AND component_text IS NULL AND component_id IS NULL AND group_id IS NULL) OR "
-            "(word_id IS NULL AND group_id IS NULL AND (component_text IS NOT NULL OR component_id IS NOT NULL)) OR "
-            "(group_id IS NOT NULL AND word_id IS NULL AND component_text IS NULL AND component_id IS NULL)",
+            "(word_id IS NOT NULL AND component_text IS NULL AND component_id IS NULL AND group_id IS NULL AND phrase_id IS NULL) OR "
+            "(word_id IS NULL AND group_id IS NULL AND phrase_id IS NULL AND (component_text IS NOT NULL OR component_id IS NOT NULL)) OR "
+            "(group_id IS NOT NULL AND word_id IS NULL AND component_text IS NULL AND component_id IS NULL AND phrase_id IS NULL) OR "
+            "(phrase_id IS NOT NULL AND word_id IS NULL AND component_text IS NULL AND component_id IS NULL AND group_id IS NULL)",
             name="ck_chat_sessions_scope",
         ),
     )
@@ -397,6 +437,9 @@ class ChatSession(Base):
     group_id: Mapped[int | None] = mapped_column(
         ForeignKey("word_groups.id", ondelete="CASCADE"), index=True, nullable=True
     )
+    phrase_id: Mapped[int | None] = mapped_column(
+        ForeignKey("phrases.id", ondelete="CASCADE"), index=True, nullable=True
+    )
     title: Mapped[str] = mapped_column(String(255), default="Word Chat")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -404,6 +447,7 @@ class ChatSession(Base):
     word_ref: Mapped[Word | None] = relationship(back_populates="chat_sessions")
     component_ref: Mapped[EtymologyComponent | None] = relationship()
     group_ref: Mapped[WordGroup | None] = relationship()
+    phrase_ref: Mapped[Phrase | None] = relationship(back_populates="chat_sessions")
     messages: Mapped[list["ChatMessage"]] = relationship(back_populates="session_ref", cascade="all, delete-orphan")
 
 

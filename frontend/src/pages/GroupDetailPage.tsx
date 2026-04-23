@@ -21,8 +21,12 @@ function wordDetailPath(item: WordGroupItem): string | null {
   if (item.item_type === "example" && item.word_id != null) {
     return `/words/${item.word_id}`;
   }
-  if (item.item_type === "phrase" && item.word_id != null) {
-    return `/words/${item.word_id}`;
+  return null;
+}
+
+function phraseDetailPath(item: WordGroupItem): string | null {
+  if (item.item_type === "phrase" && item.phrase_id != null) {
+    return `/phrases/${item.phrase_id}`;
   }
   return null;
 }
@@ -80,6 +84,7 @@ export function GroupDetailPage() {
               {group.items.length === 0 && <Muted as="p">まだ追加されていません。</Muted>}
               {group.items.map((item) => {
                 const wordHref = wordDetailPath(item);
+                const phraseHref = phraseDetailPath(item);
                 return (
                   <Card key={item.id} variant="sub" stack>
                     {item.item_type === "word" && (
@@ -94,15 +99,23 @@ export function GroupDetailPage() {
                     )}
                     {item.item_type === "phrase" && (
                       <Stack gap="sm">
-                        <strong>熟語</strong>
-                        <Muted as="p">
-                          {wordHref && item.phrase_text ? (
-                            <Link to={wordHref}>{item.phrase_text}</Link>
-                          ) : (
-                            item.phrase_text
-                          )}
-                        </Muted>
+                        <Row justify="between">
+                          <Row>
+                            <strong>熟語</strong>
+                            <Muted as="span">{item.phrase_text}</Muted>
+                          </Row>
+                          {phraseHref ? (
+                            <Link className="detail-link-button" to={phraseHref}>
+                              詳細
+                            </Link>
+                          ) : null}
+                        </Row>
                         {item.phrase_meaning && <Muted as="p">意味: {item.phrase_meaning}</Muted>}
+                        {item.word_id != null ? (
+                          <Muted as="p">
+                            <Link to={`/words/${item.word_id}`}>構成語ページへ</Link>
+                          </Muted>
+                        ) : null}
                       </Stack>
                     )}
                     {item.item_type === "example" && (

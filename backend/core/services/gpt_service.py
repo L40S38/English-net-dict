@@ -486,3 +486,44 @@ def enrich_core_image_and_branches(
     if not core_image and not branches:
         return None
     return {"core_image": core_image, "branches": branches}
+
+
+def translate_phrase_definitions(phrase_text: str, items: list[dict[str, str]]) -> list[dict[str, str]]:
+    if not items:
+        return []
+    if not settings.openai_api_key:
+        return [{"meaning_ja": "", "example_ja": ""} for _ in items]
+
+    prompt = (
+        "You are a bilingual dictionary assistant.\n"
+        "Translate each entry into Japanese.\n"
+        "Return strict JSON only in this shape:\n"
+        '{"items":[{"meaning_ja":"...", "example_ja":"..."}]}\n'
+        "Keep array length identical to input."
+    )
+    payload = {"phrase": phrase_text, "items": items}
+    try:
+        client = OpenAI(api_key=settings.openai_api_key)
+        completion = client.responses.create(
+            model=settings.openai_model_structured,
+            temperature=0.0,
+            input=[
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+            ],
+        )
+        raw = _strip_json_code_fence(completion.output_text or "")
+        data = repair_nested_strings(json.loads(raw))
+        out_items = data.get("items", []) if isinstance(data, dict) else []
+        results: list[dict[str, str]] = []
+        for idx in range(len(items)):
+            row = out_items[idx] if idx < len(out_items) and isinstance(out_items[idx], dict) else {}
+            results.append(
+                {
+                    "meaning_ja": str(row.get("meaning_ja", "")).strip(),
+                    "example_ja": str(row.get("example_ja", "")).strip(),
+                }
+            )
+        return results
+    except Exception:  # noqa: BLE001
+        return [{"meaning_ja": "", "example_ja": ""} for _ in items]

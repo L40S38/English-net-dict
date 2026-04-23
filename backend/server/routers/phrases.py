@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from core.database import get_db
 from core.models import Phrase, Word, WordPhrase
@@ -11,18 +11,50 @@ from core.schemas import (
     PhraseCheckRequest,
     PhraseCheckResponse,
     PhraseCreate,
+    PhraseFullUpdate,
     PhraseRead,
     PhraseUpdate,
+    WordSummary,
 )
+from core.services.phrase_ingest_service import enrich_phrase
 from core.services.phrase_service import (
+    apply_full_update,
     get_or_create_phrase,
     link_phrase_to_word,
+    list_phrase_words,
     list_word_phrases,
     merge_meanings,
     normalize_phrase_text,
 )
+from core.services.scraper.wiktionary import WiktionaryScraper
 
 router = APIRouter(prefix="/api", tags=["phrases"])
+
+
+def _phrase_query():
+    return select(Phrase).options(
+        joinedload(Phrase.definitions),
+        joinedload(Phrase.images),
+        joinedload(Phrase.word_links).joinedload(WordPhrase.word_ref),
+        joinedload(Phrase.chat_sessions),
+    )
+
+
+def _to_phrase_read(db: Session, phrase: Phrase) -> PhraseRead:
+    words = list_phrase_words(db, phrase.id)
+    return PhraseRead.model_validate(
+        {
+            "id": phrase.id,
+            "text": phrase.text,
+            "meaning": phrase.meaning or "",
+            "created_at": phrase.created_at,
+            "updated_at": phrase.updated_at,
+            "definitions": phrase.definitions,
+            "images": phrase.images,
+            "words": [WordSummary.model_validate(word) for word in words],
+            "chat_session_count": len(phrase.chat_sessions),
+        }
+    )
 
 
 @router.get("/phrases", response_model=list[PhraseRead])
@@ -32,32 +64,56 @@ def list_phrases(
     page_size: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db),
 ) -> list[PhraseRead]:
-    stmt = select(Phrase).order_by(func.lower(Phrase.text), Phrase.id)
+    stmt = _phrase_query().order_by(func.lower(Phrase.text), Phrase.id)
     if q:
         keyword = q.strip()
         if keyword:
             stmt = stmt.where(Phrase.text.ilike(f"%{keyword}%"))
-    items = list(db.scalars(stmt.offset((page - 1) * page_size).limit(page_size)))
-    return [PhraseRead.model_validate(item) for item in items]
+    items = list(db.scalars(stmt.offset((page - 1) * page_size).limit(page_size)).unique())
+    return [_to_phrase_read(db, item) for item in items]
 
 
 @router.get("/phrases/{phrase_id}", response_model=PhraseRead)
 def get_phrase(phrase_id: int, db: Session = Depends(get_db)) -> PhraseRead:
+    phrase = db.scalar(_phrase_query().where(Phrase.id == phrase_id))
+    if not phrase:
+        raise HTTPException(status_code=404, detail="Phrase not found")
+    return _to_phrase_read(db, phrase)
+
+
+@router.get("/phrases/{phrase_id}/words", response_model=list[WordSummary])
+def get_phrase_words(phrase_id: int, db: Session = Depends(get_db)) -> list[WordSummary]:
     phrase = db.get(Phrase, phrase_id)
     if not phrase:
         raise HTTPException(status_code=404, detail="Phrase not found")
-    return PhraseRead.model_validate(phrase)
+    return [WordSummary.model_validate(word) for word in list_phrase_words(db, phrase_id)]
 
 
 @router.post("/phrases", response_model=PhraseRead)
-def create_phrase(payload: PhraseCreate, db: Session = Depends(get_db)) -> PhraseRead:
+async def create_phrase(payload: PhraseCreate, db: Session = Depends(get_db)) -> PhraseRead:
     try:
         phrase = get_or_create_phrase(db, payload.text, payload.meaning)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await enrich_phrase(db, phrase, scraper=WiktionaryScraper(), cache={})
     db.commit()
-    db.refresh(phrase)
-    return PhraseRead.model_validate(phrase)
+    refreshed = db.scalar(_phrase_query().where(Phrase.id == phrase.id))
+    if not refreshed:
+        raise HTTPException(status_code=404, detail="Phrase not found")
+    return _to_phrase_read(db, refreshed)
+
+
+@router.post("/phrases/{phrase_id}/enrich", response_model=PhraseRead)
+async def enrich_phrase_route(phrase_id: int, db: Session = Depends(get_db)) -> PhraseRead:
+    phrase = db.scalar(_phrase_query().where(Phrase.id == phrase_id))
+    if not phrase:
+        raise HTTPException(status_code=404, detail="Phrase not found")
+    await enrich_phrase(db, phrase, scraper=WiktionaryScraper(), cache={})
+    db.commit()
+    refreshed = db.scalar(_phrase_query().where(Phrase.id == phrase_id))
+    if not refreshed:
+        raise HTTPException(status_code=404, detail="Phrase not found")
+    return _to_phrase_read(db, refreshed)
 
 
 @router.post("/phrases/check", response_model=PhraseCheckResponse)
@@ -95,13 +151,29 @@ def check_phrases(payload: PhraseCheckRequest, db: Session = Depends(get_db)) ->
 
 @router.put("/phrases/{phrase_id}", response_model=PhraseRead)
 def update_phrase(phrase_id: int, payload: PhraseUpdate, db: Session = Depends(get_db)) -> PhraseRead:
-    phrase = db.get(Phrase, phrase_id)
+    phrase = db.scalar(_phrase_query().where(Phrase.id == phrase_id))
     if not phrase:
         raise HTTPException(status_code=404, detail="Phrase not found")
     phrase.meaning = merge_meanings(payload.meaning)
     db.commit()
     db.refresh(phrase)
-    return PhraseRead.model_validate(phrase)
+    return _to_phrase_read(db, phrase)
+
+
+@router.put("/phrases/{phrase_id}/full", response_model=PhraseRead)
+def update_phrase_full(phrase_id: int, payload: PhraseFullUpdate, db: Session = Depends(get_db)) -> PhraseRead:
+    phrase = db.scalar(_phrase_query().where(Phrase.id == phrase_id))
+    if not phrase:
+        raise HTTPException(status_code=404, detail="Phrase not found")
+    try:
+        apply_full_update(db, phrase, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    db.commit()
+    refreshed = db.scalar(_phrase_query().where(Phrase.id == phrase_id))
+    if not refreshed:
+        raise HTTPException(status_code=404, detail="Phrase not found")
+    return _to_phrase_read(db, refreshed)
 
 
 @router.delete("/phrases/{phrase_id}")
@@ -118,11 +190,17 @@ def delete_phrase(phrase_id: int, db: Session = Depends(get_db)) -> dict:
 def list_phrases_for_word(word_id: int, db: Session = Depends(get_db)) -> list[PhraseRead]:
     if not db.get(Word, word_id):
         raise HTTPException(status_code=404, detail="Word not found")
-    return [PhraseRead.model_validate(item) for item in list_word_phrases(db, word_id)]
+    phrases = list_word_phrases(db, word_id)
+    phrase_ids = [item.id for item in phrases]
+    if not phrase_ids:
+        return []
+    detailed = list(db.scalars(_phrase_query().where(Phrase.id.in_(phrase_ids))).unique())
+    by_id = {item.id: item for item in detailed}
+    return [_to_phrase_read(db, by_id[item.id]) for item in phrases if item.id in by_id]
 
 
 @router.post("/words/{word_id}/phrases", response_model=PhraseRead)
-def add_phrase_to_word(word_id: int, payload: PhraseCreate, db: Session = Depends(get_db)) -> PhraseRead:
+async def add_phrase_to_word(word_id: int, payload: PhraseCreate, db: Session = Depends(get_db)) -> PhraseRead:
     word = db.get(Word, word_id)
     if not word:
         raise HTTPException(status_code=404, detail="Word not found")
@@ -131,9 +209,12 @@ def add_phrase_to_word(word_id: int, payload: PhraseCreate, db: Session = Depend
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     link_phrase_to_word(db, word, phrase)
+    await enrich_phrase(db, phrase, scraper=WiktionaryScraper(), cache={})
     db.commit()
-    db.refresh(phrase)
-    return PhraseRead.model_validate(phrase)
+    refreshed = db.scalar(_phrase_query().where(Phrase.id == phrase.id))
+    if not refreshed:
+        raise HTTPException(status_code=404, detail="Phrase not found")
+    return _to_phrase_read(db, refreshed)
 
 
 @router.delete("/words/{word_id}/phrases/{phrase_id}")

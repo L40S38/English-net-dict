@@ -16,9 +16,12 @@ from core.models import (
     Etymology,
     EtymologyComponent,
     EtymologyVariant,
+    Phrase,
+    PhraseDefinition,
     Word,
     WordGroup,
     WordGroupItem,
+    WordPhrase,
 )
 from core.services.chat_tools import TOOL_DEFINITIONS, execute_tool
 from core.services.etymology_component_service import get_component_cache, normalize_component_text
@@ -183,6 +186,46 @@ def build_group_context(group: WordGroup) -> dict[str, Any]:
     }
 
 
+def build_phrase_context(phrase: Phrase) -> dict[str, Any]:
+    definitions = sorted(phrase.definitions, key=lambda x: (x.sort_order, x.id))
+    words = sorted(
+        [link.word_ref for link in phrase.word_links if link.word_ref is not None],
+        key=lambda x: (x.word.lower(), x.id),
+    )
+    return {
+        "phrase": {
+            "id": phrase.id,
+            "text": phrase.text,
+            "meaning": phrase.meaning or "",
+        },
+        "definitions": [
+            {
+                "part_of_speech": item.part_of_speech,
+                "meaning_en": item.meaning_en,
+                "meaning_ja": item.meaning_ja,
+                "example_en": item.example_en,
+                "example_ja": item.example_ja,
+            }
+            for item in definitions
+        ],
+        "words": [
+            {
+                "id": word.id,
+                "word": word.word,
+                "definitions": [
+                    {
+                        "part_of_speech": d.part_of_speech,
+                        "meaning_ja": d.meaning_ja,
+                        "meaning_en": d.meaning_en,
+                    }
+                    for d in sorted(word.definitions, key=lambda x: x.sort_order)
+                ],
+            }
+            for word in words
+        ],
+    }
+
+
 # ---------------------------------------------------------------------------
 # Session CRUD
 # ---------------------------------------------------------------------------
@@ -214,6 +257,11 @@ def list_group_sessions(db: Session, group_id: int) -> list[ChatSession]:
     return list(db.scalars(stmt))
 
 
+def list_phrase_sessions(db: Session, phrase_id: int) -> list[ChatSession]:
+    stmt = select(ChatSession).where(ChatSession.phrase_id == phrase_id).order_by(ChatSession.updated_at.desc())
+    return list(db.scalars(stmt))
+
+
 def create_group_session(db: Session, group_id: int, title: str | None) -> ChatSession:
     session = ChatSession(
         word_id=None,
@@ -221,6 +269,20 @@ def create_group_session(db: Session, group_id: int, title: str | None) -> ChatS
         component_id=None,
         group_id=group_id,
         title=title or f"Group Chat: {group_id}",
+    )
+    db.add(session)
+    db.flush()
+    return session
+
+
+def create_phrase_session(db: Session, phrase_id: int, title: str | None) -> ChatSession:
+    session = ChatSession(
+        word_id=None,
+        component_text=None,
+        component_id=None,
+        group_id=None,
+        phrase_id=phrase_id,
+        title=title or f"Phrase Chat: {phrase_id}",
     )
     db.add(session)
     db.flush()
@@ -327,6 +389,15 @@ def _fallback_component_answer(component_text: str) -> tuple[str, list[dict]]:
         "語源要素キャッシュをもとに説明します。必要ならデータ再取得を実行してください。"
     )
     return summary, [{"source": "component_cache"}]
+
+
+def _fallback_phrase_answer(phrase: Phrase) -> tuple[str, list[dict]]:
+    summary = (
+        f"熟語「{phrase.text}」についての質問を受け取りました。\n\n"
+        f"一言の意味: {phrase.meaning or '（未設定）'}\n"
+        "詳細の意味は熟語定義を参照してください。"
+    )
+    return summary, [{"source": "phrase_context"}]
 
 
 def _format_markdown_for_readability(text: str) -> str:
@@ -440,6 +511,19 @@ def answer_in_session(db: Session, session: ChatSession, user_input: str) -> tup
         if not group:
             raise ValueError("Group not found")
         context_json = json.dumps(build_group_context(group), ensure_ascii=False)
+    elif session.phrase_id:
+        phrase_stmt = (
+            select(Phrase)
+            .where(Phrase.id == session.phrase_id)
+            .options(
+                joinedload(Phrase.definitions),
+                joinedload(Phrase.word_links).joinedload(WordPhrase.word_ref).joinedload(Word.definitions),
+            )
+        )
+        phrase = db.scalar(phrase_stmt)
+        if not phrase:
+            raise ValueError("Phrase not found")
+        context_json = json.dumps(build_phrase_context(phrase), ensure_ascii=False)
     elif session.component_text:
         component_text = normalize_component_text(session.component_text)
         word_stmt = select(Word).options(
@@ -507,14 +591,18 @@ def answer_in_session(db: Session, session: ChatSession, user_input: str) -> tup
             )
         except Exception:  # noqa: BLE001
             logger.exception("Agent loop failed")
-            if session.component_text:
+            if session.phrase_id:
+                assistant_content, citations = _fallback_phrase_answer(phrase)
+            elif session.component_text:
                 assistant_content, citations = _fallback_component_answer(
                     normalize_component_text(session.component_text)
                 )
             else:
                 assistant_content, citations = _fallback_answer(word, safe_user_input)
     else:
-        if session.component_text:
+        if session.phrase_id:
+            assistant_content, citations = _fallback_phrase_answer(phrase)
+        elif session.component_text:
             assistant_content, citations = _fallback_component_answer(normalize_component_text(session.component_text))
         else:
             assistant_content, citations = _fallback_answer(word, safe_user_input)

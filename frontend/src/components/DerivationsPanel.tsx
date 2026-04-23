@@ -32,7 +32,7 @@ export function DerivationsPanel({ word }: DerivationsPanelProps) {
           {phrases.length === 0 && <Muted as="p">{EMPTY_MESSAGES.noData}</Muted>}
           {phrases.map((entry) => (
             <Card key={entry.id} variant="sub" stack>
-              <WordLinkRow value={entry.text} secondary={entry.meaning} />
+              <WordLinkRow value={entry.text} secondary={entry.meaning} disableValueLink />
             </Card>
           ))}
         </Card>

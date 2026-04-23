@@ -8,7 +8,7 @@ from openai import OpenAI
 from sqlalchemy.orm import Session
 
 from core.config import settings
-from core.models import GroupImage, Word, WordGroup, WordImage
+from core.models import GroupImage, Phrase, PhraseImage, Word, WordGroup, WordImage
 from core.services.wordnet_service import get_wordnet_snapshot
 from core.utils.prompt_loader import load_prompt
 
@@ -239,6 +239,68 @@ def generate_group_image(db: Session, group: WordGroup, user_prompt: str | None)
 
     relative_path = f"images/{filename}"
     image = GroupImage(group_id=group.id, file_path=relative_path, prompt=prompt, is_active=True)
+    db.add(image)
+    db.flush()
+    return image
+
+
+def build_phrase_image_prompt(phrase: Phrase) -> str:
+    template = load_prompt("phrase_image_generation.md")
+    lines: list[str] = []
+    for definition in sorted(phrase.definitions, key=lambda x: (x.sort_order, x.id))[:6]:
+        meaning = (definition.meaning_ja or definition.meaning_en or "").strip()
+        if not meaning:
+            continue
+        pos = (definition.part_of_speech or "phrase").strip()
+        example = (definition.example_en or "").strip()
+        if example:
+            lines.append(f"- [{pos}] {meaning} / ex: {example}")
+        else:
+            lines.append(f"- [{pos}] {meaning}")
+    if not lines and (phrase.meaning or "").strip():
+        lines.append(f"- {phrase.meaning.strip()}")
+    definitions_summary = "\n".join(lines) if lines else "- (No definitions yet)"
+    word_lines = [f"- {link.word_ref.word}" for link in phrase.word_links if link.word_ref]
+    words_summary = "\n".join(word_lines[:12]) if word_lines else "- (No linked words)"
+    return template.format(
+        phrase_text=phrase.text,
+        phrase_meaning=(phrase.meaning or "").strip(),
+        definitions_summary=definitions_summary,
+        words_summary=words_summary,
+    )
+
+
+def generate_phrase_image(db: Session, phrase: Phrase, user_prompt: str | None) -> PhraseImage:
+    image_dir = Path(settings.image_dir)
+    image_dir.mkdir(parents=True, exist_ok=True)
+    prompt = user_prompt or build_phrase_image_prompt(phrase)
+    slug = phrase.text.lower().replace(" ", "-")
+    filename = f"phrase-{slug}-{uuid.uuid4().hex[:8]}.png"
+    file_path = image_dir / filename
+
+    if settings.openai_api_key:
+        try:
+            client = OpenAI(api_key=settings.openai_api_key)
+            result = client.images.generate(
+                model=settings.openai_image_model,
+                prompt=prompt,
+                size=settings.openai_image_size,
+            )
+            b64 = result.data[0].b64_json
+            if b64:
+                file_path.write_bytes(base64.b64decode(b64))
+            else:
+                _write_placeholder_png(file_path)
+        except Exception:  # noqa: BLE001
+            _write_placeholder_png(file_path)
+    else:
+        _write_placeholder_png(file_path)
+
+    for img in phrase.images:
+        img.is_active = False
+
+    relative_path = f"images/{filename}"
+    image = PhraseImage(phrase_id=phrase.id, file_path=relative_path, prompt=prompt, is_active=True)
     db.add(image)
     db.flush()
     return image
