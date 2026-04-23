@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { Card, Chip, ChipList, Muted, Row } from "./atom";
+import { ConfirmModal } from "./ConfirmModal";
 import type { ChatMessage, ChatSession } from "../types";
 
 function normalizeText(input: string): string {
@@ -66,6 +67,7 @@ export function ChatPanel({
   const chatBoxRef = useRef<HTMLDivElement>(null);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   useEffect(() => {
     const el = chatBoxRef.current;
@@ -89,9 +91,7 @@ export function ChatPanel({
 
   const handleDeleteSession = () => {
     if (!currentSession || !onDeleteSession) return;
-    if (window.confirm(`セッション「${currentSession.title}」を削除しますか？`)) {
-      onDeleteSession(currentSession.id);
-    }
+    setShowDeleteConfirm(true);
   };
 
   return (
@@ -158,9 +158,10 @@ export function ChatPanel({
             {currentSession && onDeleteSession && (
               <button
                 type="button"
+                className="button-delete"
                 onClick={handleDeleteSession}
                 title="セッションを削除"
-                style={{ background: "#fecaca", color: "#991b1b", padding: "0.55rem 0.6rem" }}
+                style={{ padding: "0.55rem 0.6rem" }}
               >
                 ✕
               </button>
@@ -241,6 +242,21 @@ export function ChatPanel({
           {sendPending ? "送信中..." : "送信"}
         </button>
       </Row>
+      <ConfirmModal
+        open={showDeleteConfirm}
+        title="削除の確認"
+        message={`セッション「${currentSession?.title ?? ""}」を削除しますか？`}
+        confirmText="削除する"
+        cancelText="キャンセル"
+        confirmVariant="danger"
+        onCancel={() => setShowDeleteConfirm(false)}
+        onConfirm={() => {
+          if (currentSession && onDeleteSession) {
+            onDeleteSession(currentSession.id);
+          }
+          setShowDeleteConfirm(false);
+        }}
+      />
     </Card>
   );
 }

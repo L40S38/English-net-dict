@@ -87,12 +87,14 @@ export function HomePage() {
     open: boolean;
     title: string;
     message: string;
+    confirmVariant?: "default" | "danger";
     confirmText?: string;
     cancelText?: string;
   }>({
     open: false,
     title: "",
     message: "",
+    confirmVariant: "default",
   });
   const [sortBy, setSortBy] = useState<WordSortBy>("last_viewed_at");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
@@ -126,6 +128,7 @@ export function HomePage() {
   const openConfirm = (params: {
     title: string;
     message: string;
+    confirmVariant?: "default" | "danger";
     confirmText?: string;
     cancelText?: string;
   }) =>
@@ -414,7 +417,20 @@ export function HomePage() {
             key={word.id}
             word={word}
             deleting={deleteMutation.isPending && deletingWordId === word.id}
-            onDelete={(wordId) => deleteMutation.mutate(wordId)}
+            onDelete={(wordId) => {
+              const target = displayWords.find((item) => item.id === wordId);
+              void openConfirm({
+                title: "削除の確認",
+                message: `単語「${target?.word ?? wordId}」を削除しますか？`,
+                confirmText: "削除する",
+                cancelText: "キャンセル",
+                confirmVariant: "danger",
+              }).then((ok) => {
+                if (ok) {
+                  deleteMutation.mutate(wordId);
+                }
+              });
+            }}
           />
         ))}
         {!wordsQuery.isLoading && displayWords.length === 0 && (
@@ -430,6 +446,7 @@ export function HomePage() {
         open={confirmState.open}
         title={confirmState.title}
         message={confirmState.message}
+        confirmVariant={confirmState.confirmVariant}
         confirmText={confirmState.confirmText}
         cancelText={confirmState.cancelText}
         onCancel={() => closeConfirm(false)}

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 
 import { ImageViewer } from "../components/ImageViewer";
 import { PageHeader } from "../components/PageHeader";
@@ -13,7 +13,6 @@ import { phraseApi } from "../lib/api";
 export function PhraseDetailPage() {
   const params = useParams();
   const phraseId = Number(params.phraseId);
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const phraseQuery = useQuery({
     queryKey: ["phrase", phraseId],
@@ -35,14 +34,6 @@ export function PhraseDetailPage() {
       await queryClient.invalidateQueries({ queryKey: ["phrase", phraseId] });
     },
   });
-  const deletePhraseMutation = useMutation({
-    mutationFn: () => phraseApi.delete(phraseId),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["phrases"] });
-      navigate("/phrases");
-    },
-  });
-
   const phrase = phraseQuery.data;
   if (!phraseId || Number.isNaN(phraseId)) {
     return (
@@ -59,27 +50,13 @@ export function PhraseDetailPage() {
         busy={
           phraseQuery.isLoading ||
           enrichMutation.isPending ||
-          generateImageMutation.isPending ||
-          deletePhraseMutation.isPending
+          generateImageMutation.isPending
         }
         actions={
           <>
             {phrase ? (
               <button type="button" onClick={() => enrichMutation.mutate()} disabled={enrichMutation.isPending}>
                 {enrichMutation.isPending ? "再取得中..." : "データ再取得"}
-              </button>
-            ) : null}
-            {phrase ? (
-              <button
-                type="button"
-                onClick={() => {
-                  const ok = window.confirm(`熟語「${phrase.text}」を削除しますか？`);
-                  if (!ok) return;
-                  deletePhraseMutation.mutate();
-                }}
-                disabled={deletePhraseMutation.isPending}
-              >
-                {deletePhraseMutation.isPending ? "削除中..." : "削除"}
               </button>
             ) : null}
             {phrase ? <Link to={`/phrases/${phrase.id}/edit`}>編集</Link> : null}

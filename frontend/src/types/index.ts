@@ -172,6 +172,20 @@ export interface WordListResponse {
   total: number;
 }
 
+export interface WordSummaryForGroup {
+  id: number;
+  word: string;
+  phonetic?: string | null;
+  definitions: Definition[];
+}
+
+export interface GroupSearchResponse {
+  items: WordSummaryForGroup[];
+  total: number;
+  phrases: Phrase[];
+  phrases_total: number;
+}
+
 export interface EtymologyComponentSearchResponse {
   component_text: string;
   resolved_meaning?: string | null;

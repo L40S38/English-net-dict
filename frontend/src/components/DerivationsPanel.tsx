@@ -1,3 +1,5 @@
+import { Link } from "react-router-dom";
+
 import { Card, Muted, Stack } from "./atom";
 import { WordLinkRow } from "./WordLinkRow";
 import { EMPTY_MESSAGES } from "../lib/constants";
@@ -32,7 +34,16 @@ export function DerivationsPanel({ word }: DerivationsPanelProps) {
           {phrases.length === 0 && <Muted as="p">{EMPTY_MESSAGES.noData}</Muted>}
           {phrases.map((entry) => (
             <Card key={entry.id} variant="sub" stack>
-              <WordLinkRow value={entry.text} secondary={entry.meaning} disableValueLink />
+              <WordLinkRow
+                value={entry.text}
+                secondary={entry.meaning}
+                disableValueLink
+                trailing={
+                  <Link className="detail-link-button" to={`/phrases/${entry.id}`}>
+                    詳細
+                  </Link>
+                }
+              />
             </Card>
           ))}
         </Card>

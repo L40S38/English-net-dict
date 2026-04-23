@@ -379,6 +379,20 @@ class WordListResponse(BaseModel):
     total: int
 
 
+class WordSummaryForGroup(BaseModel):
+    id: int
+    word: str
+    phonetic: str | None = None
+    definitions: list[DefinitionRead] = Field(default_factory=list)
+
+
+class GroupSearchResponse(BaseModel):
+    items: list[WordSummaryForGroup] = Field(default_factory=list)
+    total: int = 0
+    phrases: list[PhraseRead] = Field(default_factory=list)
+    phrases_total: int = 0
+
+
 class EtymologyComponentWiktionaryInfo(BaseModel):
     meanings: list[str] = Field(default_factory=list)
     related_terms: list[str] = Field(default_factory=list)

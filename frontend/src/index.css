@@ -860,3 +860,38 @@ select:disabled {
   background: #b91c1c;
   border-color: #b91c1c;
 }
+
+/* 破壊的操作（テキスト「削除」など）— .icon-button-delete と同色 */
+.button-delete {
+  background: #dc2626;
+  color: #ffffff;
+  border: 1px solid #dc2626;
+}
+
+.button-delete:hover:not(:disabled) {
+  background: #b91c1c;
+  border-color: #b91c1c;
+}
+
+.button-delete:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* 一覧・カード向け: 白背景に赤枠/赤字 */
+.button-delete-outline {
+  background: var(--color-surface);
+  color: #dc2626;
+  border: 1px solid #dc2626;
+}
+
+.button-delete-outline:hover:not(:disabled) {
+  background: #fef2f2;
+  color: #b91c1c;
+  border-color: #b91c1c;
+}
+
+.button-delete-outline:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}

@@ -6,6 +6,7 @@ interface FormBlockLayoutProps {
   variant?: "inline" | "stack";
   onRemove: () => void;
   removeLabel: string;
+  confirmRemove?: (targetLabel: string, onAccept: () => void) => Promise<void>;
   children: React.ReactNode;
 }
 
@@ -13,6 +14,7 @@ export function FormBlockLayout({
   variant = "inline",
   onRemove,
   removeLabel,
+  confirmRemove,
   children,
 }: FormBlockLayoutProps) {
   const isInline = variant === "inline";
@@ -36,7 +38,18 @@ export function FormBlockLayout({
   return (
     <Card variant="sub" stack>
       {children}
-      <button type="button" onClick={onRemove} aria-label={removeLabel}>
+      <button
+        type="button"
+        className="button-delete"
+        onClick={() => {
+          if (!confirmRemove) {
+            onRemove();
+            return;
+          }
+          void confirmRemove("この意味・例文", onRemove);
+        }}
+        aria-label={removeLabel}
+      >
         削除
       </button>
     </Card>

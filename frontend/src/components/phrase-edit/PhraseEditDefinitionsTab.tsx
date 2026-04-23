@@ -4,6 +4,7 @@ import type { PhraseDefinition } from "../../types";
 interface PhraseEditDefinitionsTabProps {
   definitions: PhraseDefinition[];
   setDefinitions: (next: PhraseDefinition[]) => void;
+  confirmRemove: (targetLabel: string, onAccept: () => void) => Promise<void>;
 }
 
 function createDefinition(sortOrder: number): PhraseDefinition {
@@ -18,7 +19,11 @@ function createDefinition(sortOrder: number): PhraseDefinition {
   };
 }
 
-export function PhraseEditDefinitionsTab({ definitions, setDefinitions }: PhraseEditDefinitionsTabProps) {
+export function PhraseEditDefinitionsTab({
+  definitions,
+  setDefinitions,
+  confirmRemove,
+}: PhraseEditDefinitionsTabProps) {
   const updateAt = (index: number, updater: (item: PhraseDefinition) => PhraseDefinition) => {
     setDefinitions(definitions.map((item, idx) => (idx === index ? updater(item) : item)));
   };
@@ -64,8 +69,12 @@ export function PhraseEditDefinitionsTab({ definitions, setDefinitions }: Phrase
             <Row>
               <button
                 type="button"
-                className="modal-cancel"
-                onClick={() => setDefinitions(definitions.filter((_, index) => index !== idx))}
+                className="button-delete"
+                onClick={() =>
+                  void confirmRemove("この定義", () =>
+                    setDefinitions(definitions.filter((_, index) => index !== idx)),
+                  )
+                }
               >
                 削除
               </button>

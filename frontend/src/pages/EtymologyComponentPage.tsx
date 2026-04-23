@@ -18,6 +18,7 @@ export function EtymologyComponentPage() {
   const queryClient = useQueryClient();
   const componentText = decodeURIComponent(params.componentText ?? "").trim();
   const [deletingWordId, setDeletingWordId] = useState<number | null>(null);
+  const [pendingDeleteWord, setPendingDeleteWord] = useState<{ id: number; word: string } | null>(null);
   const [showRegisterConfirm, setShowRegisterConfirm] = useState(true);
   const componentMeaning = (searchParams.get("meaning") ?? "").trim();
   const fromWord = (searchParams.get("from") ?? "").trim();
@@ -214,7 +215,7 @@ export function EtymologyComponentPage() {
                   key={word.id}
                   word={word}
                   deleting={deleteWordMutation.isPending && deletingWordId === word.id}
-                  onDelete={(wordId) => deleteWordMutation.mutate(wordId)}
+                  onDelete={(wordId) => setPendingDeleteWord({ id: wordId, word: word.word })}
                 />
               ))}
             </section>
@@ -225,6 +226,21 @@ export function EtymologyComponentPage() {
           {componentText && <ComponentChatPanel componentText={componentText} />}
         </aside>
       </div>
+      <ConfirmModal
+        open={pendingDeleteWord !== null}
+        title="削除の確認"
+        message={`単語「${pendingDeleteWord?.word ?? ""}」を削除しますか？`}
+        confirmText="削除する"
+        cancelText="キャンセル"
+        confirmVariant="danger"
+        disableActions={deleteWordMutation.isPending}
+        onCancel={() => setPendingDeleteWord(null)}
+        onConfirm={() => {
+          if (!pendingDeleteWord) return;
+          deleteWordMutation.mutate(pendingDeleteWord.id);
+          setPendingDeleteWord(null);
+        }}
+      />
     </main>
   );
 }

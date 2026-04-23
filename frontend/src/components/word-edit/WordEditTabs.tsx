@@ -65,11 +65,8 @@ export function WordEditBasicTab({
           onUpdate={(index, next) =>
             setDefinitions((prev) => prev.map((x, i) => (i === index ? next : x)))
           }
-          onRemove={(index) =>
-            void confirmRemove("この意味・例文", () =>
-              setDefinitions((prev) => prev.filter((_, i) => i !== index)),
-            )
-          }
+          onRemove={(index) => setDefinitions((prev) => prev.filter((_, i) => i !== index))}
+          confirmRemove={confirmRemove}
         />
       ))}
       <button

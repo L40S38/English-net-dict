@@ -44,12 +44,9 @@ export function PhraseCard({ phrase, deleting = false, onDelete }: PhraseCardPro
       </div>
       <button
         type="button"
+        className="button-delete-outline"
         disabled={deleting}
-        onClick={() => {
-          const ok = window.confirm(`熟語「${phrase.text}」を削除しますか？`);
-          if (!ok) return;
-          onDelete(phrase.id);
-        }}
+        onClick={() => onDelete(phrase.id)}
       >
         {deleting ? "削除中..." : "削除"}
       </button>

@@ -90,24 +90,27 @@ export function WordEditPage() {
     open: boolean;
     title: string;
     message: string;
+    confirmVariant?: "default" | "danger";
     confirmText?: string;
     cancelText?: string;
   }>({
     open: false,
     title: "",
     message: "",
+    confirmVariant: "default",
   });
   const confirmResolverRef = useRef<((result: boolean) => void) | null>(null);
 
   const openConfirm = (params: {
     title: string;
     message: string;
+    confirmVariant?: "default" | "danger";
     confirmText?: string;
     cancelText?: string;
   }) =>
     new Promise<boolean>((resolve) => {
       confirmResolverRef.current = resolve;
-      setConfirmState({ open: true, ...params });
+      setConfirmState({ open: true, confirmVariant: "default", ...params });
     });
 
   const closeConfirm = (result: boolean) => {
@@ -225,6 +228,66 @@ export function WordEditPage() {
     derivations,
     relatedWords,
   ]);
+  const initialPayloadSerialized = useMemo(() => {
+    if (!word) {
+      return "";
+    }
+    const forms = word.forms ?? {};
+    return JSON.stringify({
+      word: word.word,
+      phonetic: word.phonetic ?? null,
+      forms: {
+        third_person_singular: String(forms.third_person_singular ?? "") || undefined,
+        present_participle: String(forms.present_participle ?? "") || undefined,
+        past_tense: String(forms.past_tense ?? "") || undefined,
+        past_participle: String(forms.past_participle ?? "") || undefined,
+        plural: String(forms.plural ?? "") || undefined,
+        comparative: String(forms.comparative ?? "") || undefined,
+        superlative: String(forms.superlative ?? "") || undefined,
+        uncountable: forms.uncountable ? true : undefined,
+      },
+      phrases: (word.phrases ?? [])
+        .map((entry) => ({
+          text: entry.text.trim(),
+          meaning: (entry.meaning ?? "").trim(),
+        }))
+        .filter((entry) => Boolean(entry.text)),
+      definitions: (word.definitions ?? []).map((d, idx) => ({
+        id: d.id,
+        part_of_speech: d.part_of_speech,
+        meaning_en: d.meaning_en,
+        meaning_ja: d.meaning_ja,
+        example_en: d.example_en,
+        example_ja: d.example_ja,
+        sort_order: d.sort_order ?? idx,
+      })),
+      etymology: {
+        components: word.etymology?.components ?? [],
+        origin_word: word.etymology?.origin_word ?? null,
+        origin_language: word.etymology?.origin_language ?? null,
+        core_image: word.etymology?.core_image ?? null,
+        branches: word.etymology?.branches ?? [],
+        language_chain: word.etymology?.language_chain ?? [],
+        component_meanings: word.etymology?.component_meanings ?? [],
+        etymology_variants: word.etymology?.etymology_variants ?? [],
+        raw_description: word.etymology?.raw_description ?? null,
+      },
+      derivations: (word.derivations ?? []).map((d, idx) => ({
+        id: d.id,
+        derived_word: d.derived_word,
+        part_of_speech: d.part_of_speech,
+        meaning_ja: d.meaning_ja,
+        sort_order: d.sort_order ?? idx,
+      })),
+      related_words: (word.related_words ?? []).map((r) => ({
+        id: r.id,
+        related_word: r.related_word,
+        relation_type: r.relation_type,
+        note: r.note,
+      })),
+    });
+  }, [word]);
+  const hasUnsavedChanges = word ? JSON.stringify(payload) !== initialPayloadSerialized : false;
 
   const saveMutation = useMutation({
     mutationFn: async () => wordApi.updateFull(word!.id, payload),
@@ -234,6 +297,13 @@ export function WordEditPage() {
       navigate(`/words/${updated.id}`);
     },
   });
+  const deleteWordMutation = useMutation({
+    mutationFn: () => wordApi.delete(word!.id),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["words"] });
+      navigate("/");
+    },
+  });
 
   const confirmRemove = async (targetLabel: string, onAccept: () => void) => {
     const ok = await openConfirm({
@@ -241,11 +311,36 @@ export function WordEditPage() {
       message: `${targetLabel}を本当に削除しますか？`,
       confirmText: "削除する",
       cancelText: "キャンセル",
+      confirmVariant: "danger",
     });
     if (!ok) {
       return;
     }
     onAccept();
+  };
+  const handleDeleteWord = async () => {
+    if (hasUnsavedChanges) {
+      const proceed = await openConfirm({
+        title: "未保存の変更があります",
+        message: "保存せずに削除しますか？",
+        confirmText: "続行",
+        cancelText: "キャンセル",
+      });
+      if (!proceed) {
+        return;
+      }
+    }
+    const ok = await openConfirm({
+      title: "削除の確認",
+      message: `単語「${editWord.trim() || (word?.word ?? "")}」を削除しますか？`,
+      confirmText: "削除する",
+      cancelText: "キャンセル",
+      confirmVariant: "danger",
+    });
+    if (!ok) {
+      return;
+    }
+    deleteWordMutation.mutate();
   };
 
   if (!word) {
@@ -261,6 +356,22 @@ export function WordEditPage() {
       <Row justify="between">
         <h2>{word.word} の編集</h2>
         <Row>
+          <button
+            type="button"
+            onClick={() => saveMutation.mutate()}
+            disabled={saveMutation.isPending || deleteWordMutation.isPending}
+          >
+            {saveMutation.isPending ? "保存中..." : "保存"}
+          </button>
+          <button
+            type="button"
+            className="button-delete"
+            onClick={() => void handleDeleteWord()}
+            disabled={saveMutation.isPending || deleteWordMutation.isPending}
+          >
+            {deleteWordMutation.isPending ? "削除中..." : "削除"}
+          </button>
+          <Link to={`/words/${word.id}`}>キャンセル</Link>
           <Link to={`/words/${word.id}`}>詳細へ戻る</Link>
         </Row>
       </Row>
@@ -354,22 +465,14 @@ export function WordEditPage() {
         />
       )}
 
-      <Row>
-        <button
-          type="button"
-          onClick={() => saveMutation.mutate()}
-          disabled={saveMutation.isPending}
-        >
-          {saveMutation.isPending ? "保存中..." : "保存"}
-        </button>
-        <Link to={`/words/${word.id}`}>キャンセル</Link>
-      </Row>
       <ConfirmModal
         open={confirmState.open}
         title={confirmState.title}
         message={confirmState.message}
+        confirmVariant={confirmState.confirmVariant}
         confirmText={confirmState.confirmText}
         cancelText={confirmState.cancelText}
+        disableActions={deleteWordMutation.isPending}
         onCancel={() => closeConfirm(false)}
         onConfirm={() => closeConfirm(true)}
       />

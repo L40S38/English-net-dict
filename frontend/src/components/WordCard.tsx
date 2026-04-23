@@ -56,12 +56,9 @@ export function WordCard({
       {showDelete ? (
         <button
           type="button"
+          className="button-delete-outline"
           disabled={deleting}
-          onClick={() => {
-            const ok = window.confirm(`単語「${word.word}」を削除しますか？`);
-            if (!ok) return;
-            onDelete(word.id);
-          }}
+          onClick={() => onDelete(word.id)}
         >
           {deleting ? "削除中..." : "削除"}
         </button>

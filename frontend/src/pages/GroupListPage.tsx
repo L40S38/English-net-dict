@@ -13,6 +13,7 @@ export function GroupListPage() {
   const [description, setDescription] = useState("");
   const [query, setQuery] = useState("");
   const [groupNameErrorOpen, setGroupNameErrorOpen] = useState(false);
+  const [pendingDeleteGroup, setPendingDeleteGroup] = useState<{ id: number; name: string } | null>(null);
   const queryClient = useQueryClient();
 
   const groupsQuery = useQuery({
@@ -110,12 +111,8 @@ export function GroupListPage() {
             <Stack gap="sm">
               <button
                 type="button"
-                className="modal-cancel"
-                onClick={() => {
-                  const ok = window.confirm(`グループ「${group.name}」を削除しますか？`);
-                  if (!ok) return;
-                  deleteMutation.mutate(group.id);
-                }}
+                className="button-delete"
+                onClick={() => setPendingDeleteGroup({ id: group.id, name: group.name })}
                 disabled={deleteMutation.isPending}
               >
                 削除
@@ -133,6 +130,21 @@ export function GroupListPage() {
         confirmText="閉じる"
         onConfirm={() => setGroupNameErrorOpen(false)}
         onCancel={() => setGroupNameErrorOpen(false)}
+      />
+      <ConfirmModal
+        open={pendingDeleteGroup !== null}
+        title="削除の確認"
+        message={`グループ「${pendingDeleteGroup?.name ?? ""}」を削除しますか？`}
+        confirmText="削除する"
+        cancelText="キャンセル"
+        confirmVariant="danger"
+        disableActions={deleteMutation.isPending}
+        onConfirm={() => {
+          if (!pendingDeleteGroup) return;
+          deleteMutation.mutate(pendingDeleteGroup.id);
+          setPendingDeleteGroup(null);
+        }}
+        onCancel={() => setPendingDeleteGroup(null)}
       />
     </main>
   );

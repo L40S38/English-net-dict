@@ -32,9 +32,11 @@ from core.schemas import (
     EtymologyComponentSearchResponse,
     EtymologyRead,
     EtymologyUpdate,
+    GroupSearchResponse,
     InflectionCheckRequest,
     InflectionCheckResponse,
     InflectionCheckResult,
+    PhraseRead,
     RelatedWordCreate,
     RelatedWordRead,
     RelatedWordUpdate,
@@ -44,6 +46,8 @@ from core.schemas import (
     WordFullUpdate,
     WordListResponse,
     WordRead,
+    WordSummary,
+    WordSummaryForGroup,
 )
 from core.services import word_service
 from core.services.etymology_component_service import get_component_cache, normalize_component_text
@@ -79,6 +83,56 @@ def _word_query():
         joinedload(Word.chat_sessions),
         joinedload(Word.phrases),
         joinedload(Word.lemma_ref),
+    )
+
+
+def _group_word_query():
+    return select(Word).options(joinedload(Word.definitions))
+
+
+def _to_group_word_summary(word: Word) -> WordSummaryForGroup:
+    return WordSummaryForGroup.model_validate(
+        {
+            "id": word.id,
+            "word": word.word,
+            "phonetic": word.phonetic,
+            "definitions": [DefinitionRead.model_validate(item) for item in (word.definitions or [])],
+        }
+    )
+
+
+def _group_phrase_query():
+    return select(Phrase).options(
+        joinedload(Phrase.definitions),
+        joinedload(Phrase.images),
+        joinedload(Phrase.word_links).joinedload(WordPhrase.word_ref),
+        joinedload(Phrase.chat_sessions),
+    )
+
+
+def _to_group_phrase_read(phrase: Phrase) -> PhraseRead:
+    words = [
+        WordSummary.model_validate(link.word_ref)
+        for link in phrase.word_links
+        if getattr(link, "word_ref", None) is not None
+    ]
+    return PhraseRead.model_validate(
+        {
+            "id": phrase.id,
+            "text": phrase.text,
+            "meaning": phrase.meaning or "",
+            "created_at": phrase.created_at,
+            "updated_at": phrase.updated_at,
+            "definitions": phrase.definitions,
+            "images": phrase.images,
+            "words": words,
+            "chat_session_count": len(phrase.chat_sessions),
+            "wiktionary_synonyms": phrase.wiktionary_synonyms or [],
+            "wiktionary_antonyms": phrase.wiktionary_antonyms or [],
+            "wiktionary_see_also": phrase.wiktionary_see_also or [],
+            "wiktionary_derived_terms": phrase.wiktionary_derived_terms or [],
+            "wiktionary_phrases": phrase.wiktionary_phrases or [],
+        }
     )
 
 
@@ -280,18 +334,22 @@ def list_words(
     return WordListResponse(items=[_to_word_read(db, x) for x in items], total=total)
 
 
-@router.get("/search-for-group", response_model=WordListResponse)
+@router.get("/search-for-group", response_model=GroupSearchResponse)
 def search_words_for_group(
     q: str = Query(default="", min_length=0),
     sort_by: WordSortBy = Query(default="last_viewed_at"),
     sort_order: SortOrder = Query(default="desc"),
     page: int = Query(default=1, ge=1),
+    page_words: int | None = Query(default=None, ge=1),
+    page_phrases: int | None = Query(default=None, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
-) -> WordListResponse:
+) -> GroupSearchResponse:
     raw = q.strip()
+    words_page = page_words or page
+    phrases_page = page_phrases or page
     if not raw:
-        return WordListResponse(items=[], total=0)
+        return GroupSearchResponse(items=[], total=0, phrases=[], phrases_total=0)
 
     sort_clauses = word_service.word_sort_clauses(sort_by, sort_order)
     keywords = _build_keywords(raw)
@@ -327,7 +385,7 @@ def search_words_for_group(
         _merge_ids(list(db.scalars(stage3_stmt)), priority=1)
 
     if not stage_priority:
-        return WordListResponse(items=[], total=0)
+        return GroupSearchResponse(items=[], total=0, phrases=[], phrases_total=0)
 
     ordered_ids_stmt = (
         select(Word.id)
@@ -343,13 +401,32 @@ def search_words_for_group(
     )
     ordered_ids = list(db.scalars(ordered_ids_stmt))
     total = len(ordered_ids)
-    paged_ids = ordered_ids[(page - 1) * page_size : page * page_size]
-    if not paged_ids:
-        return WordListResponse(items=[], total=total)
-    page_words = list(db.scalars(_word_query().where(Word.id.in_(paged_ids))).unique())
-    by_id = {word.id: word for word in page_words}
-    items = [by_id[word_id] for word_id in paged_ids if word_id in by_id]
-    return WordListResponse(items=[_to_word_read(db, x) for x in items], total=total)
+    paged_ids = ordered_ids[(words_page - 1) * page_size : words_page * page_size]
+    word_items: list[WordSummaryForGroup] = []
+    if paged_ids:
+        page_words = list(db.scalars(_group_word_query().where(Word.id.in_(paged_ids))).unique())
+        by_id = {word.id: word for word in page_words}
+        items = [by_id[word_id] for word_id in paged_ids if word_id in by_id]
+        word_items = [_to_group_word_summary(word) for word in items]
+
+    phrase_stmt = (
+        _group_phrase_query()
+        .where(or_(Phrase.text.ilike(phrase_pattern), Phrase.meaning.ilike(phrase_pattern)))
+        .order_by(func.lower(Phrase.text).asc(), Phrase.id.asc())
+    )
+    phrases_total = db.scalar(select(func.count()).select_from(phrase_stmt.subquery())) or 0
+    phrase_items = list(
+        db.scalars(
+            phrase_stmt.offset((phrases_page - 1) * page_size).limit(page_size)
+        ).unique()
+    )
+
+    return GroupSearchResponse(
+        items=word_items,
+        total=total,
+        phrases=[_to_group_phrase_read(item) for item in phrase_items],
+        phrases_total=phrases_total,
+    )
 
 
 @router.get("/suggest", response_model=list[str])

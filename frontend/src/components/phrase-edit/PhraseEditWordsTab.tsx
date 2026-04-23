@@ -8,9 +8,10 @@ import type { WordSummary } from "../../types";
 interface PhraseEditWordsTabProps {
   words: WordSummary[];
   setWords: (next: WordSummary[]) => void;
+  confirmRemove: (targetLabel: string, onAccept: () => void) => Promise<void>;
 }
 
-export function PhraseEditWordsTab({ words, setWords }: PhraseEditWordsTabProps) {
+export function PhraseEditWordsTab({ words, setWords, confirmRemove }: PhraseEditWordsTabProps) {
   const [q, setQ] = useState("");
   const suggestionsQuery = useQuery({
     queryKey: ["word-suggest", q],
@@ -53,8 +54,12 @@ export function PhraseEditWordsTab({ words, setWords }: PhraseEditWordsTabProps)
             <span>{word.word}</span>
             <button
               type="button"
-              className="modal-cancel"
-              onClick={() => setWords(words.filter((item) => item.id !== word.id))}
+              className="button-delete"
+              onClick={() =>
+                void confirmRemove("この構成語", () =>
+                  setWords(words.filter((item) => item.id !== word.id)),
+                )
+              }
             >
               削除
             </button>

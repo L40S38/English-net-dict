@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { ConfirmModal } from "../components/ConfirmModal";
 import { PhraseCard } from "../components/PhraseCard";
 import { Card, Muted } from "../components/atom";
 import { phraseApi } from "../lib/api";
@@ -24,6 +25,9 @@ export function PhraseListPage() {
   const [sortBy, setSortBy] = useState<PhraseSortBy>("updated_at");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
   const [deletingPhraseId, setDeletingPhraseId] = useState<number | null>(null);
+  const [pendingDeletePhrase, setPendingDeletePhrase] = useState<{ id: number; text: string } | null>(
+    null,
+  );
   const queryClient = useQueryClient();
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const phrasesQuery = useInfiniteQuery({
@@ -112,13 +116,33 @@ export function PhraseListPage() {
             key={phrase.id}
             phrase={phrase}
             deleting={deleteMutation.isPending && deletingPhraseId === phrase.id}
-            onDelete={(phraseId) => deleteMutation.mutate(phraseId)}
+            onDelete={(phraseId) =>
+              setPendingDeletePhrase({
+                id: phraseId,
+                text: phrase.text,
+              })
+            }
           />
         ))}
       </section>
 
       {!phrasesQuery.isLoading && <div ref={loadMoreRef} style={{ height: 1 }} />}
       {phrasesQuery.isFetchingNextPage && <Muted as="p">さらに読み込み中...</Muted>}
+      <ConfirmModal
+        open={pendingDeletePhrase !== null}
+        title="削除の確認"
+        message={`熟語「${pendingDeletePhrase?.text ?? ""}」を削除しますか？`}
+        confirmText="削除する"
+        cancelText="キャンセル"
+        confirmVariant="danger"
+        disableActions={deleteMutation.isPending}
+        onCancel={() => setPendingDeletePhrase(null)}
+        onConfirm={() => {
+          if (!pendingDeletePhrase) return;
+          deleteMutation.mutate(pendingDeletePhrase.id);
+          setPendingDeletePhrase(null);
+        }}
+      />
     </main>
   );
 }

@@ -1,6 +1,7 @@
 import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
+import { ConfirmModal } from "./ConfirmModal";
 import { Card, Muted } from "./atom";
 import { WordCard } from "./WordCard";
 import { wordApi } from "../lib/api";
@@ -13,6 +14,7 @@ interface PhraseComponentWordsProps {
 
 export function PhraseComponentWords({ phrase }: PhraseComponentWordsProps) {
   const [deletingWordId, setDeletingWordId] = useState<number | null>(null);
+  const [pendingDeleteWord, setPendingDeleteWord] = useState<{ id: number; word: string } | null>(null);
   const queryClient = useQueryClient();
   const words = phrase.words ?? [];
   const wordQueries = useQueries({
@@ -54,10 +56,25 @@ export function PhraseComponentWords({ phrase }: PhraseComponentWordsProps) {
             key={word.id}
             word={word}
             deleting={deleteWordMutation.isPending && deletingWordId === word.id}
-            onDelete={(wordId) => deleteWordMutation.mutate(wordId)}
+            onDelete={(wordId) => setPendingDeleteWord({ id: wordId, word: word.word })}
           />
         ))}
       </section>
+      <ConfirmModal
+        open={pendingDeleteWord !== null}
+        title="削除の確認"
+        message={`単語「${pendingDeleteWord?.word ?? ""}」を削除しますか？`}
+        confirmText="削除する"
+        cancelText="キャンセル"
+        confirmVariant="danger"
+        disableActions={deleteWordMutation.isPending}
+        onCancel={() => setPendingDeleteWord(null)}
+        onConfirm={() => {
+          if (!pendingDeleteWord) return;
+          deleteWordMutation.mutate(pendingDeleteWord.id);
+          setPendingDeleteWord(null);
+        }}
+      />
     </Card>
   );
 }

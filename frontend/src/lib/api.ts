@@ -11,6 +11,7 @@ import type {
   Etymology,
   GroupSuggestResponse,
   GroupBulkAddItemsResponse,
+  GroupSearchResponse,
   GroupImage,
   InflectionAction,
   InflectionCheckResponse,
@@ -117,12 +118,13 @@ export const wordApi = {
   },
   async searchForGroup(params: {
     q: string;
-    page?: number;
+    page_words?: number;
+    page_phrases?: number;
     page_size?: number;
     sort_by?: WordSortBy;
     sort_order?: SortOrder;
   }) {
-    const { data } = await api.get<WordListResponse>("/api/words/search-for-group", { params });
+    const { data } = await api.get<GroupSearchResponse>("/api/words/search-for-group", { params });
     return data;
   },
   async suggest(q: string, limit = 10) {

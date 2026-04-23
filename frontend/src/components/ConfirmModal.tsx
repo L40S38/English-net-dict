@@ -6,6 +6,8 @@ type Props = {
   message: string;
   /** 確定のみ（エラー表示など）。キャンセルボタンを出さない */
   variant?: "confirm" | "alert";
+  /** danger は削除などの破壊的操作向け */
+  confirmVariant?: "default" | "danger";
   confirmText?: string;
   cancelText?: string;
   /** 真のとき操作ボタンを無効化し、オーバーレイ・Esc による閉じるも無効 */
@@ -19,12 +21,15 @@ export function ConfirmModal({
   title,
   message,
   variant = "confirm",
+  confirmVariant = "default",
   confirmText = "OK",
   cancelText = "キャンセル",
   disableActions = false,
   onConfirm,
   onCancel,
 }: Props) {
+  const confirmClassName = confirmVariant === "danger" ? "button-delete" : "modal-confirm";
+
   useEffect(() => {
     if (!open) {
       return;
@@ -74,7 +79,7 @@ export function ConfirmModal({
               </button>
               <button
                 type="button"
-                className="modal-confirm"
+                className={confirmClassName}
                 onClick={() => void onConfirm()}
                 disabled={disableActions}
               >
@@ -84,7 +89,7 @@ export function ConfirmModal({
           ) : (
             <button
               type="button"
-              className="modal-confirm"
+              className={confirmClassName}
               onClick={() => void onConfirm()}
               disabled={disableActions}
             >

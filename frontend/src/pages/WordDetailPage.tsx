@@ -67,20 +67,12 @@ export function WordDetailPage() {
       await queryClient.invalidateQueries({ queryKey: ["words"] });
     },
   });
-  const deleteWordMutation = useMutation({
-    mutationFn: () => wordApi.delete(wordQuery.data!.id),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["words"] });
-      navigate("/");
-    },
-  });
 
   const word = wordQuery.data;
   const isBusy =
     wordQuery.isLoading ||
     rescrapeMutation.isPending ||
-    generateImageMutation.isPending ||
-    deleteWordMutation.isPending;
+    generateImageMutation.isPending;
   const forms = word?.forms ?? {};
   const formEntries = [
     {
@@ -120,6 +112,7 @@ export function WordDetailPage() {
   const isNotFound = wordQuery.isError && isNotFoundError(wordQuery.error);
 
   const [deletingWordId, setDeletingWordId] = useState<number | null>(null);
+  const [pendingDeleteWord, setPendingDeleteWord] = useState<{ id: number; word: string } | null>(null);
   const [showPhraseConfirm, setShowPhraseConfirm] = useState(false);
   const [showInflectionModal, setShowInflectionModal] = useState(false);
   const [inflectionResult, setInflectionResult] = useState<InflectionCheckResult | null>(null);
@@ -190,7 +183,7 @@ export function WordDetailPage() {
                   key={word.id}
                   word={word}
                   deleting={deleteFromListMutation.isPending && deletingWordId === word.id}
-                  onDelete={(wordId) => deleteFromListMutation.mutate(wordId)}
+                  onDelete={(wordId) => setPendingDeleteWord({ id: wordId, word: word.word })}
                 />
               ))}
             </div>
@@ -205,6 +198,21 @@ export function WordDetailPage() {
           onConfirm={() => {
             setShowPhraseConfirm(false);
             registerMutation.mutate({});
+          }}
+        />
+        <ConfirmModal
+          open={pendingDeleteWord !== null}
+          title="削除の確認"
+          message={`単語「${pendingDeleteWord?.word ?? ""}」を削除しますか？`}
+          confirmText="削除する"
+          cancelText="キャンセル"
+          confirmVariant="danger"
+          disableActions={deleteFromListMutation.isPending}
+          onCancel={() => setPendingDeleteWord(null)}
+          onConfirm={() => {
+            if (!pendingDeleteWord) return;
+            deleteFromListMutation.mutate(pendingDeleteWord.id);
+            setPendingDeleteWord(null);
           }}
         />
         {showInflectionModal && inflectionResult && (
@@ -271,17 +279,6 @@ export function WordDetailPage() {
           <>
             <button onClick={() => rescrapeMutation.mutate()} disabled={isBusy}>
               {rescrapeMutation.isPending ? "再取得中..." : "データ再取得"}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                const ok = window.confirm(`単語「${word.word}」を削除しますか？`);
-                if (!ok) return;
-                deleteWordMutation.mutate();
-              }}
-              disabled={isBusy}
-            >
-              {deleteWordMutation.isPending ? "削除中..." : "削除"}
             </button>
             <Link to={`/words/${word.id}/edit`}>編集</Link>
             <Link to="/">一覧へ戻る</Link>
