@@ -335,6 +335,11 @@ class PhraseRead(PhraseBase):
     images: list[PhraseImageRead] = Field(default_factory=list)
     words: list[WordSummary] = Field(default_factory=list)
     chat_session_count: int = 0
+    wiktionary_synonyms: list[str] = Field(default_factory=list)
+    wiktionary_antonyms: list[str] = Field(default_factory=list)
+    wiktionary_see_also: list[str] = Field(default_factory=list)
+    wiktionary_derived_terms: list[str] = Field(default_factory=list)
+    wiktionary_phrases: list[str] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 

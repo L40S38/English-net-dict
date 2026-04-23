@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
@@ -29,6 +31,8 @@ from core.services.phrase_service import (
 from core.services.scraper.wiktionary import WiktionaryScraper
 
 router = APIRouter(prefix="/api", tags=["phrases"])
+PhraseSortBy = Literal["created_at", "updated_at", "text"]
+SortOrder = Literal["desc", "asc"]
 
 
 def _phrase_query():
@@ -53,6 +57,11 @@ def _to_phrase_read(db: Session, phrase: Phrase) -> PhraseRead:
             "images": phrase.images,
             "words": [WordSummary.model_validate(word) for word in words],
             "chat_session_count": len(phrase.chat_sessions),
+            "wiktionary_synonyms": phrase.wiktionary_synonyms or [],
+            "wiktionary_antonyms": phrase.wiktionary_antonyms or [],
+            "wiktionary_see_also": phrase.wiktionary_see_also or [],
+            "wiktionary_derived_terms": phrase.wiktionary_derived_terms or [],
+            "wiktionary_phrases": phrase.wiktionary_phrases or [],
         }
     )
 
@@ -60,11 +69,21 @@ def _to_phrase_read(db: Session, phrase: Phrase) -> PhraseRead:
 @router.get("/phrases", response_model=list[PhraseRead])
 def list_phrases(
     q: str | None = Query(default=None),
+    sort_by: PhraseSortBy = Query(default="updated_at"),
+    sort_order: SortOrder = Query(default="desc"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db),
 ) -> list[PhraseRead]:
-    stmt = _phrase_query().order_by(func.lower(Phrase.text), Phrase.id)
+    direction_desc = sort_order == "desc"
+    if sort_by == "text":
+        sort_clauses = [func.lower(Phrase.text).desc() if direction_desc else func.lower(Phrase.text).asc(), Phrase.id.desc() if direction_desc else Phrase.id.asc()]
+    elif sort_by == "created_at":
+        sort_clauses = [Phrase.created_at.desc() if direction_desc else Phrase.created_at.asc(), Phrase.id.desc() if direction_desc else Phrase.id.asc()]
+    else:
+        sort_clauses = [Phrase.updated_at.desc() if direction_desc else Phrase.updated_at.asc(), Phrase.id.desc() if direction_desc else Phrase.id.asc()]
+
+    stmt = _phrase_query().order_by(*sort_clauses)
     if q:
         keyword = q.strip()
         if keyword:

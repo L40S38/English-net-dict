@@ -19,6 +19,11 @@ export interface Phrase {
   images?: PhraseImage[];
   words?: WordSummary[];
   chat_session_count?: number;
+  wiktionary_synonyms?: string[];
+  wiktionary_antonyms?: string[];
+  wiktionary_see_also?: string[];
+  wiktionary_derived_terms?: string[];
+  wiktionary_phrases?: string[];
 }
 
 export interface PhraseDefinition {

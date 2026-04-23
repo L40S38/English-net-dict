@@ -6,6 +6,18 @@ from core.services.phrase_meaning_service import resolve_meaning_ja
 from core.services.phrase_service import replace_definitions
 
 
+def _wiktionary_str_list(scraped: dict, key: str) -> list[str]:
+    raw = scraped.get(key)
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for item in raw:
+        s = str(item).strip()
+        if s:
+            out.append(s)
+    return out
+
+
 def _pick_definition_items(scraped: dict) -> list[dict]:
     raw = scraped.get("definitions")
     if not isinstance(raw, list):
@@ -35,7 +47,15 @@ async def enrich_phrase(db, phrase: Phrase, *, scraper, cache: dict[str, str | N
     phrase.meaning = (await resolve_meaning_ja(phrase.text, scraper, cache)) or phrase.meaning or ""
 
     scraped = await scraper.scrape(phrase.text)
-    items = _pick_definition_items(scraped if isinstance(scraped, dict) else {})
+    data = scraped if isinstance(scraped, dict) else {}
+    if not data.get("error"):
+        phrase.wiktionary_synonyms = _wiktionary_str_list(data, "synonyms")
+        phrase.wiktionary_antonyms = _wiktionary_str_list(data, "antonyms")
+        phrase.wiktionary_see_also = _wiktionary_str_list(data, "see_also")
+        phrase.wiktionary_derived_terms = _wiktionary_str_list(data, "derived_terms")
+        phrase.wiktionary_phrases = _wiktionary_str_list(data, "phrases")
+
+    items = _pick_definition_items(data)
 
     translated = translate_phrase_definitions(
         phrase.text,

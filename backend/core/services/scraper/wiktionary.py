@@ -882,6 +882,7 @@ class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
             synonyms: list[str] = []
             antonyms: list[str] = []
             phrases: list[str] = []
+            see_also: list[str] = []
             definitions = self._extract_definitions_with_examples(wikitext)
 
             if title := self._find_section_title(sections, "derived terms", "派生語"):
@@ -890,6 +891,8 @@ class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
                 synonyms = self._extract_section_items(english_body, title, sections=sections)
             if title := self._find_section_title(sections, "antonyms", "対義語"):
                 antonyms = self._extract_section_items(english_body, title, sections=sections)
+            if title := self._find_section_title(sections, "see also", "参照"):
+                see_also = self._extract_section_items(english_body, title, sections=sections)
             if title := self._find_section_title(sections, "phrases", "idioms", "成句"):
                 phrases = self._extract_section_items(english_body, title, sections=sections)
 
@@ -909,6 +912,7 @@ class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
                 "derived_terms": derived_terms,
                 "synonyms": synonyms,
                 "antonyms": antonyms,
+                "see_also": see_also,
                 "phrases": phrases,
                 "definitions": definitions,
             }
@@ -954,12 +958,13 @@ class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
                 "derived_terms",
                 "synonyms",
                 "antonyms",
+                "see_also",
                 "phrases",
                 "definitions",
             ):
                 en_value = merged.get(key)
                 ja_value = japanese.get(key)
-                if key in {"derived_terms", "synonyms", "antonyms", "phrases"}:
+                if key in {"derived_terms", "synonyms", "antonyms", "see_also", "phrases"}:
                     en_items = en_value if isinstance(en_value, list) else []
                     ja_items = ja_value if isinstance(ja_value, list) else []
                     merged[key] = self._merge_unique_str_items(ja_items, en_items)

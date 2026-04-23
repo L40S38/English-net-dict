@@ -458,10 +458,18 @@ export const groupApi = {
 };
 
 export const phraseApi = {
-  async list(params?: { q?: string; page?: number; page_size?: number }) {
+  async list(params?: {
+    q?: string;
+    sort_by?: "created_at" | "updated_at" | "text";
+    sort_order?: "desc" | "asc";
+    page?: number;
+    page_size?: number;
+  }) {
     const { data } = await api.get<Phrase[]>("/api/phrases", {
       params: {
         q: params?.q,
+        sort_by: params?.sort_by ?? "updated_at",
+        sort_order: params?.sort_order ?? "desc",
         page: params?.page ?? 1,
         page_size: params?.page_size ?? 50,
       },

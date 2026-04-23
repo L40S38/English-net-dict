@@ -11,10 +11,21 @@ interface WordCardProps {
   word: Word;
   deleting?: boolean;
   onDelete: (wordId: number) => void;
+  /** false のとき削除ボタンを出さない（熟語の構成語など） */
+  showDelete?: boolean;
+  /** 熟語構成語のように images が空で API の image_count のみある場合 */
+  imageCountOverride?: number;
 }
 
-export function WordCard({ word, deleting = false, onDelete }: WordCardProps) {
-  const hasImage = (word.images?.length ?? 0) > 0;
+export function WordCard({
+  word,
+  deleting = false,
+  onDelete,
+  showDelete = true,
+  imageCountOverride,
+}: WordCardProps) {
+  const imageLen = imageCountOverride !== undefined ? imageCountOverride : (word.images?.length ?? 0);
+  const hasImage = imageLen > 0;
   const chatCount = word.chat_session_count ?? 0;
 
   return (
@@ -42,17 +53,19 @@ export function WordCard({ word, deleting = false, onDelete }: WordCardProps) {
         <Muted as="p">{word.phonetic || EMPTY_MESSAGES.noPhonetic}</Muted>
         <p>{word.definitions[0]?.meaning_ja ?? EMPTY_MESSAGES.noData}</p>
       </div>
-      <button
-        type="button"
-        disabled={deleting}
-        onClick={() => {
-          const ok = window.confirm(`単語「${word.word}」を削除しますか？`);
-          if (!ok) return;
-          onDelete(word.id);
-        }}
-      >
-        {deleting ? "削除中..." : "削除"}
-      </button>
+      {showDelete ? (
+        <button
+          type="button"
+          disabled={deleting}
+          onClick={() => {
+            const ok = window.confirm(`単語「${word.word}」を削除しますか？`);
+            if (!ok) return;
+            onDelete(word.id);
+          }}
+        >
+          {deleting ? "削除中..." : "削除"}
+        </button>
+      ) : null}
     </Card>
   );
 }

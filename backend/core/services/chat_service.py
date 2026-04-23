@@ -197,6 +197,11 @@ def build_phrase_context(phrase: Phrase) -> dict[str, Any]:
             "id": phrase.id,
             "text": phrase.text,
             "meaning": phrase.meaning or "",
+            "wiktionary_synonyms": phrase.wiktionary_synonyms or [],
+            "wiktionary_antonyms": phrase.wiktionary_antonyms or [],
+            "wiktionary_see_also": phrase.wiktionary_see_also or [],
+            "wiktionary_derived_terms": phrase.wiktionary_derived_terms or [],
+            "wiktionary_phrases": phrase.wiktionary_phrases or [],
         },
         "definitions": [
             {

@@ -6,6 +6,7 @@ import { PageHeader } from "../components/PageHeader";
 import { PhraseChatPanel } from "../components/PhraseChatPanel";
 import { PhraseComponentWords } from "../components/PhraseComponentWords";
 import { PhraseDefinitions } from "../components/PhraseDefinitions";
+import { PhraseWiktionaryRelations } from "../components/PhraseWiktionaryRelations";
 import { Muted } from "../components/atom";
 import { phraseApi } from "../lib/api";
 
@@ -95,6 +96,7 @@ export function PhraseDetailPage() {
         <div className="detail-layout">
           <div className="detail-main">
             <PhraseDefinitions phrase={phrase} />
+            <PhraseWiktionaryRelations phrase={phrase} />
             <PhraseComponentWords phrase={phrase} />
           </div>
           <aside className="detail-side">

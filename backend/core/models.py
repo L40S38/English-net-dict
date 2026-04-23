@@ -264,6 +264,11 @@ class Phrase(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     text: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     meaning: Mapped[str] = mapped_column(Text, default="")
+    wiktionary_synonyms: Mapped[list[str]] = mapped_column(JSON, default=list)
+    wiktionary_antonyms: Mapped[list[str]] = mapped_column(JSON, default=list)
+    wiktionary_see_also: Mapped[list[str]] = mapped_column(JSON, default=list)
+    wiktionary_derived_terms: Mapped[list[str]] = mapped_column(JSON, default=list)
+    wiktionary_phrases: Mapped[list[str]] = mapped_column(JSON, default=list)
 
     definitions: Mapped[list["PhraseDefinition"]] = relationship(
         back_populates="phrase_ref",
