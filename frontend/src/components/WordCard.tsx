@@ -3,26 +3,27 @@ import { Link } from "react-router-dom";
 import { Card, Muted, Row } from "./atom";
 import { EMPTY_MESSAGES } from "../lib/constants";
 import type { Word } from "../types";
+import styles from "./WordCard.module.css";
 
 const ICON_SIZE = 16;
 
-interface Props {
+interface WordCardProps {
   word: Word;
   deleting?: boolean;
   onDelete: (wordId: number) => void;
 }
 
-export function WordCard({ word, deleting = false, onDelete }: Props) {
+export function WordCard({ word, deleting = false, onDelete }: WordCardProps) {
   const hasImage = (word.images?.length ?? 0) > 0;
   const chatCount = word.chat_session_count ?? 0;
 
   return (
-    <Card hoverable stack className="word-card">
+    <Card hoverable stack className={styles.wordCard}>
       <Row justify="between">
         <Link to={`/words/${word.id}`}>
           <h3>{word.word}</h3>
         </Link>
-        <div className="word-card-meta">
+        <div className={styles.wordCardMeta}>
           {hasImage && (
             <span title="画像あり" aria-label="画像あり">
               <Image size={ICON_SIZE} strokeWidth={2} />
@@ -37,7 +38,7 @@ export function WordCard({ word, deleting = false, onDelete }: Props) {
           <small>{new Date(word.updated_at).toLocaleDateString()}</small>
         </div>
       </Row>
-      <div className="word-card-content">
+      <div className={styles.wordCardContent}>
         <Muted as="p">{word.phonetic || EMPTY_MESSAGES.noPhonetic}</Muted>
         <p>{word.definitions[0]?.meaning_ja ?? EMPTY_MESSAGES.noData}</p>
       </div>

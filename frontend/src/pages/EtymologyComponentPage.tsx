@@ -1,5 +1,4 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import axios from "axios";
 import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 
@@ -11,6 +10,7 @@ import { WordCard } from "../components/WordCard";
 import { Card, Muted, Stack } from "../components/atom";
 import { componentApi, wordApi } from "../lib/api";
 import { EMPTY_MESSAGES } from "../lib/constants";
+import { isNotFoundError } from "../lib/errors";
 
 export function EtymologyComponentPage() {
   const params = useParams();
@@ -68,10 +68,7 @@ export function EtymologyComponentPage() {
     },
   });
   const genericMeanings = new Set(["語根要素", "接頭要素", "語源要素"]);
-  const isNotRegistered =
-    componentQuery.isError &&
-    axios.isAxiosError(componentQuery.error) &&
-    componentQuery.error.response?.status === 404;
+  const isNotRegistered = componentQuery.isError && isNotFoundError(componentQuery.error);
   const fromApi = (wordsQuery.data?.resolved_meaning ?? "").trim();
   let resolvedMeaning = fromApi;
   if (!resolvedMeaning) {

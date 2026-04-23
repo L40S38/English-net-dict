@@ -1,31 +1,30 @@
-import { Card, Field } from "./atom";
-import { POS_OPTIONS } from "../lib/constants";
+import { Field, FormBlockLayout, PosSelect } from "./atom";
 import type { Definition } from "../types";
 
-interface Props {
+interface DefinitionFormBlockProps {
   definition: Definition;
   index: number;
   onUpdate: (index: number, next: Definition) => void;
   onRemove: (index: number) => void;
 }
 
-export function DefinitionFormBlock({ definition, index, onUpdate, onRemove }: Props) {
+export function DefinitionFormBlock({
+  definition,
+  index,
+  onUpdate,
+  onRemove,
+}: DefinitionFormBlockProps) {
   return (
-    <Card variant="sub" stack>
+    <FormBlockLayout
+      variant="stack"
+      onRemove={() => onRemove(index)}
+      removeLabel="意味・例文を削除"
+    >
       <Field label="品詞">
-        <select
+        <PosSelect
           value={definition.part_of_speech}
-          onChange={(e) => onUpdate(index, { ...definition, part_of_speech: e.target.value })}
-        >
-          {!POS_OPTIONS.some((option) => option.value === definition.part_of_speech) && (
-            <option value={definition.part_of_speech}>{definition.part_of_speech}</option>
-          )}
-          {POS_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+          onChange={(value) => onUpdate(index, { ...definition, part_of_speech: value })}
+        />
       </Field>
       <Field label="英語の意味">
         <textarea
@@ -59,9 +58,6 @@ export function DefinitionFormBlock({ definition, index, onUpdate, onRemove }: P
           placeholder="例文（日本語訳）"
         />
       </Field>
-      <button type="button" onClick={() => onRemove(index)}>
-        削除
-      </button>
-    </Card>
+    </FormBlockLayout>
   );
 }

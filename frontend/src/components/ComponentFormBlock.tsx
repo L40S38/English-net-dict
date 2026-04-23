@@ -8,14 +8,19 @@ const COMPONENT_TYPE_OPTIONS = [
   { value: "suffix", label: "接尾辞" },
 ] as const;
 
-interface Props {
+interface ComponentFormBlockProps {
   component: EtymologyComponent;
   index: number;
   onUpdate: (index: number, next: EtymologyComponent) => void;
   onRemove: (index: number) => void;
 }
 
-export function ComponentFormBlock({ component, index, onUpdate, onRemove }: Props) {
+export function ComponentFormBlock({
+  component,
+  index,
+  onUpdate,
+  onRemove,
+}: ComponentFormBlockProps) {
   return (
     <Card variant="sub">
       <div className="inline-form-row">

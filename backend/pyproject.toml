@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "alembic>=1.17.1",
     "beautifulsoup4>=4.14.3",
     "ddgs>=9.11.1",
     "fastapi>=0.129.2",
@@ -13,17 +14,22 @@ dependencies = [
     "nltk>=3.9.2",
     "openai>=2.21.0",
     "pydantic-settings>=2.13.1",
+    "pyspellchecker>=0.9.0",
     "python-dotenv>=1.2.1",
     "python-multipart>=0.0.22",
+    "pyyaml>=6.0.3",
     "sqlalchemy>=2.0.46",
+    "tqdm>=4.67.3",
     "uvicorn>=0.41.0",
 ]
 
-[dependency-groups]
+[project.optional-dependencies]
 dev = [
     "pre-commit>=4.5.1",
     "pytest>=9.0.2",
     "ruff>=0.15.2",
+    "jupyterlab>=4.3.0",
+    "ipykernel>=6.29.0",
 ]
 
 [tool.ruff]
