@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 
 import { ComponentChatPanel } from "../components/ComponentChatPanel";
@@ -8,7 +8,7 @@ import { PageHeader } from "../components/PageHeader";
 import { WordLinkRow } from "../components/WordLinkRow";
 import { WordCard } from "../components/WordCard";
 import { Card, Muted, Stack } from "../components/atom";
-import { componentApi, wordApi } from "../lib/api";
+import { componentApi, phraseApi, wordApi } from "../lib/api";
 import { EMPTY_MESSAGES } from "../lib/constants";
 import { isNotFoundError } from "../lib/errors";
 
@@ -98,6 +98,33 @@ export function EtymologyComponentPage() {
     }
   }
   const wiktionaryInfo = componentQuery.data;
+  const wiktionaryLinkTerms = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          [
+            ...(wiktionaryInfo?.wiktionary_related_terms ?? []),
+            ...(wiktionaryInfo?.wiktionary_derived_terms ?? []),
+          ]
+            .map((term) => term.trim())
+            .filter((term) => term.length > 0),
+        ),
+      ),
+    [wiktionaryInfo?.wiktionary_related_terms, wiktionaryInfo?.wiktionary_derived_terms],
+  );
+  const phraseCheckQuery = useQuery({
+    queryKey: ["etymology-component", componentText, "phrase-check", wiktionaryLinkTerms],
+    queryFn: () => phraseApi.check(wiktionaryLinkTerms),
+    enabled: wiktionaryLinkTerms.length > 0,
+  });
+  const phraseIdMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const found of phraseCheckQuery.data?.found ?? []) {
+      map.set(found.text, found.id);
+      map.set(found.text.toLowerCase(), found.id);
+    }
+    return map;
+  }, [phraseCheckQuery.data?.found]);
   const isBusy =
     wordsQuery.isLoading ||
     componentQuery.isLoading ||
@@ -178,7 +205,23 @@ export function EtymologyComponentPage() {
                 )}
                 {(wiktionaryInfo?.wiktionary_related_terms ?? []).map((term) => (
                   <Card key={term} variant="sub" stack>
-                    <WordLinkRow value={term} secondary="Wiktionary" />
+                    <WordLinkRow
+                      value={term}
+                      secondary="Wiktionary"
+                      trailing={
+                        (() => {
+                          const phraseId = phraseIdMap.get(term) ?? phraseIdMap.get(term.toLowerCase());
+                          if (!phraseId) {
+                            return null;
+                          }
+                          return (
+                            <Link className="detail-link-button" to={`/phrases/${phraseId}`}>
+                              詳細
+                            </Link>
+                          );
+                        })()
+                      }
+                    />
                   </Card>
                 ))}
               </Card>
@@ -189,7 +232,23 @@ export function EtymologyComponentPage() {
                 )}
                 {(wiktionaryInfo?.wiktionary_derived_terms ?? []).map((term) => (
                   <Card key={term} variant="sub" stack>
-                    <WordLinkRow value={term} secondary="Wiktionary" />
+                    <WordLinkRow
+                      value={term}
+                      secondary="Wiktionary"
+                      trailing={
+                        (() => {
+                          const phraseId = phraseIdMap.get(term) ?? phraseIdMap.get(term.toLowerCase());
+                          if (!phraseId) {
+                            return null;
+                          }
+                          return (
+                            <Link className="detail-link-button" to={`/phrases/${phraseId}`}>
+                              詳細
+                            </Link>
+                          );
+                        })()
+                      }
+                    />
                   </Card>
                 ))}
               </Card>
