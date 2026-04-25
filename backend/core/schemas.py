@@ -349,6 +349,11 @@ class PhraseFullUpdate(BaseModel):
     meaning: str = ""
     definitions: list[PhraseDefinitionWrite] = Field(default_factory=list)
     word_ids: list[int] = Field(default_factory=list)
+    wiktionary_synonyms: list[str] = Field(default_factory=list)
+    wiktionary_antonyms: list[str] = Field(default_factory=list)
+    wiktionary_see_also: list[str] = Field(default_factory=list)
+    wiktionary_derived_terms: list[str] = Field(default_factory=list)
+    wiktionary_phrases: list[str] = Field(default_factory=list)
 
 
 class WordRead(BaseModel):

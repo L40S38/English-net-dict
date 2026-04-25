@@ -8,16 +8,42 @@ import { Row } from "../components/atom";
 import { phraseApi } from "../lib/api";
 import { PhraseEditBasicTab } from "../components/phrase-edit/PhraseEditBasicTab";
 import { PhraseEditDefinitionsTab } from "../components/phrase-edit/PhraseEditDefinitionsTab";
+import {
+  PhraseEditRelationsTab,
+  type PhraseRelatedItem,
+} from "../components/phrase-edit/PhraseEditRelationsTab";
 import { PhraseEditWordsTab } from "../components/phrase-edit/PhraseEditWordsTab";
-import type { PhraseDefinition, WordSummary } from "../types";
+import type { Phrase, PhraseDefinition, WordSummary } from "../types";
 
-type EditTabKey = "basic" | "definitions" | "words";
+type EditTabKey = "basic" | "definitions" | "words" | "related";
 
 const EDIT_TABS: Array<{ key: EditTabKey; label: string }> = [
   { key: "basic", label: "基本情報" },
   { key: "definitions", label: "定義" },
   { key: "words", label: "構成語" },
+  { key: "related", label: "関連語" },
 ];
+
+function createRelatedItemsFromPhrase(data: Phrase): PhraseRelatedItem[] {
+  const items: PhraseRelatedItem[] = [];
+  let nextId = -1;
+  for (const text of data.wiktionary_synonyms ?? []) {
+    items.push({ id: nextId--, related_word: text, relation_type: "synonym", note: "" });
+  }
+  for (const text of data.wiktionary_antonyms ?? []) {
+    items.push({ id: nextId--, related_word: text, relation_type: "antonym", note: "" });
+  }
+  for (const text of data.wiktionary_see_also ?? []) {
+    items.push({ id: nextId--, related_word: text, relation_type: "confusable", note: "" });
+  }
+  for (const text of data.wiktionary_derived_terms ?? []) {
+    items.push({ id: nextId--, related_word: text, relation_type: "cognate", note: "" });
+  }
+  for (const text of data.wiktionary_phrases ?? []) {
+    items.push({ id: nextId--, related_word: text, relation_type: "phrase", note: "" });
+  }
+  return items;
+}
 
 export function PhraseEditPage() {
   const params = useParams();
@@ -35,6 +61,7 @@ export function PhraseEditPage() {
   const [meaning, setMeaning] = useState("");
   const [definitions, setDefinitions] = useState<PhraseDefinition[]>([]);
   const [words, setWords] = useState<WordSummary[]>([]);
+  const [relatedItems, setRelatedItems] = useState<PhraseRelatedItem[]>([]);
   const [activeTab, setActiveTab] = useState<EditTabKey>("basic");
   const [confirmState, setConfirmState] = useState<{
     open: boolean;
@@ -57,6 +84,7 @@ export function PhraseEditPage() {
     setMeaning(phraseQuery.data.meaning ?? "");
     setDefinitions(phraseQuery.data.definitions ?? []);
     setWords(phraseQuery.data.words ?? []);
+    setRelatedItems(createRelatedItemsFromPhrase(phraseQuery.data));
   }, [phraseQuery.data]);
 
   const payload = useMemo(
@@ -73,8 +101,28 @@ export function PhraseEditPage() {
         sort_order: idx,
       })),
       word_ids: words.map((word) => word.id),
+      wiktionary_synonyms: relatedItems
+        .filter((item) => item.relation_type === "synonym")
+        .map((item) => item.related_word.trim())
+        .filter(Boolean),
+      wiktionary_antonyms: relatedItems
+        .filter((item) => item.relation_type === "antonym")
+        .map((item) => item.related_word.trim())
+        .filter(Boolean),
+      wiktionary_see_also: relatedItems
+        .filter((item) => item.relation_type === "confusable")
+        .map((item) => item.related_word.trim())
+        .filter(Boolean),
+      wiktionary_derived_terms: relatedItems
+        .filter((item) => item.relation_type === "cognate")
+        .map((item) => item.related_word.trim())
+        .filter(Boolean),
+      wiktionary_phrases: relatedItems
+        .filter((item) => item.relation_type === "phrase")
+        .map((item) => item.related_word.trim())
+        .filter(Boolean),
     }),
-    [text, meaning, definitions, words],
+    [text, meaning, definitions, words, relatedItems],
   );
   const initialPayload = useMemo(() => {
     if (!phraseQuery.data) {
@@ -93,6 +141,11 @@ export function PhraseEditPage() {
         sort_order: idx,
       })),
       word_ids: (phraseQuery.data.words ?? []).map((word) => word.id),
+      wiktionary_synonyms: (phraseQuery.data.wiktionary_synonyms ?? []).map((item) => item.trim()).filter(Boolean),
+      wiktionary_antonyms: (phraseQuery.data.wiktionary_antonyms ?? []).map((item) => item.trim()).filter(Boolean),
+      wiktionary_see_also: (phraseQuery.data.wiktionary_see_also ?? []).map((item) => item.trim()).filter(Boolean),
+      wiktionary_derived_terms: (phraseQuery.data.wiktionary_derived_terms ?? []).map((item) => item.trim()).filter(Boolean),
+      wiktionary_phrases: (phraseQuery.data.wiktionary_phrases ?? []).map((item) => item.trim()).filter(Boolean),
     };
   }, [phraseQuery.data]);
   const hasUnsavedChanges =
@@ -238,6 +291,13 @@ export function PhraseEditPage() {
       )}
       {activeTab === "words" && (
         <PhraseEditWordsTab words={words} setWords={setWords} confirmRemove={confirmRemove} />
+      )}
+      {activeTab === "related" && (
+        <PhraseEditRelationsTab
+          relatedItems={relatedItems}
+          setRelatedItems={setRelatedItems}
+          confirmRemove={confirmRemove}
+        />
       )}
 
       <ConfirmModal

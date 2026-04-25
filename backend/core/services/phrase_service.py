@@ -185,6 +185,21 @@ def replace_word_links(db: Session, phrase: Phrase, word_ids: list[int]) -> None
     db.flush()
 
 
+def _normalize_relation_items(items: list[str]) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        value = normalize_phrase_text(item)
+        if not value:
+            continue
+        key = value.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(value)
+    return normalized
+
+
 def apply_full_update(db: Session, phrase: Phrase, payload) -> Phrase:
     normalized_text = normalize_phrase_text(payload.text)
     if not normalized_text:
@@ -199,5 +214,10 @@ def apply_full_update(db: Session, phrase: Phrase, payload) -> Phrase:
     phrase.meaning = merge_meanings(payload.meaning or "")
     replace_definitions(db, phrase, [item.model_dump() if hasattr(item, "model_dump") else item for item in payload.definitions])
     replace_word_links(db, phrase, list(payload.word_ids))
+    phrase.wiktionary_synonyms = _normalize_relation_items(list(payload.wiktionary_synonyms))
+    phrase.wiktionary_antonyms = _normalize_relation_items(list(payload.wiktionary_antonyms))
+    phrase.wiktionary_see_also = _normalize_relation_items(list(payload.wiktionary_see_also))
+    phrase.wiktionary_derived_terms = _normalize_relation_items(list(payload.wiktionary_derived_terms))
+    phrase.wiktionary_phrases = _normalize_relation_items(list(payload.wiktionary_phrases))
     db.flush()
     return phrase

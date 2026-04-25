@@ -509,6 +509,11 @@ export const phraseApi = {
         sort_order: number;
       }>;
       word_ids: number[];
+      wiktionary_synonyms?: string[];
+      wiktionary_antonyms?: string[];
+      wiktionary_see_also?: string[];
+      wiktionary_derived_terms?: string[];
+      wiktionary_phrases?: string[];
     },
   ) {
     const { data } = await api.put<Phrase>(`/api/phrases/${phraseId}/full`, payload);
