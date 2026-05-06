@@ -40,10 +40,10 @@ type EditTabKey =
 const EDIT_TABS: Array<{ key: EditTabKey; label: string }> = [
   { key: "basic", label: "基本情報" },
   { key: "forms", label: "活用形" },
+  { key: "derivations", label: "派生語" },
   { key: "phrases", label: "成句・慣用句" },
   { key: "etymology", label: "語源" },
   { key: "etymologyVariants", label: "語源バリエーション" },
-  { key: "derivations", label: "派生語" },
   { key: "related", label: "関連語" },
 ];
 
