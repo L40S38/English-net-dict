@@ -8,7 +8,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, case, exists, func, or_, select
 from sqlalchemy.exc import OperationalError
-from sqlalchemy.orm import Session, joinedload, sessionmaker
+from sqlalchemy.orm import Session, joinedload, selectinload, sessionmaker
 
 from core.database import get_db
 from core.models import (
@@ -76,13 +76,13 @@ GROUP_SEARCH_MIN_HITS = 3
 
 def _word_query():
     return select(Word).options(
-        joinedload(Word.definitions),
-        joinedload(Word.etymology).joinedload(Etymology.component_items),
-        joinedload(Word.derivations),
-        joinedload(Word.related_words),
-        joinedload(Word.images),
-        joinedload(Word.chat_sessions),
-        joinedload(Word.phrases),
+        selectinload(Word.definitions),
+        selectinload(Word.etymology).selectinload(Etymology.component_items),
+        selectinload(Word.derivations),
+        selectinload(Word.related_words),
+        selectinload(Word.images),
+        selectinload(Word.chat_sessions),
+        selectinload(Word.phrases),
         joinedload(Word.lemma_ref),
     )
 

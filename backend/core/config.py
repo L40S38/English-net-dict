@@ -31,7 +31,10 @@ class Settings(BaseSettings):
     data_dir: str = str(DATA_DIR.resolve())
     database_url: str = f"sqlite:///{DEFAULT_DB_PATH.as_posix()}"
     image_dir: str = str((DATA_DIR / "images").resolve())
-    cors_origins: list[str] = ["http://localhost:5173"]
+    cors_origins: list[str] = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
     nltk_data_dir: str = str((DATA_DIR / "nltk_data").resolve())
 
     model_config = SettingsConfigDict(

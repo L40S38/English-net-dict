@@ -1,10 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-import json
-import time
 from dataclasses import dataclass
-from pathlib import Path
 
 import numpy as np
 from scipy.cluster.hierarchy import fcluster, linkage
@@ -18,28 +15,6 @@ class ClusteredDefinition:
     meaning_en: str
     examples_en: list[str]
     sort_order: int
-
-
-def _agent_log(msg: str, data_payload: dict) -> None:
-    try:
-        log_path = Path(__file__).resolve().parents[3] / "debug-4fb126.log"
-        log_path.open("a", encoding="utf-8").write(
-            json.dumps(
-                {
-                    "sessionId": "4fb126",
-                    "hypothesisId": "H_cluster",
-                    "runId": "cluster-service",
-                    "location": "definition_cluster_service.py",
-                    "message": msg,
-                    "data": data_payload,
-                    "timestamp": int(time.time() * 1000),
-                },
-                ensure_ascii=False,
-            )
-            + "\n"
-        )
-    except Exception:
-        pass
 
 
 def _dedup_keep_order(items: list[str]) -> list[str]:
@@ -149,19 +124,7 @@ def cluster_definitions_sync(
                 k1 = len(components)
                 if k1 >= 9:
                     components = _compress_components_to_max_k(components, sim, max_per_pos)
-                _agent_log(
-                    "cluster_stats",
-                    {
-                        "pos": pos,
-                        "raw_count": len(entries),
-                        "k1_after_threshold": k1,
-                        "k_final": len(components),
-                        "cluster_sizes": [len(c) for c in components],
-                        "members_per_cluster": components,
-                    },
-                )
-        except Exception as exc:  # noqa: BLE001
-            _agent_log("cluster_error_fallback", {"pos": pos, "error": str(exc), "raw_count": len(entries)})
+        except Exception:  # noqa: BLE001
             components = [[i] for i in range(len(entries))]
         if len(components) > max_per_pos:
             components = components[:max_per_pos]

@@ -1,3 +1,5 @@
+import asyncio
+import sys
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -8,6 +10,34 @@ from fastapi.staticfiles import StaticFiles
 from core.config import settings
 from core.migrations import run_alembic_migrations
 from server.routers import chat, etymology_components, groups, images, migration, phrases, words
+
+
+def _install_windows_proactor_connection_reset_filter() -> None:
+    """Suppress benign ConnectionResetError noise on Windows ProactorEventLoop.
+
+    When a keep-alive HTTP client disconnects, uvicorn calls socket.shutdown()
+    which raises WinError 10054 from inside `_ProactorBasePipeTransport._call_connection_lost`.
+    The exception is harmless (the connection is already gone) but pollutes stderr.
+    """
+
+    if sys.platform != "win32":
+        return
+    loop = asyncio.get_event_loop()
+    original_handler = loop.get_exception_handler()
+
+    def handler(inner_loop: asyncio.AbstractEventLoop, context: dict) -> None:
+        exc = context.get("exception")
+        exc_type = type(exc).__name__ if exc else ""
+        exc_msg = str(exc) if exc else ""
+        is_conn_reset = "10054" in exc_msg or "ConnectionReset" in exc_type
+        if is_conn_reset and "_call_connection_lost" in context.get("message", ""):
+            return
+        if original_handler is not None:
+            original_handler(inner_loop, context)
+        else:
+            inner_loop.default_exception_handler(context)
+
+    loop.set_exception_handler(handler)
 
 
 def create_app() -> FastAPI:
@@ -55,6 +85,7 @@ def create_app() -> FastAPI:
     @app.on_event("startup")
     def startup() -> None:
         run_alembic_migrations()
+        _install_windows_proactor_connection_reset_filter()
 
     return app
 
