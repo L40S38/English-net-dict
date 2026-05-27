@@ -1,4 +1,4 @@
-﻿import { Card, Muted, Row, Stack } from "../atom";
+import { Card, Muted, Row, Stack } from "../atom";
 import type { WordGroup, WordGroupItem } from "../../types";
 
 interface GroupEditItemsTabProps {

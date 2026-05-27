@@ -1,4 +1,4 @@
-﻿import { Card, Field, Row } from "../atom";
+import { Card, Field, Row } from "../atom";
 
 interface GroupEditBasicTabProps {
   currentNameDraft: string;

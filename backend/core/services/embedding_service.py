@@ -5,7 +5,7 @@ import hashlib
 import sqlite3
 from pathlib import Path
 
-from openai import AsyncOpenAI, OpenAI
+from openai import OpenAI
 
 from core.config import settings
 
@@ -87,7 +87,7 @@ def embed_texts_sync(texts: list[str], *, model_name: str = _EMBED_MODEL) -> lis
     cached = _load_many(model_name, cleaned)
     missing = [text for text in cleaned if text and text not in cached]
 
-    if missing:
+    if missing and settings.openai_api_key:
         client = OpenAI(api_key=settings.openai_api_key)
         response = client.embeddings.create(model=model_name, input=missing)
         fetched: dict[str, list[float]] = {}

@@ -146,6 +146,11 @@ export const wordApi = {
     const { data } = await api.get<Word>(`/api/words/${wordId}`);
     return data;
   },
+  async byIds(wordIds: number[]) {
+    if (wordIds.length === 0) return [] as Word[];
+    const { data } = await api.post<Word[]>("/api/words/by-ids", { word_ids: wordIds });
+    return data;
+  },
   async getByWord(word: string) {
     const { data } = await api.get<Word>(`/api/words/by-text/${encodeURIComponent(word)}`);
     return data;

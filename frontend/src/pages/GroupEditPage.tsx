@@ -1,4 +1,4 @@
-﻿import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AxiosError } from "axios";
 import { useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from core.models import Phrase
 from core.services.gpt_service import translate_phrase_definitions
 from core.services.phrase_meaning_service import resolve_meaning_ja
@@ -57,7 +59,8 @@ async def enrich_phrase(db, phrase: Phrase, *, scraper, cache: dict[str, str | N
 
     items = _pick_definition_items(data)
 
-    translated = translate_phrase_definitions(
+    translated = await asyncio.to_thread(
+        translate_phrase_definitions,
         phrase.text,
         [{"meaning_en": item["meaning_en"], "example_en": item["example_en"]} for item in items],
     )

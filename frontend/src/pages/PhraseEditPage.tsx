@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
@@ -78,14 +78,19 @@ export function PhraseEditPage() {
   });
   const confirmResolverRef = useRef<((result: boolean) => void) | null>(null);
 
-  useEffect(() => {
-    if (!phraseQuery.data) return;
+  // react-query の cache から新しい Phrase データが来たときに編集用 state を同期する。
+  // useEffect でなく render 中の setState（React 公式の「データが変わったときに state を調整する」パターン）
+  // を用いることで、`react-hooks/set-state-in-effect` 違反を回避しつつ無駄な再 render を避ける。
+  // ref: https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
+  const [syncedPhrase, setSyncedPhrase] = useState<Phrase | null>(null);
+  if (phraseQuery.data && phraseQuery.data !== syncedPhrase) {
+    setSyncedPhrase(phraseQuery.data);
     setText(phraseQuery.data.text);
     setMeaning(phraseQuery.data.meaning ?? "");
     setDefinitions(phraseQuery.data.definitions ?? []);
     setWords(phraseQuery.data.words ?? []);
     setRelatedItems(createRelatedItemsFromPhrase(phraseQuery.data));
-  }, [phraseQuery.data]);
+  }
 
   const payload = useMemo(
     () => ({

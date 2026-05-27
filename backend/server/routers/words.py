@@ -24,6 +24,7 @@ from core.models import (
     WordPhrase,
 )
 from core.schemas import (
+    BulkWordIdsRequest,
     BulkWordRequest,
     DefinitionRead,
     DefinitionUpdate,
@@ -720,6 +721,27 @@ async def bulk_create_words(
     for word in words:
         db.refresh(word)
     return [_to_word_read(db, word) for word in words]
+
+
+@router.post("/by-ids", response_model=list[WordRead])
+def get_words_by_ids(
+    payload: BulkWordIdsRequest, db: Session = Depends(get_db)
+) -> list[WordRead]:
+    """まとめて Word を取得する。`PhraseComponentWords` のような構成語一覧描画で、
+    1 リクエストにまとめて N+1 を避けるためのバルク版 GET。
+    順序は payload.word_ids の指定順を保つ（不明 ID は黙って無視）。"""
+    unique_ids: list[int] = []
+    seen: set[int] = set()
+    for word_id in payload.word_ids:
+        if word_id in seen:
+            continue
+        seen.add(word_id)
+        unique_ids.append(word_id)
+    if not unique_ids:
+        return []
+    rows = list(db.scalars(_word_query().where(Word.id.in_(unique_ids))).unique())
+    by_id = {row.id: row for row in rows}
+    return [_to_word_read(db, by_id[word_id]) for word_id in unique_ids if word_id in by_id]
 
 
 @router.post("/check", response_model=WordCheckResponse)

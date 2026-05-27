@@ -209,6 +209,10 @@ class BulkWordRequest(BaseModel):
     words: list[str]
 
 
+class BulkWordIdsRequest(BaseModel):
+    word_ids: list[int] = Field(default_factory=list)
+
+
 class WordCheckFound(BaseModel):
     id: int
     word: str

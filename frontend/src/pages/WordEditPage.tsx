@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
@@ -119,8 +119,13 @@ export function WordEditPage() {
     setConfirmState((prev) => ({ ...prev, open: false }));
   };
 
-  useEffect(() => {
-    if (!word) return;
+  // react-query の cache から新しい Word データが来たときに編集用 state を同期する。
+  // useEffect でなく render 中の setState（React 公式の「データが変わったときに state を調整する」パターン）
+  // を用いることで、`react-hooks/set-state-in-effect` 違反を回避しつつ無駄な再 render を避ける。
+  // ref: https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
+  const [syncedWord, setSyncedWord] = useState<Word | null>(null);
+  if (word && word !== syncedWord) {
+    setSyncedWord(word);
     const forms = word.forms ?? {};
     setEditWord(word.word);
     setPhonetic(word.phonetic ?? "");
@@ -147,7 +152,7 @@ export function WordEditPage() {
     setLanguageChain(word.etymology?.language_chain ?? []);
     setComponentMeanings(word.etymology?.component_meanings ?? []);
     setEtymologyVariants(word.etymology?.etymology_variants ?? []);
-  }, [word]);
+  }
 
   const payload = useMemo(() => {
     return {

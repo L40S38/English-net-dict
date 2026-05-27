@@ -25,11 +25,17 @@ export function Layout() {
     return () => mediaQuery.removeEventListener("change", update);
   }, []);
 
-  useEffect(() => {
+  // React 公式の「propが変わったとき state を調整する」パターン:
+  // pathname 変化（=画面遷移）のたびにモバイルメニューを閉じる。
+  // isMobile への切替時の close は上の mediaQuery handler 側で実施済み。
+  // ref: https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
+  const [previousPathname, setPreviousPathname] = useState(location.pathname);
+  if (previousPathname !== location.pathname) {
+    setPreviousPathname(location.pathname);
     if (isMobile) {
       setMobileMenuOpen(false);
     }
-  }, [isMobile, location.pathname]);
+  }
 
   useEffect(() => {
     const onConnectionError = (event: Event) => {

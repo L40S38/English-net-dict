@@ -1,4 +1,4 @@
-import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { ConfirmModal } from "./ConfirmModal";
@@ -19,15 +19,12 @@ export function PhraseComponentWords({ phrase }: PhraseComponentWordsProps) {
   );
   const queryClient = useQueryClient();
   const words = phrase.words ?? [];
-  const wordQueries = useQueries({
-    queries: words.map((word) => ({
-      queryKey: ["word", word.id],
-      queryFn: () => wordApi.get(word.id),
-      enabled: word.id > 0,
-    })),
+  const wordIds = words.map((word) => word.id).filter((id) => id > 0);
+  const { data: detailWords = [], isLoading: isLoadingDetail } = useQuery({
+    queryKey: ["words", "by-ids", wordIds],
+    queryFn: () => wordApi.byIds(wordIds),
+    enabled: wordIds.length > 0,
   });
-  const detailWords = wordQueries.map((query) => query.data).filter((item) => item !== undefined);
-  const isLoadingDetail = wordQueries.some((query) => query.isLoading);
 
   const deleteWordMutation = useMutation({
     mutationFn: (wordId: number) => wordApi.delete(wordId),

@@ -1,4 +1,4 @@
-﻿import { useMutation } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 
 import { Tabs } from "../common/Tabs";

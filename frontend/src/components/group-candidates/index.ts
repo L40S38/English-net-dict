@@ -1,4 +1,4 @@
-﻿export { CandidateSection } from "./CandidateSection";
+export { CandidateSection } from "./CandidateSection";
 export { WordCandidateCard } from "./WordCandidateCard";
 export { PhraseCandidateRow } from "./PhraseCandidateRow";
 export { ExampleCandidateRow } from "./ExampleCandidateRow";

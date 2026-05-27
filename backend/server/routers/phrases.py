@@ -44,8 +44,16 @@ def _phrase_query():
     )
 
 
+def _words_from_loaded_phrase(phrase: Phrase) -> list[Word]:
+    """`_phrase_query()` で joinedload 済みの word_links から、
+    `list_phrase_words` と同じ並び (`lower(word), id`) で Word を返す。
+    追加クエリを避けるためのヘルパー。"""
+    words = [link.word_ref for link in phrase.word_links if link.word_ref is not None]
+    return sorted(words, key=lambda w: (w.word.lower(), w.id))
+
+
 def _to_phrase_read(db: Session, phrase: Phrase) -> PhraseRead:
-    words = list_phrase_words(db, phrase.id)
+    words = _words_from_loaded_phrase(phrase)
     return PhraseRead.model_validate(
         {
             "id": phrase.id,

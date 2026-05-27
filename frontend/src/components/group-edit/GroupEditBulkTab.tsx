@@ -1,4 +1,4 @@
-﻿import { Card, Muted } from "../atom";
+import { Card, Muted } from "../atom";
 
 interface GroupEditBulkTabProps {
   bulkText: string;
