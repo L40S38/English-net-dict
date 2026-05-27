@@ -46,10 +46,14 @@ export function WordDefinitions({ word }: WordDefinitionsProps) {
                     </p>
                     {def.meaning_ja && <Muted as="p">{def.meaning_ja}</Muted>}
                     <Muted as="p">例文)</Muted>
-                    <p>
-                      <em>{def.example_en}</em>
-                    </p>
-                    {def.example_ja && <Muted as="p">{def.example_ja}</Muted>}
+                    {(def.examples || []).map((example, exampleIndex) => (
+                      <div key={`${def.id}-${exampleIndex}`}>
+                        <p>
+                          <em>{example.example_en}</em>
+                        </p>
+                        {example.example_ja && <Muted as="p">{example.example_ja}</Muted>}
+                      </div>
+                    ))}
                   </div>
                 ))}
               </Stack>

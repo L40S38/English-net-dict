@@ -638,7 +638,15 @@ class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
         return None
 
     @classmethod
-    def _extract_definitions_with_examples(cls, wikitext: str, max_items: int = 12) -> list[dict]:
+    def _extract_definitions_with_examples(
+        cls,
+        wikitext: str,
+        max_items: int = 60,
+        max_per_section: int = 12,
+    ) -> list[dict]:
+        # `max_items` は全体上限（暴走防止）。実際の打ち切りは POS セクション毎の `max_per_section` で行う。
+        # 旧実装は `max_items=12` の単一上限だったため、Verb 28 義の語（例: slip）で
+        # Verb だけで枠を使い切り、後段の Noun セクションが 0 件になっていた。
         english_body = cls._extract_english_section_raw(wikitext)
         heading_matches = list(
             re.finditer(r"^(=+)\s*([^=\n]+?)\s*=+\s*$", english_body, flags=re.MULTILINE)
@@ -654,6 +662,9 @@ class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
             if not pos_key:
                 continue
 
+            if len(definitions) >= max_items:
+                break
+
             block_end = len(english_body)
             for nxt in heading_matches[idx + 1 :]:
                 if len(nxt.group(1)) <= level:
@@ -661,6 +672,7 @@ class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
                     break
             block = english_body[heading.end() : block_end]
 
+            section_count = 0
             current_index: int | None = None
             for raw_line in block.splitlines():
                 line = raw_line.strip()
@@ -668,6 +680,10 @@ class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
                     continue
                 definition_match = re.match(r"^#(?![:*#;])\s*(.+)$", line)
                 if definition_match:
+                    if section_count >= max_per_section or len(definitions) >= max_items:
+                        # 当該 POS セクションは打ち切り（次の見出しへ）。
+                        # 例文行 (#:) は当該定義の後にしか付かないので、ここで break して問題ない。
+                        break
                     meaning_en = cls._compact_wikitext(definition_match.group(1), max_chars=260)
                     if meaning_en:
                         definitions.append(
@@ -678,8 +694,7 @@ class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
                             }
                         )
                         current_index = len(definitions) - 1
-                        if len(definitions) >= max_items:
-                            return definitions
+                        section_count += 1
                     continue
 
                 if current_index is None:

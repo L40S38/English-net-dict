@@ -7,6 +7,7 @@ from typing import Any
 from openai import OpenAI
 
 from core.config import settings
+from core.services.definition_cluster_service import cluster_definitions_sync
 from core.services.example_cache import get_cached_example, make_cache_key, save_cached_example
 from core.utils.pos_labels import normalize_part_of_speech
 from core.utils.prompt_loader import PROMPT_VERSION, load_prompt
@@ -75,12 +76,91 @@ def _pick_first_dict_list(scraped_data: list[dict], key: str) -> list[dict]:
     return []
 
 
+_PICK_DEFINITIONS_TOTAL = 12
+
+
+def _curate_wiktionary_definitions_for_gpt(
+    scraped_data: list[dict],
+) -> list[dict]:
+    raw_defs = _pick_first_dict_list(scraped_data, "definitions")
+    if not raw_defs:
+        return []
+    clustered = cluster_definitions_sync(raw_defs, sim_threshold=0.8, max_per_pos=8)
+    curated: list[dict] = []
+    for item in clustered:
+        examples = list(item.examples_en)
+        curated.append(
+            {
+                "part_of_speech": item.part_of_speech,
+                "meaning_en": item.meaning_en,
+                "example_en": examples[0] if examples else "",
+                "examples_en": examples,
+                "sort_order": item.sort_order,
+            }
+        )
+    return curated
+
+
+def _override_wiktionary_definitions_in_scraped_data(
+    scraped_data: list[dict], curated: list[dict]
+) -> list[dict]:
+    """`scraped_data` 内の Wiktionary エントリの `definitions` を curated に差し替える。"""
+    if not curated:
+        return scraped_data
+    out: list[dict] = []
+    replaced = False
+    for src in scraped_data:
+        if (
+            not replaced
+            and isinstance(src, dict)
+            and str(src.get("source", "")).startswith("wiktionary_")
+            and isinstance(src.get("definitions"), list)
+        ):
+            new_src = dict(src)
+            new_src["definitions"] = curated
+            out.append(new_src)
+            replaced = True
+        else:
+            out.append(src)
+    return out
+
+
 def _pick_wiktionary_definitions(scraped_data: list[dict], word: str) -> list[dict]:
+    # 旧実装は `definitions[:8]` の単純先頭スライスだったため、Wiktionary の語義順が
+    # Verb → Noun の語（例: slip）で Verb のみ 8 件取られ、Noun セクションが拾われなかった。
+    # 品詞ごとにラウンドロビンで採択し、品詞間の偏りを抑える。
     definitions = _pick_first_dict_list(scraped_data, "definitions")
     if not definitions:
         return []
+
+    # POS 毎にバケットへ分配（出現順を保持）。
+    by_pos: dict[str, list[dict]] = {}
+    pos_order: list[str] = []
+    for item in definitions:
+        if not isinstance(item, dict):
+            continue
+        pos_raw = str(item.get("part_of_speech", "noun"))
+        if pos_raw not in by_pos:
+            by_pos[pos_raw] = []
+            pos_order.append(pos_raw)
+        by_pos[pos_raw].append(item)
+
+    selected: list[dict] = []
+    target = _PICK_DEFINITIONS_TOTAL
+    while len(selected) < target:
+        progressed = False
+        for pos in pos_order:
+            bucket = by_pos.get(pos)
+            if bucket:
+                selected.append(bucket.pop(0))
+                progressed = True
+                if len(selected) >= target:
+                    break
+        if not progressed:
+            break
+
     cleaned: list[dict] = []
-    for idx, item in enumerate(definitions[:8]):
+    for idx, item in enumerate(selected):
         part_of_speech = normalize_part_of_speech(str(item.get("part_of_speech", "noun")))
         meaning_en = str(item.get("meaning_en", "")).strip()
         if not meaning_en:
@@ -93,8 +173,8 @@ def _pick_wiktionary_definitions(scraped_data: list[dict], word: str) -> list[di
                 "part_of_speech": part_of_speech,
                 "meaning_en": meaning_en,
                 "meaning_ja": "",
-                "example_en": example_en,
-                "example_ja": "",
+                "examples_en": [example_en],
+                "examples_ja": [""],
                 "sort_order": idx,
             }
         )
@@ -223,13 +303,36 @@ def _parse_single_example_response(text: str) -> str:
 
 
 def _fill_empty_examples_with_gpt(word: str, definitions: list[dict]) -> None:
-    """Fill definitions that have empty or placeholder example_en using GPT. Mutates definitions in place."""
+    """Fill primary examples that are empty/placeholder using GPT. Mutates definitions in place."""
     if not settings.openai_api_key or not word or not definitions:
         return
+
+    def _get_primary_example(d: dict) -> str:
+        examples = d.get("examples_en")
+        if isinstance(examples, list) and examples:
+            return str(examples[0] or "").strip()
+        return str(d.get("example_en", "")).strip()
+
+    def _set_primary_example(d: dict, value: str) -> None:
+        examples = d.get("examples_en")
+        if isinstance(examples, list):
+            if examples:
+                examples[0] = value
+            else:
+                examples.append(value)
+            d["examples_en"] = examples
+            if not isinstance(d.get("examples_ja"), list):
+                d["examples_ja"] = ["" for _ in examples]
+            elif len(d["examples_ja"]) < len(examples):
+                d["examples_ja"] = list(d["examples_ja"]) + [""] * (len(examples) - len(d["examples_ja"]))
+            return
+        d["examples_en"] = [value]
+        d["examples_ja"] = [""]
+
     need_list: list[tuple[int, dict]] = [
         (i, d)
         for i, d in enumerate(definitions)
-        if isinstance(d, dict) and _is_placeholder_example(d.get("example_en", ""), word)
+        if isinstance(d, dict) and _is_placeholder_example(_get_primary_example(d), word)
     ]
     if not need_list:
         return
@@ -248,7 +351,7 @@ def _fill_empty_examples_with_gpt(word: str, definitions: list[dict]) -> None:
 
         cached_example = get_cached_example(cache_key)
         if cached_example and (not w_lower or w_lower in cached_example.lower()):
-            definitions[i]["example_en"] = cached_example
+            _set_primary_example(definitions[i], cached_example)
             continue
 
         try:
@@ -262,7 +365,7 @@ def _fill_empty_examples_with_gpt(word: str, definitions: list[dict]) -> None:
             )
             ex = _parse_single_example_response(completion.output_text or "")
             if ex and w_lower in ex.lower():
-                definitions[i]["example_en"] = ex
+                _set_primary_example(definitions[i], ex)
                 save_cached_example(cache_key, ex)
         except Exception:  # noqa: BLE001
             continue
@@ -283,8 +386,8 @@ def _fallback_structured(word: str, wordnet_data: dict, scraped_data: list[dict]
                     "part_of_speech": normalize_part_of_speech(entry.get("part_of_speech", "noun")),
                     "meaning_en": entry.get("definition", f"Meaning of {word}"),
                     "meaning_ja": "",
-                    "example_en": example_en,
-                    "example_ja": "",
+                    "examples_en": [example_en],
+                    "examples_ja": [""],
                     "sort_order": i,
                 }
             )
@@ -294,8 +397,8 @@ def _fallback_structured(word: str, wordnet_data: dict, scraped_data: list[dict]
                 "part_of_speech": normalize_part_of_speech("noun"),
                 "meaning_en": f"Core meaning of {word}",
                 "meaning_ja": f"{word} の基本的な意味",
-                "example_en": f"I am learning the word {word}.",
-                "example_ja": f"私は {word} という単語を学んでいます。",
+                "examples_en": [f"I am learning the word {word}."],
+                "examples_ja": [f"私は {word} という単語を学んでいます。"],
                 "sort_order": 0,
             }
         ]
@@ -357,10 +460,12 @@ def generate_structured_word_data(word: str, wordnet_data: dict, scraped_data: l
 
     prompt = load_prompt("word_structuring.md")
     client = OpenAI(api_key=settings.openai_api_key)
+    curated_defs = _curate_wiktionary_definitions_for_gpt(scraped_data)
+    scraped_for_prompt = _override_wiktionary_definitions_in_scraped_data(scraped_data, curated_defs)
     payload = {
         "target_word": word,
         "wordnet_data": wordnet_data,
-        "scraped_data": scraped_data,
+        "scraped_data": scraped_for_prompt,
         "prompt_version": PROMPT_VERSION,
     }
     try:
@@ -412,14 +517,30 @@ def generate_structured_word_data(word: str, wordnet_data: dict, scraped_data: l
             data["etymology"]["components"] = _merge_component_meanings_into_components(comps, cm)
     data["phonetic"] = repair_text(data.get("phonetic")) or _pick_first_str(scraped_data, "pronunciation_ipa")
     data["prompt_version"] = PROMPT_VERSION
-    # Ensure every example_en contains the target word (LLM may omit it)
+    # Ensure every primary example contains the target word (LLM may omit it)
     w_lower = word.strip().lower()
     for idx, definition in enumerate(data.get("definitions", [])):
         if not isinstance(definition, dict):
             continue
-        ex = definition.get("example_en")
-        if not ex or not w_lower or w_lower not in (ex if isinstance(ex, str) else "").lower():
-            definition["example_en"] = f"This is an example using {word} (sense {idx + 1})."
+        examples_en = definition.get("examples_en")
+        examples_ja = definition.get("examples_ja")
+        if not isinstance(examples_en, list):
+            fallback = str(definition.get("example_en", "")).strip()
+            examples_en = [fallback] if fallback else []
+        if not isinstance(examples_ja, list):
+            fallback_ja = str(definition.get("example_ja", "")).strip()
+            examples_ja = [fallback_ja] if fallback_ja else []
+        if not examples_en:
+            examples_en = [f"This is an example using {word} (sense {idx + 1})."]
+        primary = str(examples_en[0] or "").strip()
+        if not primary or (w_lower and w_lower not in primary.lower()):
+            examples_en[0] = f"This is an example using {word} (sense {idx + 1})."
+        if len(examples_ja) < len(examples_en):
+            examples_ja = list(examples_ja) + [""] * (len(examples_en) - len(examples_ja))
+        definition["examples_en"] = [str(x).strip() for x in examples_en if str(x).strip()]
+        definition["examples_ja"] = [str(x).strip() for x in examples_ja[: len(definition["examples_en"])]]
+        definition.pop("example_en", None)
+        definition.pop("example_ja", None)
     _fill_empty_examples_with_gpt(word, data.get("definitions", []))
     return data
 

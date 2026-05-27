@@ -67,11 +67,29 @@ class Definition(Base):
     part_of_speech: Mapped[str] = mapped_column(String(64))
     meaning_en: Mapped[str] = mapped_column(Text)
     meaning_ja: Mapped[str] = mapped_column(Text)
-    example_en: Mapped[str] = mapped_column(Text)
-    example_ja: Mapped[str] = mapped_column(Text)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
 
     word_ref: Mapped[Word] = relationship(back_populates="definitions")
+    examples: Mapped[list["DefinitionExample"]] = relationship(
+        back_populates="definition_ref",
+        cascade="all, delete-orphan",
+        order_by="DefinitionExample.sort_order, DefinitionExample.id",
+    )
+
+
+class DefinitionExample(Base):
+    __tablename__ = "definition_examples"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    definition_id: Mapped[int] = mapped_column(
+        ForeignKey("definitions.id", ondelete="CASCADE"),
+        index=True,
+    )
+    example_en: Mapped[str] = mapped_column(Text, default="")
+    example_ja: Mapped[str] = mapped_column(Text, default="")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+
+    definition_ref: Mapped[Definition] = relationship(back_populates="examples")
 
 
 class Etymology(Base):

@@ -209,8 +209,12 @@ export const wordApi = {
         part_of_speech: string;
         meaning_en: string;
         meaning_ja: string;
-        example_en: string;
-        example_ja: string;
+        examples: Array<{
+          id?: number | null;
+          example_en: string;
+          example_ja: string;
+          sort_order: number;
+        }>;
         sort_order: number;
       }>;
       etymology?: Etymology | null;

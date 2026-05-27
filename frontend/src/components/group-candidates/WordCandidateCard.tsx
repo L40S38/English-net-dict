@@ -7,8 +7,10 @@ export interface CandidateDefinitionItem {
   part_of_speech?: string | null;
   meaning_ja?: string | null;
   meaning_en?: string | null;
-  example_en?: string | null;
-  example_ja?: string | null;
+  examples?: Array<{
+    example_en?: string | null;
+    example_ja?: string | null;
+  }>;
 }
 
 export interface CandidateWordItem {
@@ -79,8 +81,12 @@ export function WordCandidateCard({
                   {definitionTag ? <Muted as="span">[{definitionTag}]</Muted> : null}
                 </label>
                 {definition.meaning_en ? <Muted as="p">{definition.meaning_en}</Muted> : null}
-                {definition.example_en ? <Muted as="p">{definition.example_en}</Muted> : null}
-                {definition.example_ja ? <Muted as="p">{definition.example_ja}</Muted> : null}
+                {(definition.examples ?? []).map((example, idx) => (
+                  <div key={`${definition.id}-${idx}`}>
+                    {example.example_en ? <Muted as="p">{example.example_en}</Muted> : null}
+                    {example.example_ja ? <Muted as="p">{example.example_ja}</Muted> : null}
+                  </div>
+                ))}
               </Card>
             );
           })}

@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from core.models import (
     ChatSession,
     Definition,
+    DefinitionExample,
     Derivation,
     RelatedWord,
     Word,
@@ -51,9 +52,15 @@ def merge_into_lemma(db: Session, inflected: Word, lemma: Word) -> None:
                 part_of_speech=item.part_of_speech,
                 meaning_en=item.meaning_en,
                 meaning_ja=item.meaning_ja,
-                example_en=item.example_en,
-                example_ja=item.example_ja,
                 sort_order=item.sort_order,
+                examples=[
+                    DefinitionExample(
+                        example_en=ex.example_en,
+                        example_ja=ex.example_ja,
+                        sort_order=ex.sort_order,
+                    )
+                    for ex in item.examples
+                ],
             )
         )
         existing_def_keys.add(_definition_key(item))

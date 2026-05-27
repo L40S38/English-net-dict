@@ -38,6 +38,8 @@ def _item_to_read(item: WordGroupItem) -> WordGroupItemRead:
         links = phrase.word_links
         if links:
             resolved_word_id = links[0].word_id
+    example_en = definition.examples[0].example_en if definition and definition.examples else None
+    example_ja = definition.examples[0].example_ja if definition and definition.examples else None
     return WordGroupItemRead(
         id=item.id,
         item_type=item.item_type,
@@ -51,8 +53,8 @@ def _item_to_read(item: WordGroupItem) -> WordGroupItemRead:
         word=item.word_ref.word if item.word_ref else None,
         definition_part_of_speech=definition.part_of_speech if definition else None,
         definition_meaning_ja=definition.meaning_ja if definition else None,
-        example_en=definition.example_en if definition else None,
-        example_ja=definition.example_ja if definition else None,
+        example_en=example_en,
+        example_ja=example_ja,
     )
 
 

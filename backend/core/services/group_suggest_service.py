@@ -9,7 +9,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from core.config import settings
-from core.models import Definition, Etymology, Word
+from core.models import Definition, DefinitionExample, Etymology, Word
 from core.schemas import GroupSuggestCandidate, GroupSuggestResponse
 from core.utils.prompt_loader import load_prompt
 
@@ -160,18 +160,19 @@ def _collect_candidates(db: Session, rules: list[SearchRule], max_candidates: in
         like_clauses = []
         for rule in example_rules:
             pat = _like_pattern(rule)
-            like_clauses.append(Definition.example_en.ilike(pat))
-            like_clauses.append(Definition.example_ja.ilike(pat))
+            like_clauses.append(DefinitionExample.example_en.ilike(pat))
+            like_clauses.append(DefinitionExample.example_ja.ilike(pat))
             like_clauses.append(Definition.meaning_en.ilike(pat))
             like_clauses.append(Definition.meaning_ja.ilike(pat))
         stmt = (
-            select(Word, Definition)
+            select(Word, Definition, DefinitionExample)
             .join(Definition, Definition.word_id == Word.id)
+            .join(DefinitionExample, DefinitionExample.definition_id == Definition.id)
             .where(or_(*like_clauses))
             .limit(max_candidates)
         )
         rows = db.execute(stmt).unique().all()
-        for word, definition in rows:
+        for word, definition, definition_example in rows:
             # Even if there is no example sentence, a meaning match should still surface
             # the word itself as a candidate (important for Japanese keyword searches).
             word_key = _candidate_key(GroupSuggestCandidate(item_type="word", word_id=word.id))
@@ -185,7 +186,7 @@ def _collect_candidates(db: Session, rules: list[SearchRule], max_candidates: in
                     score=0.0,
                 )
 
-            if not (definition.example_en or definition.example_ja):
+            if not (definition_example.example_en or definition_example.example_ja):
                 continue
             candidate = GroupSuggestCandidate(
                 item_type="example",
@@ -194,8 +195,8 @@ def _collect_candidates(db: Session, rules: list[SearchRule], max_candidates: in
                 word=word.word,
                 definition_part_of_speech=definition.part_of_speech,
                 definition_meaning_ja=definition.meaning_ja,
-                example_en=definition.example_en,
-                example_ja=definition.example_ja,
+                example_en=definition_example.example_en,
+                example_ja=definition_example.example_ja,
                 score=0.0,
             )
             candidates[_candidate_key(candidate)] = candidate

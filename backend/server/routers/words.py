@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, joinedload, sessionmaker
 from core.database import get_db
 from core.models import (
     Definition,
+    DefinitionExample,
     Derivation,
     Etymology,
     EtymologyComponentItem,
@@ -175,8 +176,17 @@ def _definition_matches(text: str):
             or_(
                 Definition.meaning_ja.ilike(pat),
                 Definition.meaning_en.ilike(pat),
-                Definition.example_en.ilike(pat),
-                Definition.example_ja.ilike(pat),
+                exists(
+                    select(1)
+                    .select_from(DefinitionExample)
+                    .where(DefinitionExample.definition_id == Definition.id)
+                    .where(
+                        or_(
+                            DefinitionExample.example_en.ilike(pat),
+                            DefinitionExample.example_ja.ilike(pat),
+                        )
+                    )
+                ),
             )
         )
     )

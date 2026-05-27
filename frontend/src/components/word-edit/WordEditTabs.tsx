@@ -81,8 +81,7 @@ export function WordEditBasicTab({
               part_of_speech: POS_OPTIONS[0].value,
               meaning_en: "",
               meaning_ja: "",
-              example_en: "",
-              example_ja: "",
+              examples: [{ example_en: "", example_ja: "", sort_order: 0 }],
               sort_order: prev.length,
             },
           ])

@@ -13,6 +13,7 @@ from core.config import settings
 from core.models import (
     ChatMessage,
     ChatSession,
+    Definition,
     Etymology,
     EtymologyComponent,
     EtymologyVariant,
@@ -29,6 +30,16 @@ from core.utils.prompt_loader import load_prompt
 from core.utils.text_repair import has_suspected_mojibake, repair_text
 
 logger = logging.getLogger(__name__)
+
+
+def _definition_examples_payload(definition: Definition) -> list[dict[str, str]]:
+    return [
+        {
+            "example_en": item.example_en or "",
+            "example_ja": item.example_ja or "",
+        }
+        for item in sorted(definition.examples, key=lambda x: (x.sort_order, x.id))
+    ]
 
 MAX_TOOL_ROUNDS = 5
 MAX_HISTORY_MESSAGES = 20
@@ -59,8 +70,7 @@ def build_word_context(word: Word) -> dict[str, Any]:
                 "part_of_speech": d.part_of_speech,
                 "meaning_en": d.meaning_en,
                 "meaning_ja": d.meaning_ja,
-                "example_en": d.example_en,
-                "example_ja": d.example_ja,
+                "examples": _definition_examples_payload(d),
             }
             for d in sorted(word.definitions, key=lambda x: x.sort_order)
         ],
@@ -171,8 +181,7 @@ def build_group_context(group: WordGroup) -> dict[str, Any]:
                 {
                     "type": "example",
                     "word": item.word_ref.word,
-                    "example_en": item.definition_ref.example_en,
-                    "example_ja": item.definition_ref.example_ja,
+                    "examples": _definition_examples_payload(item.definition_ref),
                     "meaning_ja": item.definition_ref.meaning_ja,
                 }
             )

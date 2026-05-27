@@ -182,7 +182,11 @@ def build_group_image_prompt(group: WordGroup) -> str:
             meaning = ((item.phrase_ref.meaning if item.phrase_ref else item.phrase_meaning) or "").strip()
             phrases.append(f"{phrase_text} ({meaning})" if meaning else phrase_text)
         elif item.item_type == "example" and item.definition_ref and item.word_ref:
-            ex = (item.definition_ref.example_en or "").strip()
+            ex = (
+                item.definition_ref.examples[0].example_en
+                if item.definition_ref.examples
+                else ""
+            ).strip()
             if ex:
                 examples.append(f"{item.word_ref.word}: {ex}")
 

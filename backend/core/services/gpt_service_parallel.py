@@ -26,10 +26,32 @@ async def _fill_empty_examples_with_mode(
     if not settings.openai_api_key or not word or not definitions:
         return
 
+    def _get_primary_example(d: dict) -> str:
+        examples = d.get("examples_en")
+        if isinstance(examples, list) and examples:
+            return str(examples[0] or "").strip()
+        return str(d.get("example_en", "")).strip()
+
+    def _set_primary_example(d: dict, value: str) -> None:
+        examples = d.get("examples_en")
+        if isinstance(examples, list):
+            if examples:
+                examples[0] = value
+            else:
+                examples.append(value)
+            d["examples_en"] = examples
+            if not isinstance(d.get("examples_ja"), list):
+                d["examples_ja"] = ["" for _ in examples]
+            elif len(d["examples_ja"]) < len(examples):
+                d["examples_ja"] = list(d["examples_ja"]) + [""] * (len(examples) - len(d["examples_ja"]))
+            return
+        d["examples_en"] = [value]
+        d["examples_ja"] = [""]
+
     need_list: list[tuple[int, dict]] = [
         (i, d)
         for i, d in enumerate(definitions)
-        if isinstance(d, dict) and g._is_placeholder_example(d.get("example_en", ""), word)
+        if isinstance(d, dict) and g._is_placeholder_example(_get_primary_example(d), word)
     ]
     if not need_list:
         return
@@ -53,7 +75,7 @@ async def _fill_empty_examples_with_mode(
             cache_key = make_cache_key(prompt, model, user_content)
             cached = get_cached_example(cache_key)
             if cached and (not w_lower or w_lower in cached.lower()):
-                definitions[idx]["example_en"] = cached
+                _set_primary_example(definitions[idx], cached)
                 return
             client = g.OpenAI(api_key=settings.openai_api_key)
             try:
@@ -68,7 +90,7 @@ async def _fill_empty_examples_with_mode(
                 )
                 ex = g._parse_single_example_response(completion.output_text or "")
                 if ex and w_lower in ex.lower():
-                    definitions[idx]["example_en"] = ex
+                    _set_primary_example(definitions[idx], ex)
                     save_cached_example(cache_key, ex)
             except Exception:  # noqa: BLE001
                 return
@@ -92,7 +114,7 @@ async def _fill_empty_examples_with_mode(
         cache_key = make_cache_key(prompt, model, user_content)
         cached = get_cached_example(cache_key)
         if cached and (not w_lower or w_lower in cached.lower()):
-            definitions[idx]["example_en"] = cached
+            _set_primary_example(definitions[idx], cached)
             return
         try:
             completion = await client.responses.create(
@@ -105,7 +127,7 @@ async def _fill_empty_examples_with_mode(
             )
             ex = g._parse_single_example_response(completion.output_text or "")
             if ex and w_lower in ex.lower():
-                definitions[idx]["example_en"] = ex
+                _set_primary_example(definitions[idx], ex)
                 save_cached_example(cache_key, ex)
         except Exception:  # noqa: BLE001
             return
@@ -124,10 +146,12 @@ async def generate_structured_word_data_async(
         return g._fallback_structured(word, wordnet_data, scraped_data)
 
     prompt = g.load_prompt("word_structuring.md")
+    curated_defs = g._curate_wiktionary_definitions_for_gpt(scraped_data)
+    scraped_for_prompt = g._override_wiktionary_definitions_in_scraped_data(scraped_data, curated_defs)
     payload = {
         "target_word": word,
         "wordnet_data": wordnet_data,
-        "scraped_data": scraped_data,
+        "scraped_data": scraped_for_prompt,
         "prompt_version": g.PROMPT_VERSION,
     }
     try:
@@ -185,9 +209,25 @@ async def generate_structured_word_data_async(
     for idx, definition in enumerate(data.get("definitions", [])):
         if not isinstance(definition, dict):
             continue
-        ex = definition.get("example_en")
-        if not ex or not w_lower or w_lower not in (ex if isinstance(ex, str) else "").lower():
-            definition["example_en"] = f"This is an example using {word} (sense {idx + 1})."
+        examples_en = definition.get("examples_en")
+        examples_ja = definition.get("examples_ja")
+        if not isinstance(examples_en, list):
+            fallback = str(definition.get("example_en", "")).strip()
+            examples_en = [fallback] if fallback else []
+        if not isinstance(examples_ja, list):
+            fallback_ja = str(definition.get("example_ja", "")).strip()
+            examples_ja = [fallback_ja] if fallback_ja else []
+        if not examples_en:
+            examples_en = [f"This is an example using {word} (sense {idx + 1})."]
+        primary = str(examples_en[0] or "").strip()
+        if not primary or (w_lower and w_lower not in primary.lower()):
+            examples_en[0] = f"This is an example using {word} (sense {idx + 1})."
+        if len(examples_ja) < len(examples_en):
+            examples_ja = list(examples_ja) + [""] * (len(examples_en) - len(examples_ja))
+        definition["examples_en"] = [str(x).strip() for x in examples_en if str(x).strip()]
+        definition["examples_ja"] = [str(x).strip() for x in examples_ja[: len(definition["examples_en"])]]
+        definition.pop("example_en", None)
+        definition.pop("example_ja", None)
 
     await _fill_empty_examples_with_mode(word, data.get("definitions", []), example_mode=example_mode)
     return data

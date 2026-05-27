@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from core.models import (
     Definition,
+    DefinitionExample,
     Derivation,
     Etymology,
     EtymologyBranch,
@@ -567,16 +568,22 @@ def apply_structured_payload(db: Session, word: Word, payload: dict) -> None:
 
     word.definitions.clear()
     for d in parsed.definitions:
-        word.definitions.append(
-            Definition(
-                part_of_speech=normalize_part_of_speech(d.part_of_speech),
-                meaning_en=d.meaning_en,
-                meaning_ja=d.meaning_ja,
-                example_en=d.example_en,
-                example_ja=d.example_ja,
-                sort_order=d.sort_order,
-            )
+        definition = Definition(
+            part_of_speech=normalize_part_of_speech(d.part_of_speech),
+            meaning_en=d.meaning_en,
+            meaning_ja=d.meaning_ja,
+            sort_order=d.sort_order,
         )
+        for idx, example_en in enumerate(d.examples_en):
+            example_ja = d.examples_ja[idx] if idx < len(d.examples_ja) else ""
+            definition.examples.append(
+                DefinitionExample(
+                    example_en=example_en,
+                    example_ja=example_ja,
+                    sort_order=idx,
+                )
+            )
+        word.definitions.append(definition)
 
     if not word.etymology:
         word.etymology = Etymology()
@@ -613,16 +620,33 @@ def apply_structured_payload(db: Session, word: Word, payload: dict) -> None:
 def replace_definitions(word: Word, definitions: list[dict]) -> None:
     word.definitions.clear()
     for d in definitions:
-        word.definitions.append(
-            Definition(
-                part_of_speech=normalize_part_of_speech(d.get("part_of_speech", "noun")),
-                meaning_en=d.get("meaning_en", ""),
-                meaning_ja=d.get("meaning_ja", ""),
-                example_en=d.get("example_en", ""),
-                example_ja=d.get("example_ja", ""),
-                sort_order=d.get("sort_order", 0),
-            )
+        definition = Definition(
+            part_of_speech=normalize_part_of_speech(d.get("part_of_speech", "noun")),
+            meaning_en=d.get("meaning_en", ""),
+            meaning_ja=d.get("meaning_ja", ""),
+            sort_order=d.get("sort_order", 0),
         )
+        examples_en = d.get("examples_en")
+        examples_ja = d.get("examples_ja")
+        if not isinstance(examples_en, list):
+            fallback = str(d.get("example_en", "")).strip()
+            examples_en = [fallback] if fallback else []
+        if not isinstance(examples_ja, list):
+            fallback_ja = str(d.get("example_ja", "")).strip()
+            examples_ja = [fallback_ja] if fallback_ja else []
+        for idx, example_en in enumerate(examples_en):
+            example_text = str(example_en).strip()
+            if not example_text:
+                continue
+            ja_text = str(examples_ja[idx]).strip() if idx < len(examples_ja) else ""
+            definition.examples.append(
+                DefinitionExample(
+                    example_en=example_text,
+                    example_ja=ja_text,
+                    sort_order=idx,
+                )
+            )
+        word.definitions.append(definition)
 
 
 def split_comma_items(text: str) -> list[str]:
@@ -898,8 +922,8 @@ def enrich_etymology(db: Session, word: Word) -> Etymology:
             "part_of_speech": definition.part_of_speech,
             "meaning_en": definition.meaning_en,
             "meaning_ja": definition.meaning_ja,
-            "example_en": definition.example_en,
-            "example_ja": definition.example_ja,
+            "examples_en": [ex.example_en for ex in definition.examples],
+            "examples_ja": [ex.example_ja for ex in definition.examples],
         }
         for definition in word.definitions
     ]

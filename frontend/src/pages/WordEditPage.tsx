@@ -174,8 +174,12 @@ export function WordEditPage() {
         part_of_speech: d.part_of_speech,
         meaning_en: d.meaning_en,
         meaning_ja: d.meaning_ja,
-        example_en: d.example_en,
-        example_ja: d.example_ja,
+        examples: (d.examples ?? []).map((example, exampleIndex) => ({
+          id: example.id,
+          example_en: example.example_en,
+          example_ja: example.example_ja,
+          sort_order: example.sort_order ?? exampleIndex,
+        })),
         sort_order: d.sort_order ?? idx,
       })),
       etymology: {
@@ -257,8 +261,12 @@ export function WordEditPage() {
         part_of_speech: d.part_of_speech,
         meaning_en: d.meaning_en,
         meaning_ja: d.meaning_ja,
-        example_en: d.example_en,
-        example_ja: d.example_ja,
+        examples: (d.examples ?? []).map((example, exampleIndex) => ({
+          id: example.id,
+          example_en: example.example_en,
+          example_ja: example.example_ja,
+          sort_order: example.sort_order ?? exampleIndex,
+        })),
         sort_order: d.sort_order ?? idx,
       })),
       etymology: {

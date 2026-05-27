@@ -98,8 +98,12 @@ export interface Definition {
   part_of_speech: string;
   meaning_en: string;
   meaning_ja: string;
-  example_en: string;
-  example_ja: string;
+  examples: Array<{
+    id?: number;
+    example_en: string;
+    example_ja: string;
+    sort_order: number;
+  }>;
   sort_order: number;
 }
 

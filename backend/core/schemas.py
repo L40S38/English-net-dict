@@ -1,17 +1,38 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from core.constants import GROUP_NAME_MAX_LENGTH
+
+
+class DefinitionExampleBase(BaseModel):
+    example_en: str = ""
+    example_ja: str = ""
+    sort_order: int = 0
+
+    model_config = {"from_attributes": True}
+
+
+class DefinitionExampleCreate(DefinitionExampleBase):
+    pass
+
+
+class DefinitionExampleUpdate(DefinitionExampleBase):
+    pass
+
+
+class DefinitionExampleRead(DefinitionExampleBase):
+    id: int
+
+    model_config = {"from_attributes": True}
 
 
 class DefinitionBase(BaseModel):
     part_of_speech: str
     meaning_en: str
     meaning_ja: str
-    example_en: str
-    example_ja: str
+    examples: list[DefinitionExampleBase] = Field(default_factory=list)
     sort_order: int = 0
 
 
@@ -651,9 +672,15 @@ class StructuredDefinition(BaseModel):
     part_of_speech: str = "noun"
     meaning_en: str = ""
     meaning_ja: str = ""
-    example_en: str = ""
-    example_ja: str = ""
+    examples_en: list[str] = Field(default_factory=list)
+    examples_ja: list[str] = Field(default_factory=list)
     sort_order: int = 0
+
+    @model_validator(mode="after")
+    def _validate_examples_len(self) -> "StructuredDefinition":
+        if len(self.examples_en) != len(self.examples_ja):
+            raise ValueError("examples_en and examples_ja must have same length")
+        return self
 
 
 class StructuredDerivation(BaseModel):

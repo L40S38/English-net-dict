@@ -169,8 +169,8 @@ def _build_definition_payload(word: Word) -> list[dict]:
             "part_of_speech": definition.part_of_speech,
             "meaning_en": definition.meaning_en,
             "meaning_ja": definition.meaning_ja,
-            "example_en": definition.example_en,
-            "example_ja": definition.example_ja,
+            "examples_en": [ex.example_en for ex in definition.examples],
+            "examples_ja": [ex.example_ja for ex in definition.examples],
         }
         for definition in word.definitions
     ]
