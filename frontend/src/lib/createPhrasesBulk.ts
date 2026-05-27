@@ -18,8 +18,8 @@ export async function createPhrasesBulk(
 
   for (let i = 0; i < phrases.length; i += 1) {
     const phrase = phrases[i];
-    const createdWords = await wordApi.create(phrase);
-    allCreatedWords.push(...createdWords);
+    const response = await wordApi.create(phrase);
+    allCreatedWords.push(...response.words);
     onProgress?.(i + 1, total);
   }
 

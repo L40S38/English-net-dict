@@ -82,14 +82,14 @@ export async function createWordsWithInflectionCheck(
         const decision = inflectionDecisions[word];
         const action = decision?.action ?? matched.suggestion ?? "register_as_is";
         const lemmaWord = decision?.lemma ?? matched.selected_lemma ?? null;
-        const createdWords = await wordApi.create(word, {
+        const response = await wordApi.create(word, {
           inflection_action: action,
           lemma_word: action === "register_as_is" ? null : lemmaWord,
         });
-        allCreatedWords.push(...createdWords);
+        allCreatedWords.push(...response.words);
       } else {
-        const createdWords = await wordApi.create(word);
-        allCreatedWords.push(...createdWords);
+        const response = await wordApi.create(word);
+        allCreatedWords.push(...response.words);
       }
     }
     onProgress?.(Math.min(start + chunk.length, words.length), total);

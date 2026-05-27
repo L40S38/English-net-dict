@@ -409,6 +409,14 @@ class WordListResponse(BaseModel):
     total: int
 
 
+class WordCreateResponse(BaseModel):
+    """POST /api/words のレスポンス。
+    熟語入力時には `phrase_id` に作成／取得した熟語の ID を返す。"""
+
+    words: list[WordRead] = Field(default_factory=list)
+    phrase_id: int | None = None
+
+
 class WordSummaryForGroup(BaseModel):
     id: int
     word: str

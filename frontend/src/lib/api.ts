@@ -24,6 +24,7 @@ import type {
   WordSummary,
   RelatedWord,
   Word,
+  WordCreateResponse,
   WordForms,
   WordImage,
   WordListResponse,
@@ -162,7 +163,7 @@ export const wordApi = {
       lemma_word?: string | null;
     },
   ) {
-    const { data } = await api.post<Word[]>("/api/words", {
+    const { data } = await api.post<WordCreateResponse>("/api/words", {
       word,
       inflection_action: options?.inflection_action ?? null,
       lemma_word: options?.lemma_word ?? null,

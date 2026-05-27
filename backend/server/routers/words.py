@@ -45,6 +45,7 @@ from core.schemas import (
     WordCheckFound,
     WordCheckResponse,
     WordCreateRequest,
+    WordCreateResponse,
     WordFullUpdate,
     WordListResponse,
     WordRead,
@@ -541,7 +542,7 @@ def get_word(word_id: int, db: Session = Depends(get_db)) -> WordRead:
     return _to_word_read(db, word)
 
 
-@router.post("", response_model=list[WordRead])
+@router.post("", response_model=WordCreateResponse)
 async def create_word(
     payload: WordCreateRequest,
     llm_mode: Literal["sync", "async"] = Query("async"),
@@ -549,7 +550,7 @@ async def create_word(
     example_mode: Literal["sequential", "parallel_thread", "parallel_async"] = Query("parallel_async"),
     phrase_parallelism: int = Query(8, ge=1, le=32),
     db: Session = Depends(get_db),
-) -> list[WordRead]:
+) -> WordCreateResponse:
     options = IngestOptions(
         llm_mode=llm_mode,
         phrase_enrich_mode=phrase_enrich_mode,
@@ -563,6 +564,7 @@ async def create_word(
     input_word = payload.word.strip()
     if not input_word:
         raise HTTPException(status_code=400, detail="word is required")
+    phrase_id: int | None = None
     try:
         if action == "merge":
             lemma_target = (payload.lemma_word or input_word).strip()
@@ -622,13 +624,15 @@ async def create_word(
                 options=options,
             )
             result_words = list(result.words)
+            if result.phrase is not None:
+                phrase_id = result.phrase.id
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     db.commit()
     for word in result_words:
         db.refresh(word)
-    response = [_to_word_read(db, word) for word in result_words]
-    return response
+    word_reads = [_to_word_read(db, word) for word in result_words]
+    return WordCreateResponse(words=word_reads, phrase_id=phrase_id)
 
 
 _BULK_ITEM_SQLITE_LOCK_RETRIES = 4

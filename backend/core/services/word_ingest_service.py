@@ -8,15 +8,17 @@ from typing import Literal
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from core.models import Word
+from core.models import Phrase, Word
 from core.services.gpt_service import enrich_core_image_and_branches, generate_structured_word_data
 from core.services.gpt_service_parallel import (
     ExampleMode,
     enrich_core_image_and_branches_async,
     generate_structured_word_data_async,
 )
+from core.services.phrase_ingest_service import enrich_phrase
 from core.services.phrase_meaning_service import resolve_meaning_ja_ddgs
 from core.services.phrase_service import (
+    find_phrase_by_text,
     get_or_create_phrase,
     link_existing_phrases_for_word,
     link_phrase_to_word,
@@ -42,6 +44,7 @@ class IngestResult:
     words: list[Word]
     created_count: int
     split_applied: bool
+    phrase: Phrase | None = None
 
 
 @dataclass
@@ -294,16 +297,6 @@ async def _create_or_get_word(
     return word, True
 
 
-def _append_phrase_if_missing(db: Session, word: Word, phrase: str, meaning: str) -> bool:
-    text = normalize_phrase_text(phrase)
-    if not text:
-        return False
-    phrase_obj = get_or_create_phrase(db, text, meaning)
-    before_count = len(word.phrase_links or [])
-    link_phrase_to_word(db, word, phrase_obj)
-    return len(word.phrase_links or []) > before_count
-
-
 async def ingest_word_or_phrase(
     db: Session,
     raw_text: str,
@@ -334,6 +327,14 @@ async def ingest_word_or_phrase(
         raise ValueError("phrase is required")
     tokens = _unique_tokens(raw_text)
     phrase_meaning = (await resolve_meaning_ja_ddgs(phrase_text, meaning_cache)) or ""
+
+    # 既存有無を先に判定してから get_or_create する。新規作成時のみ enrich_phrase を回し、
+    # 既存熟語に対しては定義などを上書きしない（既存仕様との互換維持）。
+    existing_phrase = find_phrase_by_text(db, phrase_text)
+    phrase_obj = get_or_create_phrase(db, phrase_text, phrase_meaning)
+    if existing_phrase is None:
+        await enrich_phrase(db, phrase_obj, scraper=scraper, cache=meaning_cache)
+
     results: list[Word] = []
     created_count = 0
     for token in tokens:
@@ -350,6 +351,11 @@ async def ingest_word_or_phrase(
         )
         if created:
             created_count += 1
-        _append_phrase_if_missing(db, word, phrase_text, phrase_meaning)
+        link_phrase_to_word(db, word, phrase_obj)
         results.append(word)
-    return IngestResult(words=results, created_count=created_count, split_applied=True)
+    return IngestResult(
+        words=results,
+        created_count=created_count,
+        split_applied=True,
+        phrase=phrase_obj,
+    )

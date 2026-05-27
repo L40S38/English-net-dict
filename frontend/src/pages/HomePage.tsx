@@ -180,7 +180,8 @@ export function HomePage() {
       word: string;
       options?: { inflection_action?: InflectionAction | null; lemma_word?: string | null };
     }) => wordApi.create(payload.word, payload.options),
-    onSuccess: async (createdWords) => {
+    onSuccess: async (response) => {
+      const createdWords = response.words;
       setSessionWords((prev) => {
         const seenIds = new Set(prev.map((item) => item.id));
         const next = [...prev];

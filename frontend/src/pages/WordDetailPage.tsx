@@ -44,8 +44,12 @@ export function WordDetailPage() {
       inflection_action?: InflectionAction | null;
       lemma_word?: string | null;
     }) => wordApi.create(rawWordKey, options),
-    onSuccess: (createdWords) => {
-      const first = createdWords[0];
+    onSuccess: (response) => {
+      if (response.phrase_id != null) {
+        navigate(`/phrases/${response.phrase_id}`, { replace: true });
+        return;
+      }
+      const first = response.words[0];
       if (!first) {
         return;
       }

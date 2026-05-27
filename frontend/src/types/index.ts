@@ -176,6 +176,11 @@ export interface WordListResponse {
   total: number;
 }
 
+export interface WordCreateResponse {
+  words: Word[];
+  phrase_id: number | null;
+}
+
 export interface WordSummaryForGroup {
   id: number;
   word: string;
