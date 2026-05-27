@@ -47,7 +47,7 @@ export function WordCandidateCard({
   onToggleDefinition,
   trailing,
 }: WordCandidateCardProps) {
-  const definitions = showDefinitionRows ? word.definitions ?? [] : [];
+  const definitions = showDefinitionRows ? (word.definitions ?? []) : [];
 
   return (
     <Card variant="sub" stack>
@@ -69,15 +69,23 @@ export function WordCandidateCard({
             const definitionTag = definitionBadge?.(definition.id);
             return (
               <Card key={definition.id} variant="sub" stack>
-                <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                <label
+                  style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}
+                >
                   <input
                     type="checkbox"
                     checked={definitionChecked}
                     disabled={definitionDisabled || !onToggleDefinition}
                     onChange={() => onToggleDefinition?.(definition)}
                   />
-                  {definition.part_of_speech ? <strong>[{definition.part_of_speech}]</strong> : null}
-                  {definition.meaning_ja ? <span>{definition.meaning_ja}</span> : <Muted as="span">意味なし</Muted>}
+                  {definition.part_of_speech ? (
+                    <strong>[{definition.part_of_speech}]</strong>
+                  ) : null}
+                  {definition.meaning_ja ? (
+                    <span>{definition.meaning_ja}</span>
+                  ) : (
+                    <Muted as="span">意味なし</Muted>
+                  )}
                   {definitionTag ? <Muted as="span">[{definitionTag}]</Muted> : null}
                 </label>
                 {definition.meaning_en ? <Muted as="p">{definition.meaning_en}</Muted> : null}

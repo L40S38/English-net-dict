@@ -7,7 +7,11 @@ interface PhraseMeaningPanelProps {
   enriching?: boolean;
 }
 
-export function PhraseMeaningPanel({ phrase, onEnrich, enriching = false }: PhraseMeaningPanelProps) {
+export function PhraseMeaningPanel({
+  phrase,
+  onEnrich,
+  enriching = false,
+}: PhraseMeaningPanelProps) {
   return (
     <Card stack>
       <Row justify="between">

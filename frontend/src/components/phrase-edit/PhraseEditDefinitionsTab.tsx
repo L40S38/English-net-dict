@@ -34,7 +34,9 @@ export function PhraseEditDefinitionsTab({
           <Stack>
             <PosSelect
               value={item.part_of_speech}
-              onChange={(value) => updateAt(idx, (current) => ({ ...current, part_of_speech: value }))}
+              onChange={(value) =>
+                updateAt(idx, (current) => ({ ...current, part_of_speech: value }))
+              }
             />
             <input
               placeholder="英語の意味"
@@ -82,7 +84,10 @@ export function PhraseEditDefinitionsTab({
           </Stack>
         </Field>
       ))}
-      <button type="button" onClick={() => setDefinitions([...definitions, createDefinition(definitions.length)])}>
+      <button
+        type="button"
+        onClick={() => setDefinitions([...definitions, createDefinition(definitions.length)])}
+      >
         定義を追加
       </button>
     </Stack>

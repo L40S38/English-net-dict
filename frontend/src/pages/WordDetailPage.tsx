@@ -70,9 +70,7 @@ export function WordDetailPage() {
 
   const word = wordQuery.data;
   const isBusy =
-    wordQuery.isLoading ||
-    rescrapeMutation.isPending ||
-    generateImageMutation.isPending;
+    wordQuery.isLoading || rescrapeMutation.isPending || generateImageMutation.isPending;
   const forms = word?.forms ?? {};
   const formEntries = [
     {
@@ -112,7 +110,9 @@ export function WordDetailPage() {
   const isNotFound = wordQuery.isError && isNotFoundError(wordQuery.error);
 
   const [deletingWordId, setDeletingWordId] = useState<number | null>(null);
-  const [pendingDeleteWord, setPendingDeleteWord] = useState<{ id: number; word: string } | null>(null);
+  const [pendingDeleteWord, setPendingDeleteWord] = useState<{ id: number; word: string } | null>(
+    null,
+  );
   const [showPhraseConfirm, setShowPhraseConfirm] = useState(false);
   const [showInflectionModal, setShowInflectionModal] = useState(false);
   const [inflectionResult, setInflectionResult] = useState<InflectionCheckResult | null>(null);
@@ -166,9 +166,14 @@ export function WordDetailPage() {
               }}
               disabled={isCheckingInflection || registerMutation.isPending}
             >
-              {isCheckingInflection || registerMutation.isPending ? "登録中..." : "単語として登録する"}
+              {isCheckingInflection || registerMutation.isPending
+                ? "登録中..."
+                : "単語として登録する"}
             </button>
-            <button onClick={() => navigate("/")} disabled={isCheckingInflection || registerMutation.isPending}>
+            <button
+              onClick={() => navigate("/")}
+              disabled={isCheckingInflection || registerMutation.isPending}
+            >
               キャンセル
             </button>
           </Row>

@@ -14,7 +14,9 @@ interface PhraseComponentWordsProps {
 
 export function PhraseComponentWords({ phrase }: PhraseComponentWordsProps) {
   const [deletingWordId, setDeletingWordId] = useState<number | null>(null);
-  const [pendingDeleteWord, setPendingDeleteWord] = useState<{ id: number; word: string } | null>(null);
+  const [pendingDeleteWord, setPendingDeleteWord] = useState<{ id: number; word: string } | null>(
+    null,
+  );
   const queryClient = useQueryClient();
   const words = phrase.words ?? [];
   const wordQueries = useQueries({

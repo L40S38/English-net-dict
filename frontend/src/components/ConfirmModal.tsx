@@ -74,7 +74,12 @@ export function ConfirmModal({
         <div className="modal-actions">
           {variant === "confirm" ? (
             <>
-              <button type="button" className="modal-cancel" onClick={onCancel} disabled={disableActions}>
+              <button
+                type="button"
+                className="modal-cancel"
+                onClick={onCancel}
+                disabled={disableActions}
+              >
                 {cancelText}
               </button>
               <button

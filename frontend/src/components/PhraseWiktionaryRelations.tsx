@@ -75,29 +75,29 @@ export function PhraseWiktionaryRelations({ phrase }: PhraseWiktionaryRelationsP
                 <WordLinkRow
                   value={text}
                   linkedWordId={null}
-                  trailing={
-                    (() => {
-                      const phraseId = phraseIdMap.get(text) ?? phraseIdMap.get(text.toLowerCase());
-                      if (!phraseId) {
-                        const pending = registerPhraseMutation.isPending && registerPhraseMutation.variables === text;
-                        return (
-                          <button
-                            type="button"
-                            className="detail-link-button"
-                            onClick={() => registerPhraseMutation.mutate(text)}
-                            disabled={registerPhraseMutation.isPending}
-                          >
-                            {pending ? "登録中..." : "登録"}
-                          </button>
-                        );
-                      }
+                  trailing={(() => {
+                    const phraseId = phraseIdMap.get(text) ?? phraseIdMap.get(text.toLowerCase());
+                    if (!phraseId) {
+                      const pending =
+                        registerPhraseMutation.isPending &&
+                        registerPhraseMutation.variables === text;
                       return (
-                        <Link className="detail-link-button" to={`/phrases/${phraseId}`}>
-                          詳細
-                        </Link>
+                        <button
+                          type="button"
+                          className="detail-link-button"
+                          onClick={() => registerPhraseMutation.mutate(text)}
+                          disabled={registerPhraseMutation.isPending}
+                        >
+                          {pending ? "登録中..." : "登録"}
+                        </button>
                       );
-                    })()
-                  }
+                    }
+                    return (
+                      <Link className="detail-link-button" to={`/phrases/${phraseId}`}>
+                        詳細
+                      </Link>
+                    );
+                  })()}
                 />
               </Card>
             ))}

@@ -13,7 +13,9 @@ export function GroupListPage() {
   const [description, setDescription] = useState("");
   const [query, setQuery] = useState("");
   const [groupNameErrorOpen, setGroupNameErrorOpen] = useState(false);
-  const [pendingDeleteGroup, setPendingDeleteGroup] = useState<{ id: number; name: string } | null>(null);
+  const [pendingDeleteGroup, setPendingDeleteGroup] = useState<{ id: number; name: string } | null>(
+    null,
+  );
   const queryClient = useQueryClient();
 
   const groupsQuery = useQuery({

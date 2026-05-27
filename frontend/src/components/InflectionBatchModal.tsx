@@ -56,7 +56,9 @@ export function InflectionBatchModal({
     if (!selectedSpelling) {
       return item.lemmaCandidates ?? [];
     }
-    const matched = (item.spellingCandidates ?? []).find((entry) => entry.spelling === selectedSpelling);
+    const matched = (item.spellingCandidates ?? []).find(
+      (entry) => entry.spelling === selectedSpelling,
+    );
     if (matched?.lemmaCandidates && matched.lemmaCandidates.length > 0) {
       return matched.lemmaCandidates;
     }
@@ -159,7 +161,10 @@ export function InflectionBatchModal({
                     >
                       <option value="">(綴り候補なし)</option>
                       {(item.spellingCandidates ?? []).map((candidate) => (
-                        <option key={`${item.word}:spelling:${candidate.spelling}`} value={candidate.spelling}>
+                        <option
+                          key={`${item.word}:spelling:${candidate.spelling}`}
+                          value={candidate.spelling}
+                        >
                           {candidate.spelling}
                           {candidate.source ? ` [${candidate.source}]` : ""}
                         </option>
@@ -184,11 +189,13 @@ export function InflectionBatchModal({
                     }
                   >
                     <option value="">(lemmaなし)</option>
-                    {getLemmaCandidatesBySpelling(item, selected.spelling ?? null).map((candidate) => (
-                      <option key={`${item.word}:${candidate.lemma}`} value={candidate.lemma}>
-                        {candidate.lemma}
-                      </option>
-                    ))}
+                    {getLemmaCandidatesBySpelling(item, selected.spelling ?? null).map(
+                      (candidate) => (
+                        <option key={`${item.word}:${candidate.lemma}`} value={candidate.lemma}>
+                          {candidate.lemma}
+                        </option>
+                      ),
+                    )}
                   </select>
                   <select
                     className="inflection-batch-select"
@@ -220,7 +227,8 @@ export function InflectionBatchModal({
                         [item.word]: initialDecisions[item.word] ?? {
                           action: item.suggestion,
                           lemma: item.selectedLemma ?? item.lemmaCandidates?.[0]?.lemma ?? null,
-                          spelling: item.selectedSpelling ?? item.spellingCandidates?.[0]?.spelling ?? null,
+                          spelling:
+                            item.selectedSpelling ?? item.spellingCandidates?.[0]?.spelling ?? null,
                         },
                       }))
                     }

@@ -112,10 +112,12 @@ export function DefinitionFormBlock({
                 onClick={() =>
                   onUpdate(index, {
                     ...definition,
-                    examples: examples.filter((_, i) => i !== exampleIndex).map((x, i) => ({
-                      ...x,
-                      sort_order: i,
-                    })),
+                    examples: examples
+                      .filter((_, i) => i !== exampleIndex)
+                      .map((x, i) => ({
+                        ...x,
+                        sort_order: i,
+                      })),
                   })
                 }
               >

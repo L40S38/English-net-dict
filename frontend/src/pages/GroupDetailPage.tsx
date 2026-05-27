@@ -122,9 +122,7 @@ export function GroupDetailPage() {
                       <Stack gap="sm">
                         <Row>
                           <strong>例文</strong>
-                          {wordHref ? (
-                            <Link to={wordHref}>単語ページへ</Link>
-                          ) : null}
+                          {wordHref ? <Link to={wordHref}>単語ページへ</Link> : null}
                         </Row>
                         <Muted as="p">{item.example_en}</Muted>
                         {item.example_ja && <Muted as="p">{item.example_ja}</Muted>}

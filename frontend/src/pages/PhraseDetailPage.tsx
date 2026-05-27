@@ -47,15 +47,15 @@ export function PhraseDetailPage() {
     <main className="container">
       <PageHeader
         title={phrase?.text ?? "熟語"}
-        busy={
-          phraseQuery.isLoading ||
-          enrichMutation.isPending ||
-          generateImageMutation.isPending
-        }
+        busy={phraseQuery.isLoading || enrichMutation.isPending || generateImageMutation.isPending}
         actions={
           <>
             {phrase ? (
-              <button type="button" onClick={() => enrichMutation.mutate()} disabled={enrichMutation.isPending}>
+              <button
+                type="button"
+                onClick={() => enrichMutation.mutate()}
+                disabled={enrichMutation.isPending}
+              >
                 {enrichMutation.isPending ? "再取得中..." : "データ再取得"}
               </button>
             ) : null}

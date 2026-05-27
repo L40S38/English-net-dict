@@ -61,9 +61,9 @@ export function DevInflectionMigrationPage() {
     title: "",
     items: [],
   });
-  const resolverRef = useRef<((value: Record<string, InflectionBatchDecision> | null) => void) | null>(
-    null,
-  );
+  const resolverRef = useRef<
+    ((value: Record<string, InflectionBatchDecision> | null) => void) | null
+  >(null);
 
   const closeModal = (value: Record<string, InflectionBatchDecision> | null) => {
     resolverRef.current?.(value);
@@ -186,9 +186,7 @@ export function DevInflectionMigrationPage() {
           continue;
         }
         const chosen = collectLemmaCandidates(result).find(
-          (item) =>
-            item.lemma_word_id &&
-            item.lemma.trim().toLowerCase() === desiredLemma,
+          (item) => item.lemma_word_id && item.lemma.trim().toLowerCase() === desiredLemma,
         );
         if (!chosen?.lemma_word_id) {
           unresolved.push(`${word}: lemma_word_id が見つかりません（${decision.lemma ?? "-"})`);
@@ -199,7 +197,8 @@ export function DevInflectionMigrationPage() {
           word_id: target.id,
           action: decision.action,
           lemma_word_id: chosen.lemma_word_id,
-          inflection_type: chosen.inflection_type ?? result.selected_inflection_type ?? "inflection",
+          inflection_type:
+            chosen.inflection_type ?? result.selected_inflection_type ?? "inflection",
         });
       }
 
@@ -211,7 +210,9 @@ export function DevInflectionMigrationPage() {
 
       const response = await migrationApi.applyInflection(applyPayload);
       setApplyResult(response);
-      setNotice(`適用完了: applied=${response.applied}, skipped=${response.skipped}, errors=${response.errors}`);
+      setNotice(
+        `適用完了: applied=${response.applied}, skipped=${response.skipped}, errors=${response.errors}`,
+      );
     } catch (error) {
       console.error(error);
       setNotice("解析または適用に失敗しました。");
@@ -225,14 +226,19 @@ export function DevInflectionMigrationPage() {
       <h1>活用形マイグレーション（開発環境専用）</h1>
       <p>
         <Muted>
-          既存DBの未リンク単語を対象に、`check-inflection` → レビュー → migration API 適用を実行します。
+          既存DBの未リンク単語を対象に、`check-inflection` → レビュー → migration API
+          適用を実行します。
         </Muted>
       </p>
       <div className="row">
         <button type="button" onClick={loadTargets} disabled={loadingTargets || analyzing}>
           {loadingTargets ? "対象読み込み中..." : "対象を読み込む"}
         </button>
-        <button type="button" onClick={analyzeAndApply} disabled={loadingTargets || analyzing || targets.length === 0}>
+        <button
+          type="button"
+          onClick={analyzeAndApply}
+          disabled={loadingTargets || analyzing || targets.length === 0}
+        >
           {analyzing ? "解析・適用中..." : "解析して適用する"}
         </button>
       </div>
@@ -251,7 +257,9 @@ export function DevInflectionMigrationPage() {
               {warning}
             </div>
           ))}
-          {warnings.length > 20 ? <div className="muted">...他 {warnings.length - 20} 件</div> : null}
+          {warnings.length > 20 ? (
+            <div className="muted">...他 {warnings.length - 20} 件</div>
+          ) : null}
         </div>
       ) : null}
 

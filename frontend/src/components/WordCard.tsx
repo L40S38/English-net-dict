@@ -24,7 +24,8 @@ export function WordCard({
   showDelete = true,
   imageCountOverride,
 }: WordCardProps) {
-  const imageLen = imageCountOverride !== undefined ? imageCountOverride : (word.images?.length ?? 0);
+  const imageLen =
+    imageCountOverride !== undefined ? imageCountOverride : (word.images?.length ?? 0);
   const hasImage = imageLen > 0;
   const chatCount = word.chat_session_count ?? 0;
 

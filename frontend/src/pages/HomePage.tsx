@@ -143,10 +143,7 @@ export function HomePage() {
     setConfirmState((prev) => ({ ...prev, open: false }));
   };
 
-  const openInflectionModal = (params: {
-    title: string;
-    items: InflectionBatchItem[];
-  }) =>
+  const openInflectionModal = (params: { title: string; items: InflectionBatchItem[] }) =>
     new Promise<Record<string, InflectionBatchDecision> | null>((resolve) => {
       inflectionResolverRef.current = resolve;
       setInflectionModalState({
@@ -205,7 +202,8 @@ export function HomePage() {
     mutationFn: async (words: string[]) => {
       setBulkProgress({ completed: 0, total: words.length });
       return createWordsWithInflectionCheck(words, openInflectionModal, {
-        onChunkProgress: (completed, totalCount) => setBulkProgress({ completed, total: totalCount }),
+        onChunkProgress: (completed, totalCount) =>
+          setBulkProgress({ completed, total: totalCount }),
       });
     },
     onSuccess: async (createdWords) => {

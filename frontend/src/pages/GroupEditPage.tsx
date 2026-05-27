@@ -75,7 +75,10 @@ export function GroupEditPage() {
   });
   const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
   const [bulkFlowError, setBulkFlowError] = useState<string | null>(null);
-  const [bulkFlowProgress, setBulkFlowProgress] = useState<{ completed: number; total: number } | null>(null);
+  const [bulkFlowProgress, setBulkFlowProgress] = useState<{
+    completed: number;
+    total: number;
+  } | null>(null);
   const [pendingRemoveItem, setPendingRemoveItem] = useState<WordGroupItem | null>(null);
   const bulkFlowInFlightRef = useRef(false);
 
@@ -109,7 +112,8 @@ export function GroupEditPage() {
   });
 
   const addItemMutation = useMutation({
-    mutationFn: (payload: Parameters<typeof groupApi.addItem>[1]) => groupApi.addItem(groupId, payload),
+    mutationFn: (payload: Parameters<typeof groupApi.addItem>[1]) =>
+      groupApi.addItem(groupId, payload),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["group", groupId] });
       await queryClient.invalidateQueries({ queryKey: ["groups"] });
@@ -152,7 +156,8 @@ export function GroupEditPage() {
   const bulkCreateWithInflectionMutation = useMutation({
     mutationFn: (words: string[]) =>
       createWordsWithInflectionCheck(words, openInflectionModal, {
-        onChunkProgress: (completed, totalCount) => setBulkFlowProgress({ completed, total: totalCount }),
+        onChunkProgress: (completed, totalCount) =>
+          setBulkFlowProgress({ completed, total: totalCount }),
       }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["words"] });
@@ -162,7 +167,8 @@ export function GroupEditPage() {
   const bulkCreatePhrasesMutation = useMutation({
     mutationFn: (phrases: string[]) =>
       createPhrasesBulk(phrases, {
-        onChunkProgress: (completed, totalCount) => setBulkFlowProgress({ completed, total: totalCount }),
+        onChunkProgress: (completed, totalCount) =>
+          setBulkFlowProgress({ completed, total: totalCount }),
       }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["words"] });
@@ -238,7 +244,9 @@ export function GroupEditPage() {
         if (rechecked.not_found.length > 0) {
           throw new Error(`次の熟語を登録できませんでした: ${rechecked.not_found.join(", ")}`);
         }
-        targetPhraseIds = Array.from(new Set([...targetPhraseIds, ...rechecked.found.map((item) => item.id)]));
+        targetPhraseIds = Array.from(
+          new Set([...targetPhraseIds, ...rechecked.found.map((item) => item.id)]),
+        );
       }
       if (targetWordIds.length > 0 || targetPhraseIds.length > 0) {
         if (missingEntries.words.length === 0 && missingEntries.phrases.length === 0) {

@@ -105,7 +105,12 @@ export function PhraseEditRelationsTab({
           </Field>
         </FormBlockLayout>
       ))}
-      <button type="button" className="icon-button-add" aria-label="関連語を追加" onClick={addEntry}>
+      <button
+        type="button"
+        className="icon-button-add"
+        aria-label="関連語を追加"
+        onClick={addEntry}
+      >
         <Plus size={18} />
       </button>
     </Card>

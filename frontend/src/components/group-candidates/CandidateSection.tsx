@@ -61,12 +61,21 @@ export function CandidateSection({
           </button>
         ) : null}
         {onClearSelection ? (
-          <button type="button" className="modal-cancel" onClick={onClearSelection} disabled={loading || selectedCount === 0}>
+          <button
+            type="button"
+            className="modal-cancel"
+            onClick={onClearSelection}
+            disabled={loading || selectedCount === 0}
+          >
             選択解除
           </button>
         ) : null}
         {onConfirmSelection ? (
-          <button type="button" onClick={onConfirmSelection} disabled={loading || confirmDisabled || selectedCount === 0}>
+          <button
+            type="button"
+            onClick={onConfirmSelection}
+            disabled={loading || confirmDisabled || selectedCount === 0}
+          >
             {confirmLabel}
           </button>
         ) : null}
@@ -78,10 +87,20 @@ export function CandidateSection({
       {!loading && total > 0 ? <Stack>{children}</Stack> : null}
 
       <Row>
-        <button type="button" className="modal-cancel" onClick={onPrevPage} disabled={!prevEnabled || loading}>
+        <button
+          type="button"
+          className="modal-cancel"
+          onClick={onPrevPage}
+          disabled={!prevEnabled || loading}
+        >
           前へ
         </button>
-        <button type="button" className="modal-cancel" onClick={onNextPage} disabled={!nextEnabled || loading}>
+        <button
+          type="button"
+          className="modal-cancel"
+          onClick={onNextPage}
+          disabled={!nextEnabled || loading}
+        >
           次へ
         </button>
       </Row>

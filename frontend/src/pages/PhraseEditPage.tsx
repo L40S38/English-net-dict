@@ -141,11 +141,21 @@ export function PhraseEditPage() {
         sort_order: idx,
       })),
       word_ids: (phraseQuery.data.words ?? []).map((word) => word.id),
-      wiktionary_synonyms: (phraseQuery.data.wiktionary_synonyms ?? []).map((item) => item.trim()).filter(Boolean),
-      wiktionary_antonyms: (phraseQuery.data.wiktionary_antonyms ?? []).map((item) => item.trim()).filter(Boolean),
-      wiktionary_see_also: (phraseQuery.data.wiktionary_see_also ?? []).map((item) => item.trim()).filter(Boolean),
-      wiktionary_derived_terms: (phraseQuery.data.wiktionary_derived_terms ?? []).map((item) => item.trim()).filter(Boolean),
-      wiktionary_phrases: (phraseQuery.data.wiktionary_phrases ?? []).map((item) => item.trim()).filter(Boolean),
+      wiktionary_synonyms: (phraseQuery.data.wiktionary_synonyms ?? [])
+        .map((item) => item.trim())
+        .filter(Boolean),
+      wiktionary_antonyms: (phraseQuery.data.wiktionary_antonyms ?? [])
+        .map((item) => item.trim())
+        .filter(Boolean),
+      wiktionary_see_also: (phraseQuery.data.wiktionary_see_also ?? [])
+        .map((item) => item.trim())
+        .filter(Boolean),
+      wiktionary_derived_terms: (phraseQuery.data.wiktionary_derived_terms ?? [])
+        .map((item) => item.trim())
+        .filter(Boolean),
+      wiktionary_phrases: (phraseQuery.data.wiktionary_phrases ?? [])
+        .map((item) => item.trim())
+        .filter(Boolean),
     };
   }, [phraseQuery.data]);
   const hasUnsavedChanges =

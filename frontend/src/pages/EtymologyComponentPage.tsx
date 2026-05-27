@@ -18,7 +18,9 @@ export function EtymologyComponentPage() {
   const queryClient = useQueryClient();
   const componentText = decodeURIComponent(params.componentText ?? "").trim();
   const [deletingWordId, setDeletingWordId] = useState<number | null>(null);
-  const [pendingDeleteWord, setPendingDeleteWord] = useState<{ id: number; word: string } | null>(null);
+  const [pendingDeleteWord, setPendingDeleteWord] = useState<{ id: number; word: string } | null>(
+    null,
+  );
   const [showRegisterConfirm, setShowRegisterConfirm] = useState(true);
   const componentMeaning = (searchParams.get("meaning") ?? "").trim();
   const fromWord = (searchParams.get("from") ?? "").trim();
@@ -208,19 +210,18 @@ export function EtymologyComponentPage() {
                     <WordLinkRow
                       value={term}
                       secondary="Wiktionary"
-                      trailing={
-                        (() => {
-                          const phraseId = phraseIdMap.get(term) ?? phraseIdMap.get(term.toLowerCase());
-                          if (!phraseId) {
-                            return null;
-                          }
-                          return (
-                            <Link className="detail-link-button" to={`/phrases/${phraseId}`}>
-                              詳細
-                            </Link>
-                          );
-                        })()
-                      }
+                      trailing={(() => {
+                        const phraseId =
+                          phraseIdMap.get(term) ?? phraseIdMap.get(term.toLowerCase());
+                        if (!phraseId) {
+                          return null;
+                        }
+                        return (
+                          <Link className="detail-link-button" to={`/phrases/${phraseId}`}>
+                            詳細
+                          </Link>
+                        );
+                      })()}
                     />
                   </Card>
                 ))}
@@ -235,19 +236,18 @@ export function EtymologyComponentPage() {
                     <WordLinkRow
                       value={term}
                       secondary="Wiktionary"
-                      trailing={
-                        (() => {
-                          const phraseId = phraseIdMap.get(term) ?? phraseIdMap.get(term.toLowerCase());
-                          if (!phraseId) {
-                            return null;
-                          }
-                          return (
-                            <Link className="detail-link-button" to={`/phrases/${phraseId}`}>
-                              詳細
-                            </Link>
-                          );
-                        })()
-                      }
+                      trailing={(() => {
+                        const phraseId =
+                          phraseIdMap.get(term) ?? phraseIdMap.get(term.toLowerCase());
+                        if (!phraseId) {
+                          return null;
+                        }
+                        return (
+                          <Link className="detail-link-button" to={`/phrases/${phraseId}`}>
+                            詳細
+                          </Link>
+                        );
+                      })()}
                     />
                   </Card>
                 ))}

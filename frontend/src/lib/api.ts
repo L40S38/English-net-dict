@@ -352,7 +352,9 @@ export const phraseChatApi = {
     return data;
   },
   async createSession(phraseId: number, title?: string) {
-    const { data } = await api.post<ChatSession>(`/api/phrases/${phraseId}/chat/sessions`, { title });
+    const { data } = await api.post<ChatSession>(`/api/phrases/${phraseId}/chat/sessions`, {
+      title,
+    });
     return data;
   },
 };
@@ -432,10 +434,7 @@ export const groupApi = {
   async removeItem(groupId: number, itemId: number) {
     await api.delete(`/api/groups/${groupId}/items/${itemId}`);
   },
-  async bulkAddItems(
-    groupId: number,
-    payload: { word_ids?: number[]; phrase_ids?: number[] },
-  ) {
+  async bulkAddItems(groupId: number, payload: { word_ids?: number[]; phrase_ids?: number[] }) {
     const { data } = await api.post<GroupBulkAddItemsResponse>(
       `/api/groups/${groupId}/bulk-add-items`,
       payload,
@@ -538,7 +537,9 @@ export const phraseApi = {
     return data;
   },
   async getDefaultImagePrompt(phraseId: number) {
-    const { data } = await api.get<{ prompt: string }>(`/api/phrases/${phraseId}/default-image-prompt`);
+    const { data } = await api.get<{ prompt: string }>(
+      `/api/phrases/${phraseId}/default-image-prompt`,
+    );
     return data.prompt;
   },
   async delete(phraseId: number) {

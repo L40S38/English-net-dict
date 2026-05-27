@@ -44,7 +44,9 @@ export function WordLinkRow({
             {disableValueLink ? (
               <span>{value}</span>
             ) : (
-              <Link to={linkedWordId ? `/words/${linkedWordId}` : `/words/${encodeURIComponent(value)}`}>
+              <Link
+                to={linkedWordId ? `/words/${linkedWordId}` : `/words/${encodeURIComponent(value)}`}
+              >
                 {value}
               </Link>
             )}

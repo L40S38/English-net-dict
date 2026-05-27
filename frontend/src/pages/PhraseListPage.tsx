@@ -25,9 +25,10 @@ export function PhraseListPage() {
   const [sortBy, setSortBy] = useState<PhraseSortBy>("updated_at");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
   const [deletingPhraseId, setDeletingPhraseId] = useState<number | null>(null);
-  const [pendingDeletePhrase, setPendingDeletePhrase] = useState<{ id: number; text: string } | null>(
-    null,
-  );
+  const [pendingDeletePhrase, setPendingDeletePhrase] = useState<{
+    id: number;
+    text: string;
+  } | null>(null);
   const queryClient = useQueryClient();
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const phrasesQuery = useInfiniteQuery({
@@ -41,10 +42,14 @@ export function PhraseListPage() {
         page: Number(pageParam),
         page_size: 20,
       }),
-    getNextPageParam: (lastPage, allPages) => (lastPage.length === 20 ? allPages.length + 1 : undefined),
+    getNextPageParam: (lastPage, allPages) =>
+      lastPage.length === 20 ? allPages.length + 1 : undefined,
   });
 
-  const phrases = useMemo(() => phrasesQuery.data?.pages.flatMap((page) => page) ?? [], [phrasesQuery.data]);
+  const phrases = useMemo(
+    () => phrasesQuery.data?.pages.flatMap((page) => page) ?? [],
+    [phrasesQuery.data],
+  );
   const deleteMutation = useMutation({
     mutationFn: (phraseId: number) => phraseApi.delete(phraseId),
     onMutate: (phraseId) => setDeletingPhraseId(phraseId),
@@ -88,7 +93,10 @@ export function PhraseListPage() {
       <div className="row" style={{ flexWrap: "wrap", alignItems: "flex-end" }}>
         <label style={{ minWidth: 200 }}>
           <small>並び替え項目</small>
-          <select value={sortBy} onChange={(event) => setSortBy(event.target.value as PhraseSortBy)}>
+          <select
+            value={sortBy}
+            onChange={(event) => setSortBy(event.target.value as PhraseSortBy)}
+          >
             {SORT_BY_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
@@ -98,7 +106,10 @@ export function PhraseListPage() {
         </label>
         <label style={{ minWidth: 140 }}>
           <small>順序</small>
-          <select value={sortOrder} onChange={(event) => setSortOrder(event.target.value as SortOrder)}>
+          <select
+            value={sortOrder}
+            onChange={(event) => setSortOrder(event.target.value as SortOrder)}
+          >
             {SORT_ORDER_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
@@ -108,7 +119,9 @@ export function PhraseListPage() {
         </label>
       </div>
       {phrasesQuery.isLoading && <Muted as="p">熟語を読み込み中...</Muted>}
-      {!phrasesQuery.isLoading && phrases.length === 0 && <Muted as="p">熟語はまだありません。</Muted>}
+      {!phrasesQuery.isLoading && phrases.length === 0 && (
+        <Muted as="p">熟語はまだありません。</Muted>
+      )}
 
       <section className="grid">
         {phrases.map((phrase) => (

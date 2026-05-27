@@ -134,7 +134,9 @@ export function GroupEditManualTab({
                 searchMutation.mutate({ q: next, pageWords: 1, pagePhrases: 1 });
               }
             }}
-            disabled={searchMutation.isPending || wordKeywordInput.trim().length === 0 || disableActions}
+            disabled={
+              searchMutation.isPending || wordKeywordInput.trim().length === 0 || disableActions
+            }
           >
             {searchMutation.isPending ? "検索中..." : "検索"}
           </button>
@@ -199,12 +201,17 @@ export function GroupEditManualTab({
                 selection.isSelected(createExampleKey(word.id, definitionId))
               }
               isDefinitionDisabled={(definitionId) =>
-                addedState.exampleKeys.has(createExampleKey(word.id, definitionId)) || disableActions
+                addedState.exampleKeys.has(createExampleKey(word.id, definitionId)) ||
+                disableActions
               }
               definitionBadge={(definitionId) =>
-                addedState.exampleKeys.has(createExampleKey(word.id, definitionId)) ? "追加済み" : null
+                addedState.exampleKeys.has(createExampleKey(word.id, definitionId))
+                  ? "追加済み"
+                  : null
               }
-              onToggleDefinition={(definition) => selection.toggle(createExampleKey(word.id, definition.id))}
+              onToggleDefinition={(definition) =>
+                selection.toggle(createExampleKey(word.id, definition.id))
+              }
             />
           ))}
         </CandidateSection>
