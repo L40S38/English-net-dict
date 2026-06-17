@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useParams } from "react-router-dom";
 
 import { Layout } from "./components/Layout";
 import { DevInflectionModalPage } from "./pages/DevInflectionModalPage";
@@ -15,6 +15,14 @@ import { PhraseListPage } from "./pages/PhraseListPage";
 import { WordDetailPage } from "./pages/WordDetailPage";
 import { WordEditPage } from "./pages/WordEditPage";
 
+// GroupEditPage はグループ間のナビゲーション（params のみ変化、remount なし）で
+// groupDraft/bulkText/pendingRemoveItem 等のローカル state が前のグループ分を
+// 引き継いでしまうため、groupId をキーにして強制的に remount させる。
+function GroupEditPageForRoute() {
+  const { groupId } = useParams();
+  return <GroupEditPage key={groupId} />;
+}
+
 function App() {
   return (
     <Routes>
@@ -24,7 +32,7 @@ function App() {
         <Route path="/etymology-components/:componentText" element={<EtymologyComponentPage />} />
         <Route path="/groups" element={<GroupListPage />} />
         <Route path="/groups/:groupId" element={<GroupDetailPage />} />
-        <Route path="/groups/:groupId/edit" element={<GroupEditPage />} />
+        <Route path="/groups/:groupId/edit" element={<GroupEditPageForRoute />} />
         <Route path="/phrases" element={<PhraseListPage />} />
         <Route path="/phrases/:phraseId" element={<PhraseDetailPage />} />
         <Route path="/phrases/:phraseId/edit" element={<PhraseEditPage />} />

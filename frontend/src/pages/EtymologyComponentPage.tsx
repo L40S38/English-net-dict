@@ -21,7 +21,7 @@ export function EtymologyComponentPage() {
   const [pendingDeleteWord, setPendingDeleteWord] = useState<{ id: number; word: string } | null>(
     null,
   );
-  const [showRegisterConfirm, setShowRegisterConfirm] = useState(true);
+  const [showRegisterConfirm, setShowRegisterConfirm] = useState(false);
   const componentMeaning = (searchParams.get("meaning") ?? "").trim();
   const fromWord = (searchParams.get("from") ?? "").trim();
   const componentQuery = useQuery({

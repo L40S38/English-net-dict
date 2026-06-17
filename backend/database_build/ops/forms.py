@@ -39,8 +39,12 @@ def normalize_marker_forms(word: str, forms: dict) -> dict:
         return next_forms
     if c == "er":
         next_forms["comparative"] = reg_c
+    elif c == "more":
+        next_forms["comparative"] = f"more {word}"
     if s == "est":
         next_forms["superlative"] = reg_s
+    elif s == "most":
+        next_forms["superlative"] = f"most {word}"
     return next_forms
 
 

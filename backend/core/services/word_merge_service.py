@@ -99,12 +99,19 @@ def merge_into_lemma(db: Session, inflected: Word, lemma: Word) -> None:
         db.add(WordPhrase(word_id=lemma.id, phrase_id=link.phrase_id))
         phrase_ids.add(link.phrase_id)
 
+    # Only one image per word should be active at a time (see image_service's
+    # "deactivate existing, then add new" pattern); copying inflected's images
+    # verbatim could give lemma a second active image if both already have one.
+    lemma_has_active_image = any(image.is_active for image in lemma.images)
     for image in list(inflected.images):
+        is_active = image.is_active and not lemma_has_active_image
+        if is_active:
+            lemma_has_active_image = True
         lemma.images.append(
             WordImage(
                 file_path=image.file_path,
                 prompt=image.prompt,
-                is_active=image.is_active,
+                is_active=is_active,
                 created_at=image.created_at,
             )
         )

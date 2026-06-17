@@ -1,5 +1,12 @@
 import { Plus } from "lucide-react";
 
+// 新規追加項目の仮 id。負数にしてサーバー側の実 id (正数) と区別する。
+// `-Date.now()` は同一ミリ秒内に連続で追加すると衝突するため、単調減少カウンタを使う。
+let nextLocalId = -1;
+function generateLocalId(): number {
+  return nextLocalId--;
+}
+
 import { BranchFormBlock } from "../BranchFormBlock";
 import { ComponentFormBlock } from "../ComponentFormBlock";
 import { ComponentMeaningFormBlock } from "../ComponentMeaningFormBlock";
@@ -77,7 +84,7 @@ export function WordEditBasicTab({
           setDefinitions((prev) => [
             ...prev,
             {
-              id: -Date.now(),
+              id: generateLocalId(),
               part_of_speech: POS_OPTIONS[0].value,
               meaning_en: "",
               meaning_ja: "",
@@ -482,7 +489,7 @@ export function WordEditDerivationsTab({
           setDerivations((prev) => [
             ...prev,
             {
-              id: -Date.now(),
+              id: generateLocalId(),
               derived_word: "",
               part_of_speech: POS_OPTIONS[0].value,
               meaning_ja: "",
@@ -534,7 +541,7 @@ export function WordEditRelatedTab({
           setRelatedWords((prev) => [
             ...prev,
             {
-              id: -Date.now(),
+              id: generateLocalId(),
               related_word: "",
               relation_type: "synonym",
               note: "",

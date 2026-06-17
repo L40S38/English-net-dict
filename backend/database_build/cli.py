@@ -23,8 +23,12 @@ from database_build.reporting import print_diffs, print_summary
 from database_build.selectors import load_words
 
 
-def _add_common_args(parser: argparse.ArgumentParser) -> None:
+def _add_db_arg(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--db", type=str, default=None, help="DB path or SQLAlchemy URL")
+
+
+def _add_common_args(parser: argparse.ArgumentParser) -> None:
+    _add_db_arg(parser)
     parser.add_argument("--dry-run", action="store_true", help="更新せずに差分だけ確認")
     parser.add_argument("--limit", type=int, default=None, metavar="N", help="先頭 N 件だけ処理")
     parser.add_argument("--word", type=str, default=None, help="指定した単語のみ処理")
@@ -446,7 +450,7 @@ def build_parser() -> argparse.ArgumentParser:
     ety_comp = sub.add_parser("etymology-components")
     ety_comp_sub = ety_comp.add_subparsers(dest="action", required=True)
     ety_comp_create = ety_comp_sub.add_parser("create")
-    _add_common_args(ety_comp_create)
+    _add_db_arg(ety_comp_create)
     ety_comp_create.add_argument("--component", required=True)
 
     async def _handler_comp_create(a: argparse.Namespace) -> int:
@@ -459,7 +463,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     ety_comp_create.set_defaults(handler=lambda a: asyncio.run(_handler_comp_create(a)))
     ety_comp_rescrape = ety_comp_sub.add_parser("rescrape")
-    _add_common_args(ety_comp_rescrape)
+    _add_db_arg(ety_comp_rescrape)
     ety_comp_rescrape.add_argument("--component", required=True)
 
     async def _handler_comp_rescrape(a: argparse.Namespace) -> int:
@@ -498,10 +502,10 @@ def build_parser() -> argparse.ArgumentParser:
     inspect = sub.add_parser("inspect")
     inspect_sub = inspect.add_subparsers(dest="inspect_action", required=True)
     inspect_tables = inspect_sub.add_parser("tables")
-    _add_common_args(inspect_tables)
+    _add_db_arg(inspect_tables)
     inspect_tables.set_defaults(handler=_run_inspect)
     inspect_schema = inspect_sub.add_parser("schema")
-    _add_common_args(inspect_schema)
+    _add_db_arg(inspect_schema)
     inspect_schema.add_argument("--table", required=True)
     inspect_schema.set_defaults(handler=_run_inspect)
 

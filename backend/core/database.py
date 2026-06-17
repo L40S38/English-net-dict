@@ -37,6 +37,9 @@ if is_sqlite:
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA busy_timeout=30000")
         cursor.execute("PRAGMA synchronous=NORMAL")
+        # SQLite does not enforce FOREIGN KEY constraints (including ON DELETE
+        # CASCADE) unless explicitly enabled per-connection.
+        cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
 
 

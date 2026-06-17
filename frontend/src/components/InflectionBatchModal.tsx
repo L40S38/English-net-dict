@@ -116,7 +116,7 @@ export function InflectionBatchModal({
         <p className="modal-message">候補 {items.length} 件をまとめて確認します。</p>
 
         <div className="inflection-batch-list">
-          {items.map((item) => {
+          {items.map((item, itemIndex) => {
             const inflectionLabel = item.selectedInflectionType
               ? (INFLECTION_LABELS[item.selectedInflectionType] ?? item.selectedInflectionType)
               : "原形";
@@ -126,7 +126,7 @@ export function InflectionBatchModal({
               spelling: null,
             };
             return (
-              <div key={item.word} className="inflection-batch-row">
+              <div key={`${item.word}-${itemIndex}`} className="inflection-batch-row">
                 <div>
                   <strong>{item.word}</strong>
                   <div className="muted">

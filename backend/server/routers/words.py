@@ -641,9 +641,17 @@ _BULK_ITEM_SQLITE_LOCK_BACKOFF_S = 0.05
 
 def _is_sqlite_database_locked(exc: OperationalError) -> bool:
     orig = getattr(exc, "orig", None)
-    if isinstance(orig, sqlite3.OperationalError):
-        return "locked" in str(orig).lower()
-    return False
+    if not isinstance(orig, sqlite3.OperationalError):
+        return False
+    # Prefer the structured SQLite error code (Python 3.11+) over message
+    # substring matching, which is brittle across sqlite3 versions/locales
+    # and was missing SQLITE_BUSY variants that don't say "locked" verbatim
+    # (e.g. "database is busy").
+    error_name = getattr(orig, "sqlite_errorname", None)
+    if error_name:
+        return error_name in {"SQLITE_BUSY", "SQLITE_LOCKED"}
+    message = str(orig).lower()
+    return "locked" in message or "busy" in message
 
 
 async def _ingest_bulk_item_with_commit(
@@ -894,6 +902,19 @@ def update_definition(
     for key, value in payload.model_dump().items():
         if key == "part_of_speech":
             setattr(definition, key, normalize_part_of_speech(value))
+        elif key == "examples":
+            # `examples` is a SQLAlchemy relationship; assigning the raw
+            # dicts from model_dump() directly crashes (they aren't ORM
+            # instances), so rebuild it from DefinitionExample rows instead.
+            definition.examples.clear()
+            for idx, example in enumerate(value):
+                definition.examples.append(
+                    DefinitionExample(
+                        example_en=example.get("example_en", ""),
+                        example_ja=example.get("example_ja", ""),
+                        sort_order=example.get("sort_order", idx),
+                    )
+                )
         else:
             setattr(definition, key, value)
     db.commit()
@@ -945,8 +966,8 @@ def update_etymology(word_id: int, payload: EtymologyUpdate, db: Session = Depen
     return EtymologyRead.model_validate(word.etymology)
 
 
-@router.post("/{word_id}/derivations", response_model=DerivationRead)
-def create_derivation(word_id: int, payload: DerivationCreate, db: Session = Depends(get_db)) -> DerivationRead:
+@router.post("/{word_id}/derivations", response_model=list[DerivationRead])
+def create_derivation(word_id: int, payload: DerivationCreate, db: Session = Depends(get_db)) -> list[DerivationRead]:
     word = db.get(Word, word_id)
     if not word:
         raise HTTPException(status_code=404, detail="Word not found")
@@ -967,8 +988,9 @@ def create_derivation(word_id: int, payload: DerivationCreate, db: Session = Dep
     db.flush()
     _link_derivations(db, word)
     db.commit()
-    db.refresh(created_items[0])
-    return DerivationRead.model_validate(created_items[0])
+    for item in created_items:
+        db.refresh(item)
+    return [DerivationRead.model_validate(item) for item in created_items]
 
 
 @router.put("/{word_id}/derivations/{der_id}", response_model=DerivationRead)
@@ -1018,8 +1040,8 @@ def delete_derivation(word_id: int, der_id: int, db: Session = Depends(get_db)) 
     return {"ok": True}
 
 
-@router.post("/{word_id}/related-words", response_model=RelatedWordRead)
-def create_related_word(word_id: int, payload: RelatedWordCreate, db: Session = Depends(get_db)) -> RelatedWordRead:
+@router.post("/{word_id}/related-words", response_model=list[RelatedWordRead])
+def create_related_word(word_id: int, payload: RelatedWordCreate, db: Session = Depends(get_db)) -> list[RelatedWordRead]:
     word = db.get(Word, word_id)
     if not word:
         raise HTTPException(status_code=404, detail="Word not found")
@@ -1039,8 +1061,9 @@ def create_related_word(word_id: int, payload: RelatedWordCreate, db: Session = 
     db.flush()
     _link_related_words(db, word)
     db.commit()
-    db.refresh(created_items[0])
-    return RelatedWordRead.model_validate(created_items[0])
+    for item in created_items:
+        db.refresh(item)
+    return [RelatedWordRead.model_validate(item) for item in created_items]
 
 
 @router.put("/{word_id}/related-words/{rel_id}", response_model=RelatedWordRead)

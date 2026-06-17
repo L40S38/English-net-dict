@@ -5,6 +5,7 @@ import unicodedata
 from collections import OrderedDict
 
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from core.models import Phrase, PhraseDefinition, Word, WordPhrase
@@ -56,7 +57,10 @@ def find_phrase_by_text(db: Session, raw_text: str) -> Phrase | None:
     normalized = normalize_phrase_text(raw_text)
     if not normalized:
         return None
-    stmt = select(Phrase).where(Phrase.text == normalized)
+    # Case-insensitive lookup: must match apply_full_update's duplicate check
+    # (func.lower comparison), otherwise get_or_create_phrase can create a
+    # second Phrase row that differs only by letter case.
+    stmt = select(Phrase).where(func.lower(Phrase.text) == normalized.lower())
     return db.scalar(stmt)
 
 
@@ -96,8 +100,22 @@ def get_or_create_phrase(db: Session, raw_text: str, meaning: str = "") -> Phras
         return phrase
 
     phrase = Phrase(text=normalized, meaning=merge_meanings(meaning or ""))
-    db.add(phrase)
-    db.flush()
+    try:
+        with db.begin_nested():
+            db.add(phrase)
+            db.flush()
+    except IntegrityError:
+        # Another concurrent request created the same phrase between our
+        # lookup and insert; the SAVEPOINT above is rolled back automatically,
+        # leaving the rest of this session's pending work intact. Reuse the
+        # row the other request created instead of raising a 500.
+        phrase = find_phrase_by_text(db, normalized)
+        if phrase is None:
+            raise
+        merged = merge_meanings(phrase.meaning or "", meaning or "")
+        if merged != (phrase.meaning or ""):
+            phrase.meaning = merged
+            db.flush()
     return phrase
 
 

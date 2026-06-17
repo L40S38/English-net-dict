@@ -27,11 +27,13 @@ export async function createWordsWithInflectionCheck(
   openInflectionModal: OpenInflectionModalFn,
   options?: {
     onChunkProgress?: (completed: number, total: number) => void;
+    onItemError?: (word: string, error: unknown) => void;
   },
 ): Promise<Word[]> {
   const BULK_CHUNK_SIZE = resolveBulkChunkSize();
   const total = words.length;
   const onProgress = options?.onChunkProgress;
+  const onItemError = options?.onItemError;
   onProgress?.(0, total);
 
   const allCreatedWords: Word[] = [];
@@ -42,6 +44,7 @@ export async function createWordsWithInflectionCheck(
     const checkResults = inflectionCheck.results ?? [];
     const inflected = checkResults.filter((item) => item.is_inflected);
     let inflectionDecisions: Record<string, InflectionBatchDecision> = {};
+    let inflectionCancelled = false;
     if (inflected.length > 0) {
       const selectedActions = await openInflectionModal({
         title: `活用形チェック (${start + 1}-${Math.min(start + chunk.length, words.length)}件目)`,
@@ -70,26 +73,36 @@ export async function createWordsWithInflectionCheck(
           suggestion: item.suggestion ?? "register_as_is",
         })),
       });
-      if (!selectedActions) {
-        onProgress?.(Math.min(start + chunk.length, words.length), total);
-        continue;
+      if (selectedActions) {
+        inflectionDecisions = selectedActions;
+      } else {
+        inflectionCancelled = true;
       }
-      inflectionDecisions = selectedActions;
     }
     for (const word of chunk) {
       const matched = checkResults.find((item) => item.word.toLowerCase() === word.toLowerCase());
-      if (matched?.is_inflected) {
-        const decision = inflectionDecisions[word];
-        const action = decision?.action ?? matched.suggestion ?? "register_as_is";
-        const lemmaWord = decision?.lemma ?? matched.selected_lemma ?? null;
-        const response = await wordApi.create(word, {
-          inflection_action: action,
-          lemma_word: action === "register_as_is" ? null : lemmaWord,
-        });
-        allCreatedWords.push(...response.words);
-      } else {
-        const response = await wordApi.create(word);
-        allCreatedWords.push(...response.words);
+      // モーダルがキャンセルされた場合、活用形が絡む単語だけをスキップする
+      // （チャンク全体をスキップすると、活用形と無関係な単語まで失われる）。
+      if (matched?.is_inflected && inflectionCancelled) {
+        onItemError?.(word, new Error("活用形チェックがキャンセルされました"));
+        continue;
+      }
+      try {
+        if (matched?.is_inflected) {
+          const decision = inflectionDecisions[word];
+          const action = decision?.action ?? matched.suggestion ?? "register_as_is";
+          const lemmaWord = decision?.lemma ?? matched.selected_lemma ?? null;
+          const response = await wordApi.create(word, {
+            inflection_action: action,
+            lemma_word: action === "register_as_is" ? null : lemmaWord,
+          });
+          allCreatedWords.push(...response.words);
+        } else {
+          const response = await wordApi.create(word);
+          allCreatedWords.push(...response.words);
+        }
+      } catch (error) {
+        onItemError?.(word, error);
       }
     }
     onProgress?.(Math.min(start + chunk.length, words.length), total);

@@ -153,11 +153,14 @@ export function GroupEditPage() {
     setInflectionModalState({ open: false, title: "", items: [] });
   };
 
+  const bulkCreateFailuresRef = useRef<string[]>([]);
+
   const bulkCreateWithInflectionMutation = useMutation({
     mutationFn: (words: string[]) =>
       createWordsWithInflectionCheck(words, openInflectionModal, {
         onChunkProgress: (completed, totalCount) =>
           setBulkFlowProgress({ completed, total: totalCount }),
+        onItemError: (word) => bulkCreateFailuresRef.current.push(word),
       }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["words"] });
@@ -169,6 +172,7 @@ export function GroupEditPage() {
       createPhrasesBulk(phrases, {
         onChunkProgress: (completed, totalCount) =>
           setBulkFlowProgress({ completed, total: totalCount }),
+        onItemError: (phrase) => bulkCreateFailuresRef.current.push(phrase),
       }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["words"] });
@@ -231,6 +235,7 @@ export function GroupEditPage() {
     }
     bulkFlowInFlightRef.current = true;
     setBulkFlowError(null);
+    bulkCreateFailuresRef.current = [];
     try {
       let targetWordIds = [...foundEntries.wordIds];
       let targetPhraseIds = [...foundEntries.phraseIds];
@@ -261,6 +266,11 @@ export function GroupEditPage() {
       setBulkText("");
       setBulkMissing({ words: [], phrases: [] });
       setBulkFound({ wordIds: [], phraseIds: [] });
+      if (bulkCreateFailuresRef.current.length > 0) {
+        setBulkFlowError(
+          `次の項目を登録できませんでした: ${bulkCreateFailuresRef.current.join(", ")}`,
+        );
+      }
     } catch (error) {
       setBulkFlowError(formatBulkFlowApiError(error));
       setBulkMissing({ words: [], phrases: [] });

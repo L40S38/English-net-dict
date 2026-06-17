@@ -82,9 +82,13 @@ export function PhraseEditPage() {
   // useEffect でなく render 中の setState（React 公式の「データが変わったときに state を調整する」パターン）
   // を用いることで、`react-hooks/set-state-in-effect` 違反を回避しつつ無駄な再 render を避ける。
   // ref: https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
-  const [syncedPhrase, setSyncedPhrase] = useState<Phrase | null>(null);
-  if (phraseQuery.data && phraseQuery.data !== syncedPhrase) {
-    setSyncedPhrase(phraseQuery.data);
+  //
+  // キーは data の参照ではなく phrase.id にする。enrich 等で invalidateQueries が走ると
+  // 同じ熟語に対して新しい data 参照が来るが、その度に編集中の他タブの未保存内容を
+  // 上書きしてしまうため、「編集対象の熟語が変わったとき」だけ同期する。
+  const [syncedPhraseId, setSyncedPhraseId] = useState<number | null>(null);
+  if (phraseQuery.data && phraseQuery.data.id !== syncedPhraseId) {
+    setSyncedPhraseId(phraseQuery.data.id);
     setText(phraseQuery.data.text);
     setMeaning(phraseQuery.data.meaning ?? "");
     setDefinitions(phraseQuery.data.definitions ?? []);

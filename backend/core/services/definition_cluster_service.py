@@ -127,7 +127,14 @@ def cluster_definitions_sync(
         except Exception:  # noqa: BLE001
             components = [[i] for i in range(len(entries))]
         if len(components) > max_per_pos:
-            components = components[:max_per_pos]
+            # The fallback paths above (embedding failure, or some texts
+            # failing to embed) skip clustering entirely, so without this,
+            # slicing to max_per_pos would silently discard every definition
+            # past the cap instead of folding it into a kept cluster.
+            kept = [list(comp) for comp in components[:max_per_pos]]
+            for overflow_idx, comp in enumerate(components[max_per_pos:]):
+                kept[overflow_idx % max_per_pos].extend(comp)
+            components = kept
         for comp in components:
             members = [entries[i] for i in comp]
             members.sort(key=lambda x: int(x.get("_original_index", 0)))

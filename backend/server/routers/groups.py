@@ -202,6 +202,8 @@ def add_group_item(group_id: int, payload: WordGroupItemCreate, db: Session = De
             raise HTTPException(status_code=404, detail="Definition not found")
         item.word_id = word.id
         item.definition_id = definition.id
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported item_type: {item_type}")
     db.add(item)
     db.commit()
     refreshed = db.scalar(
@@ -229,8 +231,11 @@ def bulk_add_group_items(
         raise HTTPException(status_code=404, detail="Group not found")
     targets = [word_id for word_id in payload.word_ids if isinstance(word_id, int) and word_id > 0]
     phrase_targets = [phrase_id for phrase_id in payload.phrase_ids if isinstance(phrase_id, int) and phrase_id > 0]
+    # Entries that don't even look like a valid id (wrong type, zero, negative)
+    # were previously dropped silently instead of being counted as skipped.
+    invalid_count = (len(payload.word_ids) - len(targets)) + (len(payload.phrase_ids) - len(phrase_targets))
     if not targets and not phrase_targets:
-        return GroupBulkAddItemsResponse(added=0, skipped=0)
+        return GroupBulkAddItemsResponse(added=0, skipped=invalid_count)
 
     existing_word_ids = set(
         db.scalars(
@@ -259,7 +264,7 @@ def bulk_add_group_items(
     }
 
     added = 0
-    skipped = 0
+    skipped = invalid_count
     for word_id in targets:
         if word_id not in valid_word_ids or word_id in existing_word_ids:
             skipped += 1

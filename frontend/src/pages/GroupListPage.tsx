@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { ConfirmModal } from "../components/ConfirmModal";
@@ -8,19 +8,29 @@ import { groupApi } from "../lib/api";
 import { groupNameLengthErrorMessage, groupNameTooLong } from "../lib/groupNameLimits";
 import styles from "./GroupListPage.module.css";
 
+const DEBOUNCE_MS = 300;
+
 export function GroupListPage() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [groupNameErrorOpen, setGroupNameErrorOpen] = useState(false);
   const [pendingDeleteGroup, setPendingDeleteGroup] = useState<{ id: number; name: string } | null>(
     null,
   );
   const queryClient = useQueryClient();
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedQuery(query.trim());
+    }, DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [query]);
+
   const groupsQuery = useQuery({
-    queryKey: ["groups", query],
-    queryFn: () => groupApi.list({ q: query.trim(), page: 1, page_size: 50 }),
+    queryKey: ["groups", debouncedQuery],
+    queryFn: () => groupApi.list({ q: debouncedQuery, page: 1, page_size: 50 }),
   });
 
   const createMutation = useMutation({

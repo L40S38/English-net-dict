@@ -55,8 +55,20 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
+function isIdempotentMethod(method?: string): boolean {
+  const normalized = (method ?? "get").toLowerCase();
+  return normalized === "get" || normalized === "head" || normalized === "options";
+}
+
 function isRetryableConnectionError(error: AxiosError): boolean {
   if (error.response) {
+    return false;
+  }
+  // POST/PUT/DELETE 等は、サーバー側で処理が完了した後にレスポンスだけが
+  // ネットワークエラーで失われるケースがあり、自動リトライすると同じ操作が
+  // 二重に実行されてしまう（例: 単語の重複作成）。安全に再送できるのは
+  // 副作用のない GET 系メソッドのみ。
+  if (!isIdempotentMethod(error.config?.method)) {
     return false;
   }
   if (error.code === "ERR_NETWORK" || error.code === "ECONNABORTED") {

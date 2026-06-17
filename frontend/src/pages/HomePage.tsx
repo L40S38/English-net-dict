@@ -83,6 +83,7 @@ export function HomePage() {
   const [bulkProgress, setBulkProgress] = useState<{ completed: number; total: number } | null>(
     null,
   );
+  const [bulkImportErrors, setBulkImportErrors] = useState<string[]>([]);
   const [confirmState, setConfirmState] = useState<{
     open: boolean;
     title: string;
@@ -202,10 +203,15 @@ export function HomePage() {
   const bulkMutation = useMutation({
     mutationFn: async (words: string[]) => {
       setBulkProgress({ completed: 0, total: words.length });
-      return createWordsWithInflectionCheck(words, openInflectionModal, {
+      setBulkImportErrors([]);
+      const failed: string[] = [];
+      const created = await createWordsWithInflectionCheck(words, openInflectionModal, {
         onChunkProgress: (completed, totalCount) =>
           setBulkProgress({ completed, total: totalCount }),
+        onItemError: (word) => failed.push(word),
       });
+      setBulkImportErrors(failed);
+      return created;
     },
     onSuccess: async (createdWords) => {
       setSessionWords((prev) => {
@@ -378,6 +384,11 @@ export function HomePage() {
         loading={bulkMutation.isPending}
         progress={bulkProgress}
       />
+      {bulkImportErrors.length > 0 && (
+        <Muted as="p">
+          次の項目を登録できませんでした: {bulkImportErrors.join(", ")}
+        </Muted>
+      )}
       <hr className="section-divider" />
       {wordsQuery.isLoading && <Muted as="p">単語データを読み込み中...</Muted>}
       <div className="row" style={{ flexWrap: "wrap", alignItems: "flex-end" }}>
