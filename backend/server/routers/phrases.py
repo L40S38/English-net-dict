@@ -59,6 +59,7 @@ def _to_phrase_read(db: Session, phrase: Phrase) -> PhraseRead:
             "id": phrase.id,
             "text": phrase.text,
             "meaning": phrase.meaning or "",
+            "audio_path": phrase.audio_path,
             "created_at": phrase.created_at,
             "updated_at": phrase.updated_at,
             "definitions": phrase.definitions,

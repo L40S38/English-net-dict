@@ -21,6 +21,7 @@ import type {
   PhraseImage,
   PhraseCheckResponse,
   Phrase,
+  PhraseDefinition,
   WordSummary,
   RelatedWord,
   Word,
@@ -292,6 +293,16 @@ export const wordApi = {
     const { data } = await api.get<{ prompt: string }>(`/api/words/${wordId}/default-image-prompt`);
     return data.prompt;
   },
+  async generateAudio(wordId: number) {
+    const { data } = await api.post<Word>(`/api/words/${wordId}/generate-audio`);
+    return data;
+  },
+  async generateExampleAudio(wordId: number, exampleId: number) {
+    const { data } = await api.post<Definition["examples"][number]>(
+      `/api/words/${wordId}/examples/${exampleId}/generate-audio`,
+    );
+    return data;
+  },
   async listPhrases(wordId: number) {
     const { data } = await api.get<Phrase[]>(`/api/words/${wordId}/phrases`);
     return data;
@@ -559,6 +570,16 @@ export const phraseApi = {
       `/api/phrases/${phraseId}/default-image-prompt`,
     );
     return data.prompt;
+  },
+  async generateAudio(phraseId: number) {
+    const { data } = await api.post<Phrase>(`/api/phrases/${phraseId}/generate-audio`);
+    return data;
+  },
+  async generateDefinitionAudio(phraseId: number, definitionId: number) {
+    const { data } = await api.post<PhraseDefinition>(
+      `/api/phrases/${phraseId}/definitions/${definitionId}/generate-audio`,
+    );
+    return data;
   },
   async delete(phraseId: number) {
     await api.delete(`/api/phrases/${phraseId}`);

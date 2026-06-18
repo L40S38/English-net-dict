@@ -505,6 +505,7 @@ def to_word_read(db: Session, word: Word) -> WordRead:
             "id": phrase.id,
             "text": phrase.text,
             "meaning": phrase.meaning or "",
+            "audio_path": phrase.audio_path,
             "created_at": phrase.created_at,
             "updated_at": phrase.updated_at,
         }
@@ -528,6 +529,7 @@ def to_word_read(db: Session, word: Word) -> WordRead:
         "id": word.id,
         "word": word.word,
         "phonetic": word.phonetic,
+        "audio_path": word.audio_path,
         "forms": forms_data,
         "created_at": word.created_at,
         "updated_at": word.updated_at,

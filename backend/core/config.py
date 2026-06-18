@@ -28,9 +28,12 @@ class Settings(BaseSettings):
     openai_model_chat: str = "gpt-4o-mini"
     openai_image_model: str = "gpt-image-1"
     openai_image_size: str = "1024x1536"
+    openai_tts_model: str = "tts-1"
+    openai_tts_voice: str = "alloy"
     data_dir: str = str(DATA_DIR.resolve())
     database_url: str = f"sqlite:///{DEFAULT_DB_PATH.as_posix()}"
     image_dir: str = str((DATA_DIR / "images").resolve())
+    audio_dir: str = str((DATA_DIR / "audio").resolve())
     cors_origins: list[str] = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",

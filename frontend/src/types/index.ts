@@ -13,6 +13,7 @@ export interface Phrase {
   id: number;
   text: string;
   meaning: string;
+  audio_path?: string | null;
   created_at: string;
   updated_at: string;
   definitions?: PhraseDefinition[];
@@ -34,6 +35,7 @@ export interface PhraseDefinition {
   example_en: string;
   example_ja: string;
   sort_order: number;
+  audio_path?: string | null;
 }
 
 export interface PhraseImage {
@@ -48,6 +50,7 @@ export interface WordSummary {
   id: number;
   word: string;
   phonetic?: string | null;
+  audio_path?: string | null;
 }
 
 export interface WordForms {
@@ -103,6 +106,7 @@ export interface Definition {
     example_en: string;
     example_ja: string;
     sort_order: number;
+    audio_path?: string | null;
   }>;
   sort_order: number;
 }
@@ -149,6 +153,7 @@ export interface Word {
   id: number;
   word: string;
   phonetic?: string | null;
+  audio_path?: string | null;
   forms?: WordForms;
   created_at: string;
   updated_at: string;

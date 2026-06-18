@@ -1,13 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 
+import { AudioPlayButton } from "../components/AudioPlayButton";
 import { ImageViewer } from "../components/ImageViewer";
 import { PageHeader } from "../components/PageHeader";
 import { PhraseChatPanel } from "../components/PhraseChatPanel";
 import { PhraseComponentWords } from "../components/PhraseComponentWords";
 import { PhraseDefinitions } from "../components/PhraseDefinitions";
 import { PhraseWiktionaryRelations } from "../components/PhraseWiktionaryRelations";
-import { Muted } from "../components/atom";
+import { Muted, Row } from "../components/atom";
 import { phraseApi } from "../lib/api";
 
 export function PhraseDetailPage() {
@@ -64,7 +65,19 @@ export function PhraseDetailPage() {
           </>
         }
       />
-      {phrase?.meaning ? <Muted as="p">意味: {phrase.meaning}</Muted> : null}
+      {phrase && (
+        <Row>
+          {phrase.meaning ? <Muted as="p">意味: {phrase.meaning}</Muted> : null}
+          <AudioPlayButton
+            audioPath={phrase.audio_path}
+            onGenerate={async () => {
+              const updated = await phraseApi.generateAudio(phrase.id);
+              await queryClient.invalidateQueries({ queryKey: ["phrase", phraseId] });
+              return updated;
+            }}
+          />
+        </Row>
+      )}
 
       {phraseQuery.isLoading && <Muted as="p">熟語情報を読み込み中...</Muted>}
       {!phraseQuery.isLoading && !phrase && <Muted as="p">熟語が見つかりません。</Muted>}

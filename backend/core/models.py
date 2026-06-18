@@ -17,6 +17,7 @@ class Word(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     word: Mapped[str] = mapped_column(String(128), unique=True, index=True)
     phonetic: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    audio_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     forms: Mapped[dict] = mapped_column(JSON, default=dict)
     last_viewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     lemma_word_id: Mapped[int | None] = mapped_column(
@@ -88,6 +89,7 @@ class DefinitionExample(Base):
     example_en: Mapped[str] = mapped_column(Text, default="")
     example_ja: Mapped[str] = mapped_column(Text, default="")
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    audio_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
     definition_ref: Mapped[Definition] = relationship(back_populates="examples")
 
@@ -282,6 +284,7 @@ class Phrase(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     text: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     meaning: Mapped[str] = mapped_column(Text, default="")
+    audio_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     wiktionary_synonyms: Mapped[list[str]] = mapped_column(JSON, default=list)
     wiktionary_antonyms: Mapped[list[str]] = mapped_column(JSON, default=list)
     wiktionary_see_also: Mapped[list[str]] = mapped_column(JSON, default=list)
@@ -318,6 +321,7 @@ class PhraseDefinition(Base):
     example_en: Mapped[str] = mapped_column(Text, default="")
     example_ja: Mapped[str] = mapped_column(Text, default="")
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    audio_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
     phrase_ref: Mapped[Phrase] = relationship(back_populates="definitions")
 

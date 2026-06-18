@@ -24,6 +24,7 @@ class DefinitionExampleUpdate(DefinitionExampleBase):
 
 class DefinitionExampleRead(DefinitionExampleBase):
     id: int
+    audio_path: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -46,6 +47,7 @@ class DefinitionUpdate(DefinitionBase):
 
 class DefinitionRead(DefinitionBase):
     id: int
+    examples: list[DefinitionExampleRead] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 
@@ -330,6 +332,7 @@ class PhraseDefinitionWrite(PhraseDefinitionBase):
 
 class PhraseDefinitionRead(PhraseDefinitionBase):
     id: int
+    audio_path: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -348,6 +351,7 @@ class WordSummary(BaseModel):
     id: int
     word: str
     phonetic: str | None = None
+    audio_path: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -356,6 +360,7 @@ class PhraseRead(PhraseBase):
     id: int
     created_at: datetime
     updated_at: datetime
+    audio_path: str | None = None
     definitions: list[PhraseDefinitionRead] = Field(default_factory=list)
     images: list[PhraseImageRead] = Field(default_factory=list)
     words: list[WordSummary] = Field(default_factory=list)
@@ -385,6 +390,7 @@ class WordRead(BaseModel):
     id: int
     word: str
     phonetic: str | None = None
+    audio_path: str | None = None
     forms: dict = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
