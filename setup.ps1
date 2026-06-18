@@ -25,4 +25,4 @@ finally {
     Pop-Location
 }
 
-Write-Host "setup done. run ./start.ps1 to serve."
+Write-Host "setup done. run ./start.ps1 (PowerShell) or start.bat (Command Prompt) to serve."
