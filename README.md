@@ -34,6 +34,9 @@ Run from the project root.
 # PowerShell (Windows)
 ./setup.ps1
 
+# Command Prompt (Windows)
+setup.bat
+
 # Bash (macOS / Linux / Git Bash)
 ./setup.sh
 ```
@@ -46,11 +49,14 @@ Runs `uv sync` in `backend/`, then `npm ci` + `npm run build` in `frontend/`.
 # PowerShell (Windows)
 ./start.ps1
 
+# Command Prompt (Windows)
+start.bat
+
 # Bash (macOS / Linux / Git Bash)
 ./start.sh
 ```
 
-Starts FastAPI at `http://127.0.0.1:8000/` serving both API and the built frontend. Re-run `setup` only when deps or frontend assets change.
+Starts the backend (uvicorn, `http://127.0.0.1:8000/`) and serves the built frontend via `vite preview` (`http://127.0.0.1:5173/`) as a separate origin, with CORS allowing the frontend to call the API. `start` does not rebuild — re-run `setup` only when deps or frontend assets change.
 
 ## Lint / Format
 
