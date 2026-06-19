@@ -13,7 +13,7 @@ export function WeakWordsPanel() {
   return (
     <Card stack>
       <h3>苦手な単語</h3>
-      {isLoading && <Muted as="p">読み込み中...</Muted>}
+      {isLoading && <Muted as="p">読み込み中…</Muted>}
       {!isLoading && (data?.length ?? 0) === 0 && <Muted as="p">まだディクテーションの履歴がありません。</Muted>}
       <Stack>
         {data?.map((stat) => (

@@ -43,7 +43,11 @@ export function VoiceComparePanel({ line, onAudioGenerated }: VoiceComparePanelP
               {variant.is_primary ? "（既定）" : ""}
             </span>
             {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-            <audio controls src={`${baseUrl}/static/${variant.audio_path}`} />
+            <audio
+              controls
+              aria-label={`${variant.voice}の音声${variant.is_primary ? "(既定)" : ""}`}
+              src={`${baseUrl}/static/${variant.audio_path}`}
+            />
           </Row>
         ))}
       </Stack>

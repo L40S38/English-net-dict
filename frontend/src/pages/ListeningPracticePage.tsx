@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 
 import { ListeningStepNav } from "../components/listening/ListeningStepNav";
 import { PlaybackControls } from "../components/listening/PlaybackControls";
@@ -8,9 +8,10 @@ import { VoiceCompareModal } from "../components/listening/VoiceCompareModal";
 import { PageHeader } from "../components/PageHeader";
 import { Card, Muted, Row } from "../components/atom";
 import { useListeningSession } from "../lib/useListeningSession";
-import type { ListeningWordResult } from "../types";
+import type { ListeningStep, ListeningWordResult } from "../types";
 
 const DICTATION_LEVEL_LABELS = ["全文表示", "穴埋め(少)", "穴埋め(多)", "白紙"];
+const VALID_STEPS: ListeningStep[] = ["listen", "dictation", "read_aloud", "overlapping", "shadowing"];
 
 export function ListeningPracticePage() {
   const params = useParams();
@@ -18,6 +19,8 @@ export function ListeningPracticePage() {
   const [compareLineId, setCompareLineId] = useState<number | null>(null);
   const [lineFeedback, setLineFeedback] = useState<Record<number, ListeningWordResult[]>>({});
   const [showTranslation, setShowTranslation] = useState(true);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const appliedInitialParams = useRef(false);
 
   const {
     session,
@@ -32,6 +35,41 @@ export function ListeningPracticePage() {
     refetchScript,
   } = useListeningSession(sessionId);
 
+  // URLの ?step=&level= を初回だけセッションに反映し、リロード/共有リンクで
+  // 同じステップ・ディクテーションレベルに戻れるようにする。
+  useEffect(() => {
+    if (!session || appliedInitialParams.current) {
+      return;
+    }
+    appliedInitialParams.current = true;
+    const stepParam = searchParams.get("step");
+    const levelParam = searchParams.get("level");
+    if (stepParam && stepParam !== session.current_step && VALID_STEPS.includes(stepParam as ListeningStep)) {
+      setStep(stepParam as ListeningStep);
+    }
+    const levelNum = levelParam !== null ? Number(levelParam) : NaN;
+    if (Number.isFinite(levelNum) && levelNum !== session.dictation_level) {
+      setDictationLevel(levelNum);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session]);
+
+  // 以後はセッションの状態をURLに反映する(戻る/共有リンクで同じ位置に戻れるように)。
+  useEffect(() => {
+    if (!session) {
+      return;
+    }
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.set("step", session.current_step);
+        next.set("level", String(session.dictation_level));
+        return next;
+      },
+      { replace: true },
+    );
+  }, [session?.current_step, session?.dictation_level, setSearchParams]);
+
   if (!sessionId || Number.isNaN(sessionId)) {
     return (
       <main className="container">
@@ -43,7 +81,7 @@ export function ListeningPracticePage() {
   if (sessionLoading || scriptLoading || !session || !script) {
     return (
       <main className="container">
-        <p>Loading...</p>
+        <p>Loading…</p>
       </main>
     );
   }
@@ -88,6 +126,7 @@ export function ListeningPracticePage() {
         <label>
           <input
             type="checkbox"
+            name="show-translation"
             checked={showTranslation}
             onChange={(e) => setShowTranslation(e.target.checked)}
           />

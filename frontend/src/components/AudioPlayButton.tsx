@@ -62,16 +62,20 @@ export function AudioPlayButton({
   };
 
   const playing = isPlaying || forcePlaying;
+  const accessibleLabel = loading ? "音声を生成中…" : error ? "音声の生成に失敗しました" : audioUrl ? "再生" : "音声を生成";
 
   return (
     <button
       type="button"
       onClick={handleClick}
       disabled={loading}
-      title={audioUrl ? "再生" : "音声を生成"}
+      title={accessibleLabel}
+      aria-label={accessibleLabel}
       className={`audio-play-button${playing ? " is-playing" : ""}`}
     >
-      <span className="audio-play-icon">{loading ? "..." : error ? "⚠" : label}</span>
+      <span className="audio-play-icon" aria-hidden="true">
+        {loading ? "…" : error ? "⚠" : label}
+      </span>
     </button>
   );
 }
