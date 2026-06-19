@@ -132,6 +132,13 @@ export function Layout() {
                 <span className="side-menu-item-icon">G</span>
                 {showMenuLabels && <span>グループ</span>}
               </NavLink>
+              <NavLink
+                to="/listening"
+                className={({ isActive }) => `side-menu-item ${isActive ? "active" : ""}`}
+              >
+                <span className="side-menu-item-icon">L</span>
+                {showMenuLabels && <span>リスニング</span>}
+              </NavLink>
             </nav>
           )}
         </aside>

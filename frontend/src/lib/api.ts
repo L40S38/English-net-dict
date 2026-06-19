@@ -15,6 +15,13 @@ import type {
   GroupImage,
   InflectionAction,
   InflectionCheckResponse,
+  ListeningAttempt,
+  ListeningLine,
+  ListeningLineAudio,
+  ListeningScript,
+  ListeningSession,
+  ListeningSessionStatus,
+  ListeningStep,
   MigrationInflectionApplyDecision,
   MigrationInflectionApplyResponse,
   MigrationInflectionTargetsResponse,
@@ -24,6 +31,7 @@ import type {
   PhraseDefinition,
   WordSummary,
   RelatedWord,
+  WeakWordStat,
   Word,
   WordCreateResponse,
   WordForms,
@@ -583,6 +591,90 @@ export const phraseApi = {
   },
   async delete(phraseId: number) {
     await api.delete(`/api/phrases/${phraseId}`);
+  },
+};
+
+export const listeningApi = {
+  async generateRandomScript(payload?: {
+    topic?: string;
+    level?: string;
+    speaker_count?: number;
+    is_conversation?: boolean;
+  }) {
+    const { data } = await api.post<ListeningScript>("/api/listening/scripts/random", payload ?? {});
+    return data;
+  },
+  async createCustomScript(rawText: string) {
+    const { data } = await api.post<ListeningScript>("/api/listening/scripts/custom", {
+      raw_text: rawText,
+    });
+    return data;
+  },
+  async generateWeakReviewScript(payload?: {
+    level?: string;
+    speaker_count?: number;
+    is_conversation?: boolean;
+  }) {
+    const { data } = await api.post<ListeningScript>("/api/listening/scripts/weak-review", payload ?? {});
+    return data;
+  },
+  async getScript(scriptId: number) {
+    const { data } = await api.get<ListeningScript>(`/api/listening/scripts/${scriptId}`);
+    return data;
+  },
+  async generateLineAudio(lineId: number, voice?: string) {
+    const { data } = await api.post<ListeningLine>(`/api/listening/lines/${lineId}/generate-audio`, {
+      voice: voice ?? null,
+    });
+    return data;
+  },
+  async getLineAudioVariants(lineId: number) {
+    const { data } = await api.get<ListeningLineAudio[]>(`/api/listening/lines/${lineId}/audio-variants`);
+    return data;
+  },
+  async createSession(scriptId: number) {
+    const { data } = await api.post<ListeningSession>("/api/listening/sessions", {
+      script_id: scriptId,
+    });
+    return data;
+  },
+  async getSession(sessionId: number) {
+    const { data } = await api.get<ListeningSession>(`/api/listening/sessions/${sessionId}`);
+    return data;
+  },
+  async updateSession(
+    sessionId: number,
+    payload: Partial<{
+      current_step: ListeningStep;
+      playback_speed: number;
+      dictation_level: number;
+      status: ListeningSessionStatus;
+    }>,
+  ) {
+    const { data } = await api.patch<ListeningSession>(`/api/listening/sessions/${sessionId}`, payload);
+    return data;
+  },
+  async recordAttempt(
+    sessionId: number,
+    payload: { line_id: number; dictation_level: number; user_text: string },
+  ) {
+    const { data } = await api.post<ListeningAttempt>(
+      `/api/listening/sessions/${sessionId}/attempts`,
+      payload,
+    );
+    return data;
+  },
+  async listSessions(status?: ListeningSessionStatus) {
+    const { data } = await api.get<ListeningSession[]>("/api/listening/sessions", {
+      params: { status },
+    });
+    return data;
+  },
+  async getWeakWords(limit = 50) {
+    const { data } = await api.get<WeakWordStat[]>("/api/listening/analytics/weak-words", {
+      params: { limit },
+    });
+    return data;
   },
 };
 
