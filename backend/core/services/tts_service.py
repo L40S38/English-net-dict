@@ -16,7 +16,7 @@ def _slugify(text: str) -> str:
     return slug or "audio"
 
 
-def synthesize_speech(text: str, slug: str) -> str:
+def synthesize_speech(text: str, slug: str, voice: str | None = None) -> str:
     if not settings.openai_api_key:
         raise RuntimeError("OpenAI API key is not configured")
     if not text.strip():
@@ -30,7 +30,7 @@ def synthesize_speech(text: str, slug: str) -> str:
     client = OpenAI(api_key=settings.openai_api_key)
     response = client.audio.speech.create(
         model=settings.openai_tts_model,
-        voice=settings.openai_tts_voice,
+        voice=voice or settings.openai_tts_voice,
         input=text,
     )
     response.stream_to_file(file_path)

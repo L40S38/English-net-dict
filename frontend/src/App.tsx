@@ -9,6 +9,8 @@ import { GroupDetailPage } from "./pages/GroupDetailPage";
 import { GroupEditPage } from "./pages/GroupEditPage";
 import { GroupListPage } from "./pages/GroupListPage";
 import { HomePage } from "./pages/HomePage";
+import { ListeningHomePage } from "./pages/ListeningHomePage";
+import { ListeningPracticePage } from "./pages/ListeningPracticePage";
 import { PhraseDetailPage } from "./pages/PhraseDetailPage";
 import { PhraseEditPage } from "./pages/PhraseEditPage";
 import { PhraseListPage } from "./pages/PhraseListPage";
@@ -30,6 +32,8 @@ function App() {
         <Route path="/" element={<HomePage />} />
         <Route path="/etymology-search" element={<EtymologySearchPage />} />
         <Route path="/etymology-components/:componentText" element={<EtymologyComponentPage />} />
+        <Route path="/listening" element={<ListeningHomePage />} />
+        <Route path="/listening/sessions/:sessionId" element={<ListeningPracticePage />} />
         <Route path="/groups" element={<GroupListPage />} />
         <Route path="/groups/:groupId" element={<GroupDetailPage />} />
         <Route path="/groups/:groupId/edit" element={<GroupEditPageForRoute />} />
