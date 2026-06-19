@@ -19,6 +19,8 @@ export function PlaybackControls({ speed, onChange }: PlaybackControlsProps) {
         速度:
         <input
           type="number"
+          name="playback-speed"
+          autoComplete="off"
           min={0.25}
           max={3}
           step={0.05}
