@@ -444,6 +444,36 @@ export type ListeningStep = "listen" | "dictation" | "read_aloud" | "overlapping
 export type ListeningGenerationMode = "random" | "custom" | "weak_review";
 export type ListeningSourceType = "ai_generated" | "external_video";
 export type ListeningSessionStatus = "in_progress" | "completed";
+export type ListeningVoiceGender = "male" | "female" | "neutral";
+
+export interface ListeningPersona {
+  voice: string;
+  name: string;
+  description: string;
+  gender: ListeningVoiceGender;
+}
+
+export interface ListeningPersonaSample {
+  voice: string;
+  audio_path: string;
+}
+
+export interface ListeningParsedSpeaker {
+  label: string;
+  gender: ListeningVoiceGender;
+}
+
+export interface ListeningParsedLine {
+  speaker_label: string;
+  text: string;
+  translation_ja?: string | null;
+}
+
+export interface ListeningParsedScript {
+  title: string;
+  speakers: ListeningParsedSpeaker[];
+  lines: ListeningParsedLine[];
+}
 
 export interface ListeningSpeaker {
   id: number;

@@ -923,6 +923,60 @@ fieldset.stack > legend {
   opacity: 0.85;
 }
 
+.persona-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.persona-picker-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.persona-picker-field-label {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.persona-picker-row select {
+  flex: 1;
+  min-width: 0;
+}
+
+.persona-picker-detail {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  border: 1px solid var(--color-input-border);
+  border-radius: var(--radius-md);
+  padding: 0.6rem;
+  background: var(--color-chip-bg);
+}
+
+.persona-picker-detail-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.persona-picker-detail-text p {
+  margin: 0;
+  font-size: 0.85em;
+  color: var(--color-muted);
+}
+
+.persona-icon {
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: white;
+}
+
 .listening-line {
   padding: 0.4rem 0;
   border-bottom: 1px solid var(--color-border);

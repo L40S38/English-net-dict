@@ -18,6 +18,9 @@ import type {
   ListeningAttempt,
   ListeningLine,
   ListeningLineAudio,
+  ListeningParsedScript,
+  ListeningPersona,
+  ListeningPersonaSample,
   ListeningScript,
   ListeningSession,
   ListeningSessionStatus,
@@ -595,18 +598,34 @@ export const phraseApi = {
 };
 
 export const listeningApi = {
+  async getPersonas() {
+    const { data } = await api.get<ListeningPersona[]>("/api/listening/personas");
+    return data;
+  },
+  async getPersonaSample(voice: string) {
+    const { data } = await api.get<ListeningPersonaSample>(`/api/listening/personas/${voice}/sample`);
+    return data;
+  },
   async generateRandomScript(payload?: {
     topic?: string;
     level?: string;
     speaker_count?: number;
     is_conversation?: boolean;
+    voices?: (string | null)[];
   }) {
     const { data } = await api.post<ListeningScript>("/api/listening/scripts/random", payload ?? {});
     return data;
   },
-  async createCustomScript(rawText: string) {
-    const { data } = await api.post<ListeningScript>("/api/listening/scripts/custom", {
+  async analyzeCustomScript(rawText: string) {
+    const { data } = await api.post<ListeningParsedScript>("/api/listening/scripts/custom/analyze", {
       raw_text: rawText,
+    });
+    return data;
+  },
+  async confirmCustomScript(parsed: ListeningParsedScript, voices?: (string | null)[]) {
+    const { data } = await api.post<ListeningScript>("/api/listening/scripts/custom/confirm", {
+      parsed,
+      voices: voices ?? null,
     });
     return data;
   },
@@ -614,6 +633,7 @@ export const listeningApi = {
     level?: string;
     speaker_count?: number;
     is_conversation?: boolean;
+    voices?: (string | null)[];
   }) {
     const { data } = await api.post<ListeningScript>("/api/listening/scripts/weak-review", payload ?? {});
     return data;
