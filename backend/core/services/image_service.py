@@ -11,6 +11,7 @@ from core.config import settings
 from core.models import GroupImage, Phrase, PhraseImage, Word, WordGroup, WordImage
 from core.services.wordnet_service import get_wordnet_snapshot
 from core.utils.prompt_loader import load_prompt
+from core.utils.text_helpers import slugify
 
 
 def _clean_text(value: object) -> str:
@@ -135,7 +136,7 @@ def generate_word_image(db: Session, word: Word, user_prompt: str | None) -> Wor
     image_dir = Path(settings.image_dir)
     image_dir.mkdir(parents=True, exist_ok=True)
     prompt = user_prompt or build_image_prompt(word)
-    filename = f"{word.word.lower()}-{uuid.uuid4().hex[:8]}.png"
+    filename = f"{slugify(word.word)}-{uuid.uuid4().hex[:8]}.png"
     file_path = image_dir / filename
 
     if settings.openai_api_key:
@@ -278,7 +279,7 @@ def generate_phrase_image(db: Session, phrase: Phrase, user_prompt: str | None) 
     image_dir = Path(settings.image_dir)
     image_dir.mkdir(parents=True, exist_ok=True)
     prompt = user_prompt or build_phrase_image_prompt(phrase)
-    slug = phrase.text.lower().replace(" ", "-")
+    slug = slugify(phrase.text)
     filename = f"phrase-{slug}-{uuid.uuid4().hex[:8]}.png"
     file_path = image_dir / filename
 
