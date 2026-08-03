@@ -5,6 +5,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { PageHeader } from "../components/PageHeader";
 import { Tabs } from "../components/common/Tabs";
 import { WeakWordsPanel } from "../components/listening/WeakWordsPanel";
+import { WeakPhrasesPanel } from "../components/listening/WeakPhrasesPanel";
 import { PersonaPicker } from "../components/listening/PersonaPicker";
 import { Card, Field, Muted, RadioButtonGroup, Row, Stack } from "../components/atom";
 import { listeningApi } from "../lib/api";
@@ -287,6 +288,7 @@ export function ListeningHomePage() {
         </div>
         <aside className="detail-side">
           <WeakWordsPanel />
+          <WeakPhrasesPanel />
         </aside>
       </div>
     </main>

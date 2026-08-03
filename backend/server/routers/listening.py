@@ -1,39 +1,53 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from core.database import get_db
 from core.models import ListeningLine, ListeningScript, ListeningSession
+from core.personas import PERSONA_BY_VOICE, VOICE_PERSONAS
 from core.schemas import (
     ListeningAttemptCreate,
     ListeningAttemptRead,
-    ListeningCustomScriptRequest,
+    ListeningCustomScriptAnalyzeRequest,
+    ListeningCustomScriptConfirmRequest,
     ListeningGenerateLineAudioRequest,
     ListeningLineAudioRead,
     ListeningLineRead,
+    ListeningParsedScript,
+    ListeningPersonaRead,
+    ListeningPersonaSampleRead,
     ListeningRandomScriptRequest,
+    ListeningReadAloudGradeRead,
     ListeningScriptRead,
     ListeningSessionCreate,
     ListeningSessionRead,
     ListeningSessionUpdate,
     ListeningWeakReviewRequest,
+    WeakPhraseStat,
     WeakWordStat,
 )
 from core.services.listening_audio_service import generate_line_audio
+from core.services.listening_feedback_service import generate_pronunciation_feedback
 from core.services.listening_script_service import (
-    create_custom_script,
+    analyze_custom_script,
+    build_custom_script,
     generate_random_script,
     generate_weak_review_script,
     to_line_read,
     to_script_read,
 )
+from core.services.tts_service import get_or_create_persona_sample, transcribe_audio
 from core.services.listening_session_service import (
+    build_fallback_good_points,
+    build_fallback_review_points,
     create_session,
+    get_weak_phrase_stats,
     get_weak_word_stats,
     list_sessions,
     record_attempt,
+    record_read_aloud_attempts,
     update_session,
 )
 
@@ -71,6 +85,22 @@ def _session_to_read(session: ListeningSession) -> ListeningSessionRead:
     return ListeningSessionRead.model_validate(data)
 
 
+@router.get("/personas", response_model=list[ListeningPersonaRead])
+def get_personas() -> list[ListeningPersonaRead]:
+    return [ListeningPersonaRead.model_validate(persona) for persona in VOICE_PERSONAS]
+
+
+@router.get("/personas/{voice}/sample", response_model=ListeningPersonaSampleRead)
+def get_persona_sample(voice: str) -> ListeningPersonaSampleRead:
+    if voice not in PERSONA_BY_VOICE:
+        raise HTTPException(status_code=404, detail="Unknown voice")
+    try:
+        audio_path = get_or_create_persona_sample(voice)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return ListeningPersonaSampleRead(voice=voice, audio_path=audio_path)
+
+
 @router.post("/scripts/random", response_model=ListeningScriptRead)
 def post_random_script(
     payload: ListeningRandomScriptRequest, db: Session = Depends(get_db)
@@ -82,6 +112,7 @@ def post_random_script(
             level=payload.level,
             speaker_count=payload.speaker_count,
             is_conversation=payload.is_conversation,
+            voices=payload.voices,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -92,12 +123,23 @@ def post_random_script(
     return to_script_read(refreshed)
 
 
-@router.post("/scripts/custom", response_model=ListeningScriptRead)
-def post_custom_script(
-    payload: ListeningCustomScriptRequest, db: Session = Depends(get_db)
+@router.post("/scripts/custom/analyze", response_model=ListeningParsedScript)
+def post_custom_script_analyze(payload: ListeningCustomScriptAnalyzeRequest) -> ListeningParsedScript:
+    try:
+        data = analyze_custom_script(payload.raw_text)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return ListeningParsedScript.model_validate(data)
+
+
+@router.post("/scripts/custom/confirm", response_model=ListeningScriptRead)
+def post_custom_script_confirm(
+    payload: ListeningCustomScriptConfirmRequest, db: Session = Depends(get_db)
 ) -> ListeningScriptRead:
     try:
-        script = create_custom_script(db, payload.raw_text)
+        script = build_custom_script(db, payload.parsed.model_dump(), voices=payload.voices)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
@@ -117,6 +159,7 @@ def post_weak_review_script(
             level=payload.level,
             speaker_count=payload.speaker_count,
             is_conversation=payload.is_conversation,
+            voices=payload.voices,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -237,6 +280,52 @@ def post_attempt(
     return ListeningAttemptRead.model_validate(attempt)
 
 
+@router.post("/sessions/{session_id}/read-aloud-grade", response_model=ListeningReadAloudGradeRead)
+async def post_read_aloud_grade(
+    session_id: int,
+    audio: UploadFile = File(...),
+    db: Session = Depends(get_db),
+) -> ListeningReadAloudGradeRead:
+    session = db.get(ListeningSession, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    script = db.scalar(_script_query().where(ListeningScript.id == session.script_id))
+    if not script:
+        raise HTTPException(status_code=404, detail="Script not found")
+    file_bytes = await audio.read()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="Audio file is empty")
+    try:
+        transcript = transcribe_audio(file_bytes, audio.filename or "recording.webm")
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    lines = sorted(script.lines, key=lambda line: line.sort_order)
+    result = record_read_aloud_attempts(db, session, lines, transcript)
+    db.commit()
+
+    script_text = " ".join(line.text for line in lines)
+    try:
+        feedback = generate_pronunciation_feedback(
+            script_text=script_text,
+            transcript=transcript,
+            score=result["score"],
+            wrong_words=result["wrong_words"],
+            wrong_phrases=result["wrong_phrases"],
+        )
+    except Exception:  # noqa: BLE001 - LLM feedback is best-effort; fall back to templates
+        feedback = {
+            "good_points": build_fallback_good_points(result["score"], result["correct_long_words"]),
+            "review_points": build_fallback_review_points(result["wrong_phrases"], result["wrong_words"]),
+        }
+
+    return ListeningReadAloudGradeRead(
+        score=result["score"],
+        good_points=feedback["good_points"],
+        review_points=feedback["review_points"],
+        lines=result["lines"],
+    )
+
+
 @router.get("/analytics/weak-words", response_model=list[WeakWordStat])
 def get_weak_words(
     limit: int = Query(default=50, ge=1, le=200),
@@ -244,3 +333,12 @@ def get_weak_words(
 ) -> list[WeakWordStat]:
     stats = get_weak_word_stats(db, limit=limit)
     return [WeakWordStat.model_validate(item) for item in stats]
+
+
+@router.get("/analytics/weak-phrases", response_model=list[WeakPhraseStat])
+def get_weak_phrases(
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+) -> list[WeakPhraseStat]:
+    stats = get_weak_phrase_stats(db, limit=limit)
+    return [WeakPhraseStat.model_validate(item) for item in stats]

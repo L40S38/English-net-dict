@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import random
 import re
 
 from openai import OpenAI
@@ -9,7 +10,7 @@ from sqlalchemy.orm import Session
 from core.config import settings
 from core.models import ListeningLine, ListeningScript, ListeningSpeaker
 from core.schemas import ListeningLineRead, ListeningScriptRead
-from core.services.listening_session_service import get_weak_word_stats
+from core.services.listening_session_service import get_voice_accuracy_weights, get_weak_word_stats
 from core.utils.prompt_loader import load_prompt
 from core.utils.text_repair import repair_nested_strings
 
@@ -24,9 +25,20 @@ _MAX_LINE_LENGTH = 160
 _SENTENCE_BOUNDARY_RE = re.compile(r"(?<=[.!?])\s+")
 
 
-def _pick_voice(gender: str, index_within_gender: int) -> str:
+def _pick_voice(
+    gender: str,
+    used_voices: set[str],
+    voice_weights: dict[str, float] | None = None,
+) -> str:
     pool = {"male": _MALE_VOICES, "female": _FEMALE_VOICES}.get(gender, _NEUTRAL_VOICES)
-    return pool[index_within_gender % len(pool)]
+    # Prefer a voice not already used by another speaker in this script, so two
+    # same-gender speakers don't end up sounding identical; fall back to the
+    # full pool once it's exhausted.
+    candidates = [v for v in pool if v not in used_voices] or list(pool)
+    if not voice_weights:
+        return random.choice(candidates)
+    weights = [voice_weights.get(v, 1.0) for v in candidates]
+    return random.choices(candidates, weights=weights, k=1)[0]
 
 
 def _split_into_sentences(text: str) -> list[str]:
@@ -108,6 +120,8 @@ def _build_script_from_llm_payload(
     level: str | None,
     is_conversation: bool,
     generation_mode: str,
+    preferred_voices: list[str | None] | None = None,
+    voice_weights: dict[str, float] | None = None,
 ) -> ListeningScript:
     speakers = data.get("speakers")
     lines = data.get("lines")
@@ -136,18 +150,19 @@ def _build_script_from_llm_payload(
     db.flush()
 
     label_to_speaker: dict[str, ListeningSpeaker] = {}
-    gender_counters: dict[str, int] = {}
+    used_voices: set[str] = set()
     for idx, sp in enumerate(speakers):
         label = str(sp.get("label", "")).strip()
         gender = str(sp.get("gender", "neutral")).strip().lower()
         if gender not in ("male", "female", "neutral"):
             gender = "neutral"
-        gender_index = gender_counters.get(gender, 0)
-        gender_counters[gender] = gender_index + 1
+        preferred = preferred_voices[idx] if preferred_voices and idx < len(preferred_voices) else None
+        voice = preferred or _pick_voice(gender, used_voices, voice_weights)
+        used_voices.add(voice)
         speaker = ListeningSpeaker(
             script_id=script.id,
             label=label,
-            voice=_pick_voice(gender, gender_index),
+            voice=voice,
             sort_order=idx,
         )
         db.add(speaker)
@@ -185,6 +200,7 @@ def generate_random_script(
     level: str | None = None,
     speaker_count: int = 1,
     is_conversation: bool = False,
+    voices: list[str | None] | None = None,
 ) -> ListeningScript:
     prompt = load_prompt("listening_script_generation.md")
     payload = {
@@ -195,8 +211,16 @@ def generate_random_script(
         "weak_words": [],
     }
     data = _call_llm(prompt, payload, temperature=0.8)
+    voice_weights = get_voice_accuracy_weights(db)
     return _build_script_from_llm_payload(
-        db, data, topic=topic, level=level, is_conversation=is_conversation, generation_mode="random"
+        db,
+        data,
+        topic=topic,
+        level=level,
+        is_conversation=is_conversation,
+        generation_mode="random",
+        preferred_voices=voices,
+        voice_weights=voice_weights,
     )
 
 
@@ -207,6 +231,7 @@ def generate_weak_review_script(
     speaker_count: int = 1,
     is_conversation: bool = False,
     limit: int = 10,
+    voices: list[str | None] | None = None,
 ) -> ListeningScript:
     weak_words = [stat["word_text"] for stat in get_weak_word_stats(db, limit=limit)]
     if not weak_words:
@@ -222,20 +247,39 @@ def generate_weak_review_script(
     }
     data = _call_llm(prompt, payload, temperature=0.8)
     return _build_script_from_llm_payload(
-        db, data, topic="Weak-word review", level=level, is_conversation=is_conversation, generation_mode="weak_review"
+        db,
+        data,
+        topic="Weak-word review",
+        level=level,
+        is_conversation=is_conversation,
+        generation_mode="weak_review",
+        preferred_voices=voices,
     )
 
 
-def create_custom_script(db: Session, raw_text: str) -> ListeningScript:
+def analyze_custom_script(raw_text: str) -> dict:
     text = raw_text.strip()
     if not text:
         raise ValueError("Text is empty")
 
     prompt = load_prompt("listening_script_segmentation.md")
-    data = _call_llm(prompt, {"raw_text": text}, temperature=0.0)
-    is_conversation = len(data.get("speakers") or []) > 1
+    return _call_llm(prompt, {"raw_text": text}, temperature=0.0)
+
+
+def build_custom_script(
+    db: Session,
+    parsed: dict,
+    voices: list[str | None] | None = None,
+) -> ListeningScript:
+    is_conversation = len(parsed.get("speakers") or []) > 1
     return _build_script_from_llm_payload(
-        db, data, topic=None, level=None, is_conversation=is_conversation, generation_mode="custom"
+        db,
+        parsed,
+        topic=None,
+        level=None,
+        is_conversation=is_conversation,
+        generation_mode="custom",
+        preferred_voices=voices,
     )
 
 
