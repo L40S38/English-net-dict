@@ -39,6 +39,11 @@ def list_sessions(db: Session, status: str | None = None) -> list[ListeningSessi
     return list(db.scalars(stmt))
 
 
+def delete_session(db: Session, session: ListeningSession) -> None:
+    db.delete(session)
+    db.flush()
+
+
 def update_session(
     db: Session,
     session: ListeningSession,

@@ -1,9 +1,12 @@
 """Tool definitions and executor for the chat agent loop.
 
-Three tools are available to the LLM:
+Three read-only tools are always available to the LLM:
   1. lookup_word_data  – fetch specific fields for a word from the local DB
   2. search_db         – pattern-search words in the local DB
   3. search_web        – search the web via DuckDuckGo
+
+One write tool is available only in word-scoped chat sessions (see WRITE_TOOL_DEFINITIONS):
+  4. register_related_word – add a related word/synonym/antonym/etc. entry to the current word
 """
 
 from __future__ import annotations
@@ -15,8 +18,9 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
-from core.models import Definition, Etymology, EtymologyComponentItem, Word
+from core.models import Definition, Etymology, EtymologyComponentItem, RelatedWord, Word
 from core.services.web_word_search import search_web_dictionary, search_web_general
+from core.services.word_service import link_related_words
 
 logger = logging.getLogger(__name__)
 
@@ -114,11 +118,57 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
 ]
 
 
+# Write tools are appended to TOOL_DEFINITIONS only for word-scoped chat sessions
+# (see chat_service.answer_in_session), so the LLM cannot even attempt to call
+# them from a phrase/component/group chat.
+_VALID_RELATION_TYPES = {"synonym", "confusable", "cognate", "antonym"}
+
+WRITE_TOOL_DEFINITIONS: list[dict[str, Any]] = [
+    {
+        "type": "function",
+        "name": "register_related_word",
+        "description": (
+            "Register a new related word/phrase entry for the word currently being discussed. "
+            "Only call this when the user explicitly asks to add/register a related word, synonym, "
+            "antonym, confusable word, or cognate (e.g. '関連語としてXを登録して', '類義語としてXを追加して'). "
+            "Do not call this proactively just because a related word came up in conversation."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "related_word": {
+                    "type": "string",
+                    "description": "The related English word or phrase to register (e.g. 'in light of').",
+                },
+                "relation_type": {
+                    "type": "string",
+                    "enum": sorted(_VALID_RELATION_TYPES),
+                    "description": (
+                        "Relationship type. Map Japanese terms: 類義語/同義語 -> synonym, "
+                        "対義語/反意語 -> antonym, 同語源語 -> cognate, "
+                        "紛らわしい語/間違えやすい語 -> confusable. Default to 'synonym' if the user "
+                        "did not specify and it cannot be inferred."
+                    ),
+                },
+                "note": {
+                    "type": "string",
+                    "description": "Optional short note explaining the nuance or reason for the relation. Leave empty if the user gave none.",
+                },
+            },
+            "required": ["related_word", "relation_type"],
+            "additionalProperties": False,
+        },
+    },
+]
+
+WRITE_TOOL_NAMES: set[str] = {tool["name"] for tool in WRITE_TOOL_DEFINITIONS}
+
+
 # ---------------------------------------------------------------------------
 # Tool executors
 # ---------------------------------------------------------------------------
 
-def execute_tool(db: Session, tool_name: str, arguments: dict[str, Any]) -> str:
+def execute_tool(db: Session, tool_name: str, arguments: dict[str, Any], word_id: int | None = None) -> str:
     try:
         if tool_name == "lookup_word_data":
             return _exec_lookup(db, arguments)
@@ -126,10 +176,68 @@ def execute_tool(db: Session, tool_name: str, arguments: dict[str, Any]) -> str:
             return _exec_search_db(db, arguments)
         if tool_name == "search_web":
             return _exec_search_web(arguments)
+        if tool_name == "register_related_word":
+            return _exec_register_related_word(db, word_id, arguments)
         return json.dumps({"error": f"Unknown tool: {tool_name}"}, ensure_ascii=False)
     except Exception:
         logger.exception("Tool execution failed: %s", tool_name)
         return json.dumps({"error": f"Tool '{tool_name}' failed"}, ensure_ascii=False)
+
+
+def _exec_register_related_word(db: Session, word_id: int | None, args: dict) -> str:
+    if word_id is None:
+        return json.dumps(
+            {"error": "register_related_word is not available in this chat context."},
+            ensure_ascii=False,
+        )
+
+    related_word = str(args.get("related_word", "")).strip()
+    if not related_word:
+        return json.dumps({"error": "related_word is required"}, ensure_ascii=False)
+
+    relation_type = str(args.get("relation_type", "")).strip().lower()
+    relation_type_clamped = relation_type not in _VALID_RELATION_TYPES
+    if relation_type_clamped:
+        relation_type = "synonym"
+
+    note = str(args.get("note") or "").strip()
+
+    word = db.get(Word, word_id)
+    if not word:
+        return json.dumps({"error": "Word not found"}, ensure_ascii=False)
+
+    for existing in word.related_words:
+        if existing.related_word.strip().lower() == related_word.lower() and existing.relation_type == relation_type:
+            return json.dumps(
+                {
+                    "result": "already_exists",
+                    "related_word": {
+                        "id": existing.id,
+                        "related_word": existing.related_word,
+                        "relation_type": existing.relation_type,
+                        "note": existing.note,
+                    },
+                },
+                ensure_ascii=False,
+            )
+
+    item = RelatedWord(related_word=related_word, relation_type=relation_type, note=note)
+    word.related_words.append(item)
+    db.flush()
+    link_related_words(db, word)
+
+    result: dict[str, Any] = {
+        "result": "created",
+        "related_word": {
+            "id": item.id,
+            "related_word": item.related_word,
+            "relation_type": item.relation_type,
+            "note": item.note,
+        },
+    }
+    if relation_type_clamped:
+        result["relation_type_clamped"] = True
+    return json.dumps(result, ensure_ascii=False)
 
 
 def _exec_lookup(db: Session, args: dict) -> str:

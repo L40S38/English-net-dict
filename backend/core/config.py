@@ -36,8 +36,12 @@ class Settings(BaseSettings):
     image_dir: str = str((DATA_DIR / "images").resolve())
     audio_dir: str = str((DATA_DIR / "audio").resolve())
     cors_origins: list[str] = [
+        # 5173: `vite preview`（start.sh/start.ps1 の本番プレビュー用途）
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        # 5190: `vite`（開発サーバー、vite.config.ts で固定）
+        "http://localhost:5190",
+        "http://127.0.0.1:5190",
     ]
     nltk_data_dir: str = str((DATA_DIR / "nltk_data").resolve())
 

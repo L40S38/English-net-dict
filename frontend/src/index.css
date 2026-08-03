@@ -329,10 +329,11 @@ button:hover:not(:disabled) {
 
 .word-link-row {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
   column-gap: var(--space-sm);
   row-gap: 2px;
+  min-width: 0;
 }
 
 .word-link-main {
@@ -340,18 +341,17 @@ button:hover:not(:disabled) {
   flex-wrap: wrap;
   gap: var(--space-sm);
   justify-content: flex-start;
+  min-width: 0;
 }
 
-.word-link-row.word-link-row-multiword {
-  grid-template-columns: minmax(220px, 1fr) auto;
-}
-
-.word-link-row.word-link-row-multiword .word-link-main {
+.word-link-row.word-link-row-stacked .word-link-main {
   grid-column: 1 / -1;
 }
 
 .word-link-secondary {
   grid-column: 1 / 2;
+  min-width: 0;
+  overflow-wrap: break-word;
 }
 
 .word-link-status {

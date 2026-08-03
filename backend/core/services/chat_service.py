@@ -24,7 +24,7 @@ from core.models import (
     WordGroupItem,
     WordPhrase,
 )
-from core.services.chat_tools import TOOL_DEFINITIONS, execute_tool
+from core.services.chat_tools import TOOL_DEFINITIONS, WRITE_TOOL_DEFINITIONS, WRITE_TOOL_NAMES, execute_tool
 from core.services.etymology_component_service import get_component_cache, normalize_component_text
 from core.utils.prompt_loader import load_prompt
 from core.utils.text_repair import has_suspected_mojibake, repair_text
@@ -445,12 +445,38 @@ def _load_history(db: Session, session_id: int, exclude_msg_id: int | None = Non
 # Main entry: tool-calling agent loop
 # ---------------------------------------------------------------------------
 
+_RELATION_TYPE_LABELS_JA = {
+    "synonym": "類義語",
+    "antonym": "対義語",
+    "cognate": "同語源語",
+    "confusable": "紛らわしい語",
+}
+
+
+def _summarize_performed_writes(performed_writes: list[dict]) -> str:
+    """Build a Japanese confirmation message for writes performed before a mid-loop failure."""
+    lines: list[str] = []
+    for entry in performed_writes:
+        if entry.get("tool") != "register_related_word":
+            continue
+        rel = entry.get("related_word") or {}
+        label = _RELATION_TYPE_LABELS_JA.get(rel.get("relation_type"), rel.get("relation_type", ""))
+        name = rel.get("related_word", "")
+        if entry.get("result") == "created":
+            lines.append(f"「{name}」を{label}として登録しました。")
+        elif entry.get("result") == "already_exists":
+            lines.append(f"「{name}」は既に{label}として登録されています。")
+    return "\n".join(lines) if lines else "操作を実行しました。"
+
+
 def _run_agent_loop(
     db: Session,
     system_prompt: str,
     context_json: str,
     history: list[dict],
     user_question: str,
+    tools: list[dict[str, Any]],
+    word_id: int | None = None,
 ) -> tuple[str, list[dict]]:
     """Call the LLM with tools in a loop until it produces a final text response."""
     client = OpenAI(api_key=settings.openai_api_key)
@@ -463,38 +489,57 @@ def _run_agent_loop(
     ]
 
     citations: list[dict] = [{"source": "word_context"}]
+    performed_writes: list[dict] = []
 
-    for round_idx in range(MAX_TOOL_ROUNDS):
-        response = client.responses.create(
-            model=settings.openai_model_chat,
-            input=messages,
-            tools=TOOL_DEFINITIONS,
+    try:
+        response = None
+        for round_idx in range(MAX_TOOL_ROUNDS):
+            response = client.responses.create(
+                model=settings.openai_model_chat,
+                input=messages,
+                tools=tools,
+            )
+
+            tool_calls = [item for item in response.output if item.type == "function_call"]
+            if not tool_calls:
+                break
+
+            messages.extend(response.output)
+
+            for tc in tool_calls:
+                try:
+                    args = json.loads(tc.arguments)
+                except json.JSONDecodeError:
+                    args = {}
+                logger.info("Tool call [round %d]: %s(%s)", round_idx + 1, tc.name, tc.arguments[:200])
+                result = execute_tool(db, tc.name, args, word_id=word_id)
+                messages.append({
+                    "type": "function_call_output",
+                    "call_id": tc.call_id,
+                    "output": result,
+                })
+                citations.append({
+                    "source": tc.name,
+                    "query": args.get("queries") or args.get("patterns") or args.get("word") or args.get("related_word"),
+                })
+                if tc.name in WRITE_TOOL_NAMES:
+                    try:
+                        parsed_result = json.loads(result)
+                    except json.JSONDecodeError:
+                        parsed_result = {}
+                    if parsed_result.get("result") in ("created", "already_exists"):
+                        performed_writes.append({"tool": tc.name, **parsed_result})
+
+        assistant_content = _format_markdown_for_readability(response.output_text.strip())
+    except Exception:
+        logger.exception("Agent loop failed")
+        if not performed_writes:
+            raise
+        assistant_content = _format_markdown_for_readability(
+            _summarize_performed_writes(performed_writes)
+            + "\n\n(その後の応答生成でエラーが発生したため、詳細な回答は省略されています。)"
         )
 
-        tool_calls = [item for item in response.output if item.type == "function_call"]
-        if not tool_calls:
-            break
-
-        messages.extend(response.output)
-
-        for tc in tool_calls:
-            try:
-                args = json.loads(tc.arguments)
-            except json.JSONDecodeError:
-                args = {}
-            logger.info("Tool call [round %d]: %s(%s)", round_idx + 1, tc.name, tc.arguments[:200])
-            result = execute_tool(db, tc.name, args)
-            messages.append({
-                "type": "function_call_output",
-                "call_id": tc.call_id,
-                "output": result,
-            })
-            citations.append({
-                "source": tc.name,
-                "query": args.get("queries") or args.get("patterns") or args.get("word"),
-            })
-
-    assistant_content = _format_markdown_for_readability(response.output_text.strip())
     if has_suspected_mojibake(assistant_content):
         assistant_content = (
             "回答テキストに文字エンコード異常が検出されました。"
@@ -510,6 +555,11 @@ def answer_in_session(db: Session, session: ChatSession, user_input: str) -> tup
     user_msg = ChatMessage(session_id=session.id, role="user", content=safe_user_input, citations=[])
     db.add(user_msg)
     db.flush()
+
+    # Write tools (e.g. register_related_word) are only exposed for plain word-scoped
+    # sessions, where a single unambiguous target word is known.
+    tools_for_agent = TOOL_DEFINITIONS
+    word_id_for_agent: int | None = None
 
     if session.group_id:
         group_stmt = (
@@ -594,6 +644,8 @@ def answer_in_session(db: Session, session: ChatSession, user_input: str) -> tup
         if not word:
             raise ValueError("Word not found")
         context_json = json.dumps(build_word_context(word), ensure_ascii=False)
+        tools_for_agent = TOOL_DEFINITIONS + WRITE_TOOL_DEFINITIONS
+        word_id_for_agent = word.id
 
     system_prompt = load_prompt("chat_agent.md")
     history = _load_history(db, session.id, exclude_msg_id=user_msg.id)
@@ -602,6 +654,7 @@ def answer_in_session(db: Session, session: ChatSession, user_input: str) -> tup
         try:
             assistant_content, citations = _run_agent_loop(
                 db, system_prompt, context_json, history, safe_user_input,
+                tools=tools_for_agent, word_id=word_id_for_agent,
             )
         except Exception:  # noqa: BLE001
             logger.exception("Agent loop failed")
