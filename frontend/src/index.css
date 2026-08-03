@@ -1039,6 +1039,10 @@ fieldset.stack > legend {
   margin: 0.15rem 0 0;
 }
 
+.listening-line-submit-row {
+  margin-top: 0.6rem;
+}
+
 .inline-form-row {
   display: flex;
   gap: var(--space-sm);

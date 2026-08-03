@@ -746,6 +746,20 @@ class GroupBulkAddItemsResponse(BaseModel):
     skipped: int = 0
 
 
+class ListeningPersonaRead(BaseModel):
+    voice: str
+    name: str
+    description: str
+    gender: Literal["male", "female", "neutral"]
+
+    model_config = {"from_attributes": True}
+
+
+class ListeningPersonaSampleRead(BaseModel):
+    voice: str
+    audio_path: str
+
+
 class ListeningSpeakerRead(BaseModel):
     id: int
     label: str
@@ -799,16 +813,40 @@ class ListeningRandomScriptRequest(BaseModel):
     level: str | None = None
     speaker_count: int = Field(default=1, ge=1, le=3)
     is_conversation: bool = False
+    voices: list[str | None] | None = None
 
 
-class ListeningCustomScriptRequest(BaseModel):
+class ListeningParsedSpeaker(BaseModel):
+    label: str
+    gender: Literal["male", "female", "neutral"] = "neutral"
+
+
+class ListeningParsedLine(BaseModel):
+    speaker_label: str
+    text: str
+    translation_ja: str | None = None
+
+
+class ListeningParsedScript(BaseModel):
+    title: str = ""
+    speakers: list[ListeningParsedSpeaker] = Field(default_factory=list)
+    lines: list[ListeningParsedLine] = Field(default_factory=list)
+
+
+class ListeningCustomScriptAnalyzeRequest(BaseModel):
     raw_text: str
+
+
+class ListeningCustomScriptConfirmRequest(BaseModel):
+    parsed: ListeningParsedScript
+    voices: list[str | None] | None = None
 
 
 class ListeningWeakReviewRequest(BaseModel):
     level: str | None = None
     speaker_count: int = Field(default=1, ge=1, le=4)
     is_conversation: bool = False
+    voices: list[str | None] | None = None
 
 
 class ListeningGenerateLineAudioRequest(BaseModel):
@@ -872,9 +910,28 @@ class ListeningAttemptRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ListeningReadAloudLineGradeRead(BaseModel):
+    line_id: int
+    is_correct: bool
+    word_results: list[ListeningWordResultRead] = Field(default_factory=list)
+
+
+class ListeningReadAloudGradeRead(BaseModel):
+    score: int
+    good_points: list[str] = Field(default_factory=list)
+    review_points: list[str] = Field(default_factory=list)
+    lines: list[ListeningReadAloudLineGradeRead] = Field(default_factory=list)
+
+
 class WeakWordStat(BaseModel):
     word_text: str
     total: int
     wrong: int
     accuracy: float
     matched_word_id: int | None = None
+
+
+class WeakPhraseStat(BaseModel):
+    phrase_text: str
+    count: int
+    matched_phrase_id: int | None = None

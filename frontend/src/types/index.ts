@@ -546,10 +546,29 @@ export interface ListeningAttempt {
   word_results: ListeningWordResult[];
 }
 
+export interface ListeningReadAloudLineGrade {
+  line_id: number;
+  is_correct: boolean;
+  word_results: ListeningWordResult[];
+}
+
+export interface ListeningReadAloudGrade {
+  score: number;
+  good_points: string[];
+  review_points: string[];
+  lines: ListeningReadAloudLineGrade[];
+}
+
 export interface WeakWordStat {
   word_text: string;
   total: number;
   wrong: number;
   accuracy: number;
   matched_word_id?: number | null;
+}
+
+export interface WeakPhraseStat {
+  phrase_text: string;
+  count: number;
+  matched_phrase_id?: number | null;
 }
