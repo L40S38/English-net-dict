@@ -2,7 +2,12 @@ import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 
 import { Muted } from "./atom";
-import { hasMultipleWordTokens, isPlaceholderToken, tokenizeForWordLinks } from "../lib/tokenLinks";
+import {
+  getBracketedTokenFlags,
+  hasMultipleWordTokens,
+  isPlaceholderToken,
+  tokenizeForWordLinks,
+} from "../lib/tokenLinks";
 
 interface WordLinkRowProps {
   value: string;
@@ -23,15 +28,16 @@ export function WordLinkRow({
 }: WordLinkRowProps) {
   const showTokenLinks = hasMultipleWordTokens(value);
   const tokens = showTokenLinks ? tokenizeForWordLinks(value) : [];
+  const bracketFlags = showTokenLinks ? getBracketedTokenFlags(tokens) : [];
   const hasSecondary = Boolean(secondary?.trim());
-  const showSecondaryBelow = showTokenLinks && hasSecondary;
+  const showSecondaryBelow = hasSecondary;
 
   return (
-    <div className={`word-link-row${showSecondaryBelow ? " word-link-row-multiword" : ""}`}>
+    <div className={`word-link-row${showSecondaryBelow ? " word-link-row-stacked" : ""}`}>
       <div className="word-link-main">
         {showTokenLinks ? (
-          tokens.map((token) =>
-            isPlaceholderToken(token) ? (
+          tokens.map((token, idx) =>
+            isPlaceholderToken(token) || bracketFlags[idx] ? (
               <span key={`${value}-${token}`}>{token}</span>
             ) : (
               <Link key={`${value}-${token}`} to={`/words/${encodeURIComponent(token)}`}>
@@ -53,17 +59,10 @@ export function WordLinkRow({
           </>
         )}
       </div>
-      {showSecondaryBelow ? (
-        <>
-          <Muted className="word-link-secondary">{secondary}</Muted>
-          <Muted className="word-link-status">{trailing ?? status ?? ""}</Muted>
-        </>
-      ) : (
-        <>
-          <Muted>{secondary ?? ""}</Muted>
-          <Muted>{trailing ?? status ?? ""}</Muted>
-        </>
+      {showSecondaryBelow && (
+        <Muted className="word-link-secondary">{secondary}</Muted>
       )}
+      <Muted className="word-link-status">{trailing ?? status ?? ""}</Muted>
     </div>
   );
 }

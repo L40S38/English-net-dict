@@ -628,24 +628,19 @@ def replace_definitions(word: Word, definitions: list[dict]) -> None:
             meaning_ja=d.get("meaning_ja", ""),
             sort_order=d.get("sort_order", 0),
         )
-        examples_en = d.get("examples_en")
-        examples_ja = d.get("examples_ja")
-        if not isinstance(examples_en, list):
-            fallback = str(d.get("example_en", "")).strip()
-            examples_en = [fallback] if fallback else []
-        if not isinstance(examples_ja, list):
-            fallback_ja = str(d.get("example_ja", "")).strip()
-            examples_ja = [fallback_ja] if fallback_ja else []
-        for idx, example_en in enumerate(examples_en):
-            example_text = str(example_en).strip()
-            if not example_text:
+        examples = d.get("examples")
+        if not isinstance(examples, list):
+            examples = []
+        for idx, example in enumerate(examples):
+            example_en = str(example.get("example_en", "")).strip()
+            example_ja = str(example.get("example_ja", "")).strip()
+            if not example_en and not example_ja:
                 continue
-            ja_text = str(examples_ja[idx]).strip() if idx < len(examples_ja) else ""
             definition.examples.append(
                 DefinitionExample(
-                    example_en=example_text,
-                    example_ja=ja_text,
-                    sort_order=idx,
+                    example_en=example_en,
+                    example_ja=example_ja,
+                    sort_order=example.get("sort_order", idx),
                 )
             )
         word.definitions.append(definition)

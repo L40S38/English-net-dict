@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 
+import { ConfirmModal } from "../components/ConfirmModal";
 import { PageHeader } from "../components/PageHeader";
 import { Tabs } from "../components/common/Tabs";
 import { WeakWordsPanel } from "../components/listening/WeakWordsPanel";
@@ -10,7 +11,7 @@ import { PersonaPicker } from "../components/listening/PersonaPicker";
 import { Card, Field, Muted, RadioButtonGroup, Row, Stack } from "../components/atom";
 import { listeningApi } from "../lib/api";
 import { getErrorMessage } from "../lib/errors";
-import type { ListeningParsedScript, ListeningScript } from "../types";
+import type { ListeningParsedScript, ListeningScript, ListeningSession } from "../types";
 
 const LEVEL_OPTIONS = [
   { value: "beginner", label: "初級", description: "TOEIC 400点台 / 英検3級程度" },
@@ -35,7 +36,10 @@ const HOME_TABS: Array<{ key: ListeningHomeTabKey; label: string }> = [
 
 export function ListeningHomePage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<ListeningHomeTabKey>("random");
+  const [pendingDeleteSession, setPendingDeleteSession] = useState<ListeningSession | null>(null);
+  const [deletingSessionId, setDeletingSessionId] = useState<number | null>(null);
   const [topic, setTopic] = useState("");
   const [level, setLevel] = useState<string>("intermediate");
   const [speakerCount, setSpeakerCount] = useState<string>("1");
@@ -97,6 +101,16 @@ export function ListeningHomePage() {
     onSuccess: startSession,
     onError: (err) =>
       setErrorMessage(getErrorMessage(err, "弱点復習スクリプトの生成に失敗しました(苦手な単語の履歴が必要です)。")),
+  });
+
+  const deleteSessionMutation = useMutation({
+    mutationFn: (sessionId: number) => listeningApi.deleteSession(sessionId),
+    onMutate: (sessionId) => setDeletingSessionId(sessionId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["listening-sessions"] });
+    },
+    onError: (err) => setErrorMessage(getErrorMessage(err, "セッションの削除に失敗しました。")),
+    onSettled: () => setDeletingSessionId(null),
   });
 
   const resetCustomScript = () => {
@@ -270,19 +284,29 @@ export function ListeningHomePage() {
               {!sessionsQuery.isLoading && (sessionsQuery.data?.length ?? 0) === 0 && (
                 <Muted as="p">まだセッションがありません。</Muted>
               )}
-              <Stack>
+              <div className="grid">
                 {sessionsQuery.data?.map((session) => (
-                  <Row key={session.id} justify="between">
+                  <Card key={session.id} hoverable stack variant="sub">
                     <Link to={`/listening/sessions/${session.id}`}>
-                      {session.script_title || `セッション#${session.id}`}
+                      <h4>{session.script_title || `セッション#${session.id}`}</h4>
                     </Link>
-                    <Muted>
+                    <Muted as="p">
                       {session.status === "completed" ? "完了" : "進行中"} ・{" "}
                       {new Date(session.updated_at).toLocaleString("ja-JP")}
                     </Muted>
-                  </Row>
+                    <button
+                      type="button"
+                      className="button-delete-outline"
+                      disabled={deleteSessionMutation.isPending && deletingSessionId === session.id}
+                      onClick={() => setPendingDeleteSession(session)}
+                    >
+                      {deleteSessionMutation.isPending && deletingSessionId === session.id
+                        ? "削除中…"
+                        : "削除"}
+                    </button>
+                  </Card>
                 ))}
-              </Stack>
+              </div>
             </Card>
           )}
         </div>
@@ -291,6 +315,23 @@ export function ListeningHomePage() {
           <WeakPhrasesPanel />
         </aside>
       </div>
+      <ConfirmModal
+        open={pendingDeleteSession !== null}
+        title="削除の確認"
+        message={`セッション「${
+          pendingDeleteSession?.script_title || `セッション#${pendingDeleteSession?.id ?? ""}`
+        }」を削除しますか？`}
+        confirmText="削除する"
+        cancelText="キャンセル"
+        confirmVariant="danger"
+        disableActions={deleteSessionMutation.isPending}
+        onCancel={() => setPendingDeleteSession(null)}
+        onConfirm={() => {
+          if (!pendingDeleteSession) return;
+          deleteSessionMutation.mutate(pendingDeleteSession.id);
+          setPendingDeleteSession(null);
+        }}
+      />
     </main>
   );
 }

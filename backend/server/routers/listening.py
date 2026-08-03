@@ -44,6 +44,7 @@ from core.services.listening_session_service import (
     build_fallback_good_points,
     build_fallback_review_points,
     create_session,
+    delete_session,
     get_weak_phrase_stats,
     get_weak_word_stats,
     list_sessions,
@@ -266,6 +267,15 @@ def patch_session(
     db.commit()
     db.refresh(session)
     return _session_to_read(session)
+
+
+@router.delete("/sessions/{session_id}", status_code=204)
+def delete_session_endpoint(session_id: int, db: Session = Depends(get_db)) -> None:
+    session = db.get(ListeningSession, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    delete_session(db, session)
+    db.commit()
 
 
 @router.post("/sessions/{session_id}/attempts", response_model=ListeningAttemptRead)

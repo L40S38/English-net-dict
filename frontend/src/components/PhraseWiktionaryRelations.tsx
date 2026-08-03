@@ -1,10 +1,9 @@
 import { useMemo } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { Link, useNavigate } from "react-router-dom";
 
 import { Card, Muted, Stack } from "./atom";
+import { PhraseRegisterAction } from "./PhraseRegisterAction";
 import { WordLinkRow } from "./WordLinkRow";
-import { phraseApi } from "../lib/api";
+import { usePhraseRegistration } from "../lib/usePhraseRegistration";
 import { EMPTY_MESSAGES } from "../lib/constants";
 import type { Phrase } from "../types";
 
@@ -21,7 +20,6 @@ const SECTIONS: { label: string; items: (phrase: Phrase) => string[] }[] = [
 ];
 
 export function PhraseWiktionaryRelations({ phrase }: PhraseWiktionaryRelationsProps) {
-  const navigate = useNavigate();
   const groups = useMemo(
     () =>
       SECTIONS.map((section) => ({
@@ -31,36 +29,11 @@ export function PhraseWiktionaryRelations({ phrase }: PhraseWiktionaryRelationsP
     [phrase],
   );
   const relationTexts = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          groups
-            .flatMap((group) => group.items)
-            .map((text) => text.trim())
-            .filter((text) => text.length > 0),
-        ),
-      ),
+    () => groups.flatMap((group) => group.items),
     [groups],
   );
-  const phraseCheckQuery = useQuery({
-    queryKey: ["phrase", "relations", "check", relationTexts],
-    queryFn: () => phraseApi.check(relationTexts),
-    enabled: relationTexts.length > 0,
-  });
-  const phraseIdMap = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const found of phraseCheckQuery.data?.found ?? []) {
-      map.set(found.text, found.id);
-      map.set(found.text.toLowerCase(), found.id);
-    }
-    return map;
-  }, [phraseCheckQuery.data?.found]);
-  const registerPhraseMutation = useMutation({
-    mutationFn: (text: string) => phraseApi.create({ text }),
-    onSuccess: (createdPhrase) => {
-      navigate(`/phrases/${createdPhrase.id}`);
-    },
-  });
+  const { getPhraseId, registerPhrase, isRegistering, isMutating } =
+    usePhraseRegistration(relationTexts);
 
   return (
     <Card>
@@ -75,29 +48,15 @@ export function PhraseWiktionaryRelations({ phrase }: PhraseWiktionaryRelationsP
                 <WordLinkRow
                   value={text}
                   linkedWordId={null}
-                  trailing={(() => {
-                    const phraseId = phraseIdMap.get(text) ?? phraseIdMap.get(text.toLowerCase());
-                    if (!phraseId) {
-                      const pending =
-                        registerPhraseMutation.isPending &&
-                        registerPhraseMutation.variables === text;
-                      return (
-                        <button
-                          type="button"
-                          className="detail-link-button"
-                          onClick={() => registerPhraseMutation.mutate(text)}
-                          disabled={registerPhraseMutation.isPending}
-                        >
-                          {pending ? "登録中..." : "登録"}
-                        </button>
-                      );
-                    }
-                    return (
-                      <Link className="detail-link-button" to={`/phrases/${phraseId}`}>
-                        詳細
-                      </Link>
-                    );
-                  })()}
+                  trailing={
+                    <PhraseRegisterAction
+                      text={text}
+                      phraseId={getPhraseId(text)}
+                      pending={isRegistering(text)}
+                      disabled={isMutating}
+                      onRegister={registerPhrase}
+                    />
+                  }
                 />
               </Card>
             ))}
