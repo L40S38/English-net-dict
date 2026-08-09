@@ -265,7 +265,22 @@ def build_phrase_image_prompt(phrase: Phrase) -> str:
     if not lines and (phrase.meaning or "").strip():
         lines.append(f"- {phrase.meaning.strip()}")
     definitions_summary = "\n".join(lines) if lines else "- (No definitions yet)"
-    word_lines = [f"- {link.word_ref.word}" for link in phrase.word_links if link.word_ref]
+
+    word_lines: list[str] = []
+    for link in phrase.word_links:
+        w = link.word_ref
+        if not w:
+            continue
+        meaning = ""
+        if w.definitions:
+            first_def = sorted(w.definitions, key=lambda d: (d.sort_order, d.id))[0]
+            meaning = (first_def.meaning_ja or first_def.meaning_en or "").strip()
+        core_image = (w.etymology.core_image or "").strip() if w.etymology else ""
+        details = [part for part in (meaning, f"core image: {core_image}" if core_image else "") if part]
+        if details:
+            word_lines.append(f"- {w.word}: {' / '.join(details)}")
+        else:
+            word_lines.append(f"- {w.word}")
     words_summary = "\n".join(word_lines[:12]) if word_lines else "- (No linked words)"
     return template.format(
         phrase_text=phrase.text,

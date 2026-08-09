@@ -133,6 +133,14 @@ export function EtymologyComponentPage() {
     rescrapeMutation.isPending ||
     createComponentMutation.isPending;
 
+  if (componentQuery.isLoading) {
+    return (
+      <main className="container">
+        <Muted as="p">読み込み中...</Muted>
+      </main>
+    );
+  }
+
   if (isNotRegistered) {
     return (
       <main className="container">

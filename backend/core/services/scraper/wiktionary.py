@@ -73,6 +73,21 @@ class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
 
     _GENERIC_COMPONENT_MEANINGS = {"語源要素", "語根要素", "接頭要素"}
 
+    # Wiktionary の Module:form of 系テンプレート（"alternative form of", "obsolete spelling of",
+    # "plural of" など）は数十種類あり網羅列挙が非現実的なため、末尾が " of" のテンプレート名を
+    # 汎用的に検出する。短縮形のみ別名として個別にマッピングする。
+    _FORM_OF_TEMPLATE_RE = re.compile(r"^[a-z][a-z' -]*\bof$")
+    _FORM_OF_ALIASES = {
+        "alt form": "alternative form of",
+        "altform": "alternative form of",
+        "alt sp": "alternative spelling of",
+        "alt case": "alternative case form of",
+        "short for": "abbreviation of",
+        "obs form": "obsolete form of",
+        "obs sp": "obsolete spelling of",
+        "pron sp": "pronunciation spelling of",
+    }
+
     def __init__(self, *, cache_dir: Path | None = None, use_cache: bool = True) -> None:
         self._cache_dir = cache_dir or _SCRAPE_CACHE_DIR
         self._use_cache = use_cache
@@ -148,7 +163,20 @@ class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
         # der+/bor+/inh+ などは抽出上 der/bor/inh と同等に扱う。
         name = parts[0].lower().rstrip("+")
         args = parts[1:]
-        positional = [a for a in args if a and "=" not in a and not a.startswith(":")]
+        positional = []
+        for a in args:
+            if not a or a.startswith(":"):
+                continue
+            # {{non-gloss|1=...}} のように値そのものに "=" を含む場合、編集者が明示的に
+            # 位置引数番号を振っていることがある。true な名前付き引数（lang=en 等）と区別し、
+            # 数値=値の形だけは位置引数として扱う（未対応だと positional が空になり空白化する）。
+            numbered = re.match(r"^\d+=(.*)$", a, flags=re.DOTALL)
+            if numbered:
+                positional.append(numbered.group(1))
+                continue
+            if "=" in a:
+                continue
+            positional.append(a)
         if not positional:
             return " "
 
@@ -180,14 +208,43 @@ class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
             if lang_label and term:
                 return f"{lang_label} {term}"
             return term or " "
-        if name in {"m", "l", "mention", "link"}:
+        # {{U|term}} は語義文中で用語をそのまま言及するテンプレート（{{m}}/{{l}} の簡易版）。
+        # {{1|term}} も同義の稀な代替表記。どちらも未対応だと空白化し、語義がピリオドのみになる
+        # （例: thus の「{{U|as a result}}」、keen の「{{U|marvelous}}」）。
+        if name in {"m", "l", "mention", "link", "u", "1"}:
             term = WiktionaryScraper._normalize_template_term(positional[1]) if len(positional) >= 2 else WiktionaryScraper._normalize_template_term(positional[-1])
             return term or " "
+        # {{cap|plentiful}} は引数の先頭を大文字化して表示するだけのテンプレート
+        # （例: plenty の obsolete adjective 義「{{cap|plentiful}}.」）。
+        if name == "cap":
+            term = WiktionaryScraper._normalize_template_term(positional[0])
+            return f"{term[0].upper()}{term[1:]}" if term else " "
         if name == "etyl":
             lang_code = positional[0] if positional else ""
             lang_name = _LANG_NAMES.get(lang_code, lang_code)
             return lang_name
         if name in {"root", "etymon", "doublet"}:
+            return " "
+        # {{taxfmt|Pomatomus saltatrix|species}} は学名を斜体表示するだけのテンプレートなので、
+        # 学名部分だけを平文として残す（例: tailor の "Australia" 義）。
+        if name == "taxfmt":
+            return WiktionaryScraper._normalize_template_term(positional[0]) or " "
+        # {{n-g|...}} / {{non-gloss|...}}（非語義的定義）は引数自体が語義文そのものなので、
+        # そのまま展開する（例: mood/see/whether の interjection・conjunction 義）。
+        if name in {"n-g", "non-gloss", "non-gloss definition"}:
+            return WiktionaryScraper._normalize_template_term(positional[0]) or " "
+        # {{alternative form of|en|thuris}} 等の「〜の別形」系語義テンプレート（Module:form of 系）。
+        # 未対応だと空白に置換され、語義がピリオドのみ（例: thus の archaic な Noun 義）になるため、
+        # テンプレート名をラベルとしてそのまま展開する（例: "Alternative form of thuris"）。
+        if name in WiktionaryScraper._FORM_OF_ALIASES or WiktionaryScraper._FORM_OF_TEMPLATE_RE.match(name):
+            label = WiktionaryScraper._FORM_OF_ALIASES.get(name, name)
+            term = ""
+            if len(positional) >= 2:
+                term = WiktionaryScraper._normalize_template_term(positional[1])
+            elif positional:
+                term = WiktionaryScraper._normalize_template_term(positional[0])
+            if term:
+                return f"{label[0].upper()}{label[1:]} {term}"
             return " "
         return " "
 
@@ -204,7 +261,10 @@ class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
             )
         compact = re.sub(r"\[\[([^|\]]*\|)?([^\]]+)\]\]", r"\2", compact)
         compact = re.sub(r"<[^>]+>", " ", compact)
+        compact = compact.replace("'''", "").replace("''", "")
         compact = re.sub(r"\s+([,.;:])", r"\1", compact)
+        compact = re.sub(r"\(\s+", "(", compact)
+        compact = re.sub(r"\s+\)", ")", compact)
         compact = re.sub(r"\s+", " ", compact).strip()
         return compact[:max_chars]
 
@@ -386,11 +446,19 @@ class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
             line = raw_line.strip()
             if not line or not line.startswith(("*", "#")):
                 continue
+            marker = re.match(r"^[*#:]+", line).group(0)
+            if len(marker) > 1:
+                # ネストした箇条書き（`#*` の用例や `#*:` の和訳など）は関連語の一覧ではなく、
+                # 見出し語自身が「成句」等の品詞として定義されているセクションの内訳なので除外する。
+                continue
             cleaned = re.sub(r"^[*#:\s]+", "", line).strip()
             cleaned = WiktionaryScraper._compact_wikitext(cleaned, max_chars=160)
             cleaned = re.sub(r"\s*;\s*see\s+also\b.*", "", cleaned, flags=re.IGNORECASE).strip()
             cleaned = re.sub(r"^Thesaurus:.+$", "", cleaned).strip()
-            if cleaned and cleaned not in items:
+            if not cleaned or not re.search(r"[A-Za-z]", cleaned):
+                # 関連語は英語の語句である前提のため、ラテン文字を含まない項目（和訳・語義文の混入）は除外する。
+                continue
+            if cleaned not in items:
                 items.append(cleaned)
             if len(items) >= max_items:
                 break

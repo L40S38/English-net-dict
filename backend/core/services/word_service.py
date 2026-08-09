@@ -594,26 +594,36 @@ def apply_structured_payload(db: Session, word: Word, payload: dict) -> None:
 
     word.derivations.clear()
     for d in parsed.derivations:
-        word.derivations.append(
-            Derivation(
-                derived_word=d.derived_word,
-                part_of_speech=normalize_part_of_speech(d.part_of_speech),
-                meaning_ja=d.meaning_ja,
-                sort_order=d.sort_order,
+        for derived_word in split_comma_items(d.derived_word):
+            word.derivations.append(
+                Derivation(
+                    derived_word=derived_word,
+                    part_of_speech=normalize_part_of_speech(d.part_of_speech),
+                    meaning_ja=d.meaning_ja,
+                    sort_order=d.sort_order,
+                )
             )
-        )
     db.flush()
     link_derivations(db, word)
 
-    word.related_words.clear()
+    # rescrape のたびに全削除→再構築すると、既存の related_words（手動調整や過去のスクレイプ結果）が
+    # 消えてしまうため、(語, relation_type) が未登録のものだけを追記するマージ方式にする。
+    existing_related_keys = {
+        (rw.related_word.strip().lower(), rw.relation_type) for rw in word.related_words
+    }
     for r in parsed.related_words:
-        word.related_words.append(
-            RelatedWord(
-                related_word=r.related_word,
-                relation_type=r.relation_type,
-                note=r.note,
+        for related_word in split_comma_items(r.related_word):
+            key = (related_word.strip().lower(), r.relation_type)
+            if key in existing_related_keys:
+                continue
+            existing_related_keys.add(key)
+            word.related_words.append(
+                RelatedWord(
+                    related_word=related_word,
+                    relation_type=r.relation_type,
+                    note=r.note,
+                )
             )
-        )
     db.flush()
     link_related_words(db, word)
     replace_word_phrases(db, word, phrase_entries)
@@ -646,8 +656,44 @@ def replace_definitions(word: Word, definitions: list[dict]) -> None:
         word.definitions.append(definition)
 
 
+def _has_balanced_parens(text: str) -> bool:
+    depth = 0
+    for ch in text:
+        if ch in "(（":
+            depth += 1
+        elif ch in ")）":
+            depth -= 1
+            if depth < 0:
+                return False
+    return depth == 0
+
+
 def split_comma_items(text: str) -> list[str]:
-    parts = [part.strip() for part in str(text).split(",")]
+    # 括弧内の「、」「,」（各語に付いた日本語ニュアンス注記など）は区切りとして扱わない。
+    # ただし開き括弧が閉じられないまま入力が終わる（スクレイパーの文字数打ち切り等による
+    # 不整合な括弧）場合、そこから末尾までのカンマが全て無視されてしまうため、
+    # 括弧の対応が取れていない入力では括弧を無視して単純にカンマ/読点だけで分割する。
+    s = str(text)
+    if not _has_balanced_parens(s):
+        parts = re.split(r"[,、]", s)
+    else:
+        parts = []
+        buf: list[str] = []
+        depth = 0
+        for ch in s:
+            if ch in "(（":
+                depth += 1
+                buf.append(ch)
+            elif ch in ")）":
+                depth = max(0, depth - 1)
+                buf.append(ch)
+            elif ch in ",、" and depth == 0:
+                parts.append("".join(buf))
+                buf = []
+            else:
+                buf.append(ch)
+        parts.append("".join(buf))
+    parts = [part.strip() for part in parts]
     unique: list[str] = []
     seen: set[str] = set()
     for part in parts:
@@ -681,16 +727,24 @@ def replace_derivations(db: Session, word: Word, derivations: list[dict]) -> Non
 
 
 def replace_related_words(db: Session, word: Word, related_words: list[dict]) -> None:
-    word.related_words.clear()
+    # 既存の related_words は削除せず、(語, relation_type) が未登録のものだけ追記するマージ方式。
+    existing_related_keys = {
+        (rw.related_word.strip().lower(), rw.relation_type) for rw in word.related_words
+    }
     for r in related_words:
         split_words = split_comma_items(r.get("related_word", ""))
         if not split_words:
             continue
+        relation_type = r.get("relation_type", "synonym")
         for related_word in split_words:
+            key = (related_word.strip().lower(), relation_type)
+            if key in existing_related_keys:
+                continue
+            existing_related_keys.add(key)
             word.related_words.append(
                 RelatedWord(
                     related_word=related_word,
-                    relation_type=r.get("relation_type", "synonym"),
+                    relation_type=relation_type,
                     note=r.get("note", ""),
                 )
             )
