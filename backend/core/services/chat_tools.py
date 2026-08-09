@@ -170,15 +170,20 @@ WRITE_TOOL_NAMES: set[str] = {tool["name"] for tool in WRITE_TOOL_DEFINITIONS}
 
 def execute_tool(db: Session, tool_name: str, arguments: dict[str, Any], word_id: int | None = None) -> str:
     try:
-        if tool_name == "lookup_word_data":
-            return _exec_lookup(db, arguments)
-        if tool_name == "search_db":
-            return _exec_search_db(db, arguments)
-        if tool_name == "search_web":
-            return _exec_search_web(arguments)
-        if tool_name == "register_related_word":
-            return _exec_register_related_word(db, word_id, arguments)
-        return json.dumps({"error": f"Unknown tool: {tool_name}"}, ensure_ascii=False)
+        # Run in a SAVEPOINT so a failed write (e.g. register_related_word) only
+        # undoes its own change on error, rather than db.rollback() reverting the
+        # whole outer transaction - including the user's chat message, which was
+        # already flushed (but not committed) before the tool-calling loop started.
+        with db.begin_nested():
+            if tool_name == "lookup_word_data":
+                return _exec_lookup(db, arguments)
+            if tool_name == "search_db":
+                return _exec_search_db(db, arguments)
+            if tool_name == "search_web":
+                return _exec_search_web(arguments)
+            if tool_name == "register_related_word":
+                return _exec_register_related_word(db, word_id, arguments)
+            return json.dumps({"error": f"Unknown tool: {tool_name}"}, ensure_ascii=False)
     except Exception:
         logger.exception("Tool execution failed: %s", tool_name)
         return json.dumps({"error": f"Tool '{tool_name}' failed"}, ensure_ascii=False)
