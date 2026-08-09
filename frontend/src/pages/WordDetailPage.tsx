@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
+import { AudioPlayButton } from "../components/AudioPlayButton";
 import { DerivationsPanel } from "../components/DerivationsPanel";
 import { EtymologyMap } from "../components/EtymologyMap";
 import { ImageViewer } from "../components/ImageViewer";
@@ -294,7 +295,17 @@ export function WordDetailPage() {
           </>
         }
       />
-      <Muted as="p">{word.phonetic || EMPTY_MESSAGES.noPhonetic}</Muted>
+      <Row>
+        <Muted as="p">{word.phonetic || EMPTY_MESSAGES.noPhonetic}</Muted>
+        <AudioPlayButton
+          audioPath={word.audio_path}
+          onGenerate={async () => {
+            const updated = await wordApi.generateAudio(word.id);
+            await queryClient.invalidateQueries({ queryKey: ["word"] });
+            return updated;
+          }}
+        />
+      </Row>
       {word.lemma_word_id && (
         <Muted as="p">
           この単語は

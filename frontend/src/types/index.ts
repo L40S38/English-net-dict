@@ -13,6 +13,7 @@ export interface Phrase {
   id: number;
   text: string;
   meaning: string;
+  audio_path?: string | null;
   created_at: string;
   updated_at: string;
   definitions?: PhraseDefinition[];
@@ -34,6 +35,7 @@ export interface PhraseDefinition {
   example_en: string;
   example_ja: string;
   sort_order: number;
+  audio_path?: string | null;
 }
 
 export interface PhraseImage {
@@ -48,6 +50,7 @@ export interface WordSummary {
   id: number;
   word: string;
   phonetic?: string | null;
+  audio_path?: string | null;
 }
 
 export interface WordForms {
@@ -103,6 +106,7 @@ export interface Definition {
     example_en: string;
     example_ja: string;
     sort_order: number;
+    audio_path?: string | null;
   }>;
   sort_order: number;
 }
@@ -149,6 +153,7 @@ export interface Word {
   id: number;
   word: string;
   phonetic?: string | null;
+  audio_path?: string | null;
   forms?: WordForms;
   created_at: string;
   updated_at: string;
@@ -433,4 +438,88 @@ export interface MigrationInflectionApplyResponse {
 export interface GroupBulkAddItemsResponse {
   added: number;
   skipped: number;
+}
+
+export type ListeningStep = "listen" | "dictation" | "read_aloud" | "overlapping" | "shadowing";
+export type ListeningGenerationMode = "random" | "custom" | "weak_review";
+export type ListeningSourceType = "ai_generated" | "external_video";
+export type ListeningSessionStatus = "in_progress" | "completed";
+
+export interface ListeningSpeaker {
+  id: number;
+  label: string;
+  voice: string;
+  sort_order: number;
+}
+
+export interface ListeningLineAudio {
+  id: number;
+  voice: string;
+  audio_path: string;
+  is_primary: boolean;
+  created_at: string;
+}
+
+export interface ListeningLine {
+  id: number;
+  speaker_id: number;
+  speaker_label: string;
+  sort_order: number;
+  text: string;
+  translation_ja?: string | null;
+  audio_variants: ListeningLineAudio[];
+}
+
+export interface ListeningScript {
+  id: number;
+  title: string;
+  topic?: string | null;
+  level?: string | null;
+  is_conversation: boolean;
+  generation_mode: ListeningGenerationMode;
+  source_type: ListeningSourceType;
+  source_url?: string | null;
+  created_at: string;
+  updated_at: string;
+  speakers: ListeningSpeaker[];
+  lines: ListeningLine[];
+}
+
+export interface ListeningSession {
+  id: number;
+  script_id: number;
+  script_title: string;
+  current_step: ListeningStep;
+  playback_speed: number;
+  dictation_level: number;
+  status: ListeningSessionStatus;
+  created_at: string;
+  updated_at: string;
+  completed_at?: string | null;
+}
+
+export interface ListeningWordResult {
+  id: number;
+  word_text: string;
+  matched_word_id?: number | null;
+  is_correct: boolean;
+}
+
+export interface ListeningAttempt {
+  id: number;
+  session_id: number;
+  line_id: number;
+  dictation_level: number;
+  user_text: string;
+  is_correct: boolean;
+  created_at: string;
+  word_results: ListeningWordResult[];
+}
+
+export interface WeakWordStat {
+  word_text: string;
+  total: number;
+  wrong: number;
+  accuracy: number;
+  matched_word_id?: number | null;
 }

@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from core.config import settings
 from core.migrations import run_alembic_migrations
-from server.routers import chat, etymology_components, groups, images, migration, phrases, words
+from server.routers import audio, chat, etymology_components, groups, images, listening, migration, phrases, words
 
 
 def _install_windows_proactor_connection_reset_filter() -> None:
@@ -52,7 +52,9 @@ def create_app() -> FastAPI:
     app.include_router(words.router)
     app.include_router(etymology_components.router)
     app.include_router(images.router)
+    app.include_router(audio.router)
     app.include_router(chat.router)
+    app.include_router(listening.router)
     app.include_router(groups.router)
     app.include_router(phrases.router)
     app.include_router(migration.router)

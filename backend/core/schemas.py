@@ -24,6 +24,7 @@ class DefinitionExampleUpdate(DefinitionExampleBase):
 
 class DefinitionExampleRead(DefinitionExampleBase):
     id: int
+    audio_path: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -46,6 +47,7 @@ class DefinitionUpdate(DefinitionBase):
 
 class DefinitionRead(DefinitionBase):
     id: int
+    examples: list[DefinitionExampleRead] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 
@@ -330,6 +332,7 @@ class PhraseDefinitionWrite(PhraseDefinitionBase):
 
 class PhraseDefinitionRead(PhraseDefinitionBase):
     id: int
+    audio_path: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -348,6 +351,7 @@ class WordSummary(BaseModel):
     id: int
     word: str
     phonetic: str | None = None
+    audio_path: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -356,6 +360,7 @@ class PhraseRead(PhraseBase):
     id: int
     created_at: datetime
     updated_at: datetime
+    audio_path: str | None = None
     definitions: list[PhraseDefinitionRead] = Field(default_factory=list)
     images: list[PhraseImageRead] = Field(default_factory=list)
     words: list[WordSummary] = Field(default_factory=list)
@@ -385,6 +390,7 @@ class WordRead(BaseModel):
     id: int
     word: str
     phonetic: str | None = None
+    audio_path: str | None = None
     forms: dict = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
@@ -738,3 +744,137 @@ class GroupBulkAddItemsRequest(BaseModel):
 class GroupBulkAddItemsResponse(BaseModel):
     added: int = 0
     skipped: int = 0
+
+
+class ListeningSpeakerRead(BaseModel):
+    id: int
+    label: str
+    voice: str
+    sort_order: int = 0
+
+    model_config = {"from_attributes": True}
+
+
+class ListeningLineAudioRead(BaseModel):
+    id: int
+    voice: str
+    audio_path: str
+    is_primary: bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ListeningLineRead(BaseModel):
+    id: int
+    speaker_id: int
+    speaker_label: str = ""
+    sort_order: int = 0
+    text: str
+    translation_ja: str | None = None
+    audio_variants: list[ListeningLineAudioRead] = Field(default_factory=list)
+
+    model_config = {"from_attributes": True}
+
+
+class ListeningScriptRead(BaseModel):
+    id: int
+    title: str
+    topic: str | None = None
+    level: str | None = None
+    is_conversation: bool
+    generation_mode: Literal["random", "custom", "weak_review"]
+    source_type: Literal["ai_generated", "external_video"]
+    source_url: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    speakers: list[ListeningSpeakerRead] = Field(default_factory=list)
+    lines: list[ListeningLineRead] = Field(default_factory=list)
+
+    model_config = {"from_attributes": True}
+
+
+class ListeningRandomScriptRequest(BaseModel):
+    topic: str | None = None
+    level: str | None = None
+    speaker_count: int = Field(default=1, ge=1, le=4)
+    is_conversation: bool = False
+
+
+class ListeningCustomScriptRequest(BaseModel):
+    raw_text: str
+
+
+class ListeningWeakReviewRequest(BaseModel):
+    level: str | None = None
+    speaker_count: int = Field(default=1, ge=1, le=4)
+    is_conversation: bool = False
+
+
+class ListeningGenerateLineAudioRequest(BaseModel):
+    voice: str | None = None
+
+
+ListeningStep = Literal["listen", "dictation", "read_aloud", "overlapping", "shadowing"]
+
+
+class ListeningSessionCreate(BaseModel):
+    script_id: int
+
+
+class ListeningSessionUpdate(BaseModel):
+    current_step: ListeningStep | None = None
+    playback_speed: float | None = Field(default=None, gt=0, le=3)
+    dictation_level: int | None = Field(default=None, ge=0, le=3)
+    status: Literal["in_progress", "completed"] | None = None
+
+
+class ListeningSessionRead(BaseModel):
+    id: int
+    script_id: int
+    script_title: str = ""
+    current_step: ListeningStep
+    playback_speed: float
+    dictation_level: int
+    status: Literal["in_progress", "completed"]
+    created_at: datetime
+    updated_at: datetime
+    completed_at: datetime | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class ListeningAttemptCreate(BaseModel):
+    line_id: int
+    dictation_level: int = Field(ge=0, le=3)
+    user_text: str = ""
+
+
+class ListeningWordResultRead(BaseModel):
+    id: int
+    word_text: str
+    matched_word_id: int | None = None
+    is_correct: bool
+
+    model_config = {"from_attributes": True}
+
+
+class ListeningAttemptRead(BaseModel):
+    id: int
+    session_id: int
+    line_id: int
+    dictation_level: int
+    user_text: str
+    is_correct: bool
+    created_at: datetime
+    word_results: list[ListeningWordResultRead] = Field(default_factory=list)
+
+    model_config = {"from_attributes": True}
+
+
+class WeakWordStat(BaseModel):
+    word_text: str
+    total: int
+    wrong: int
+    accuracy: float
+    matched_word_id: int | None = None

@@ -1,6 +1,17 @@
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.database import Base
@@ -17,6 +28,7 @@ class Word(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     word: Mapped[str] = mapped_column(String(128), unique=True, index=True)
     phonetic: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    audio_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     forms: Mapped[dict] = mapped_column(JSON, default=dict)
     last_viewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     lemma_word_id: Mapped[int | None] = mapped_column(
@@ -88,6 +100,7 @@ class DefinitionExample(Base):
     example_en: Mapped[str] = mapped_column(Text, default="")
     example_ja: Mapped[str] = mapped_column(Text, default="")
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    audio_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
     definition_ref: Mapped[Definition] = relationship(back_populates="examples")
 
@@ -282,6 +295,7 @@ class Phrase(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     text: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     meaning: Mapped[str] = mapped_column(Text, default="")
+    audio_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     wiktionary_synonyms: Mapped[list[str]] = mapped_column(JSON, default=list)
     wiktionary_antonyms: Mapped[list[str]] = mapped_column(JSON, default=list)
     wiktionary_see_also: Mapped[list[str]] = mapped_column(JSON, default=list)
@@ -318,6 +332,7 @@ class PhraseDefinition(Base):
     example_en: Mapped[str] = mapped_column(Text, default="")
     example_ja: Mapped[str] = mapped_column(Text, default="")
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    audio_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
     phrase_ref: Mapped[Phrase] = relationship(back_populates="definitions")
 
@@ -485,3 +500,131 @@ class ChatMessage(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     session_ref: Mapped[ChatSession] = relationship(back_populates="messages")
+
+
+class ListeningScript(Base, TimestampMixin):
+    __tablename__ = "listening_scripts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    title: Mapped[str] = mapped_column(String(255))
+    topic: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    level: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    is_conversation: Mapped[bool] = mapped_column(Boolean, default=False)
+    generation_mode: Mapped[str] = mapped_column(String(16), default="random")
+    source_type: Mapped[str] = mapped_column(String(16), default="ai_generated")
+    source_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
+    speakers: Mapped[list["ListeningSpeaker"]] = relationship(
+        back_populates="script_ref",
+        cascade="all, delete-orphan",
+        order_by="ListeningSpeaker.sort_order, ListeningSpeaker.id",
+    )
+    lines: Mapped[list["ListeningLine"]] = relationship(
+        back_populates="script_ref",
+        cascade="all, delete-orphan",
+        order_by="ListeningLine.sort_order, ListeningLine.id",
+    )
+    sessions: Mapped[list["ListeningSession"]] = relationship(
+        back_populates="script_ref", cascade="all, delete-orphan"
+    )
+
+
+class ListeningSpeaker(Base):
+    __tablename__ = "listening_speakers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    script_id: Mapped[int] = mapped_column(ForeignKey("listening_scripts.id", ondelete="CASCADE"), index=True)
+    label: Mapped[str] = mapped_column(String(64))
+    voice: Mapped[str] = mapped_column(String(32))
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+
+    script_ref: Mapped[ListeningScript] = relationship(back_populates="speakers")
+    lines: Mapped[list["ListeningLine"]] = relationship(back_populates="speaker_ref")
+
+
+class ListeningLine(Base):
+    __tablename__ = "listening_lines"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    script_id: Mapped[int] = mapped_column(ForeignKey("listening_scripts.id", ondelete="CASCADE"), index=True)
+    speaker_id: Mapped[int] = mapped_column(ForeignKey("listening_speakers.id", ondelete="CASCADE"), index=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    text: Mapped[str] = mapped_column(Text)
+    translation_ja: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    script_ref: Mapped[ListeningScript] = relationship(back_populates="lines")
+    speaker_ref: Mapped[ListeningSpeaker] = relationship(back_populates="lines")
+    audio_variants: Mapped[list["ListeningLineAudio"]] = relationship(
+        back_populates="line_ref",
+        cascade="all, delete-orphan",
+        order_by="ListeningLineAudio.id",
+    )
+    attempts: Mapped[list["ListeningAttempt"]] = relationship(
+        back_populates="line_ref", cascade="all, delete-orphan"
+    )
+
+
+class ListeningLineAudio(Base):
+    __tablename__ = "listening_line_audios"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    line_id: Mapped[int] = mapped_column(ForeignKey("listening_lines.id", ondelete="CASCADE"), index=True)
+    voice: Mapped[str] = mapped_column(String(32))
+    audio_path: Mapped[str] = mapped_column(String(512))
+    is_primary: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    line_ref: Mapped[ListeningLine] = relationship(back_populates="audio_variants")
+
+
+class ListeningSession(Base):
+    __tablename__ = "listening_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    script_id: Mapped[int] = mapped_column(ForeignKey("listening_scripts.id", ondelete="CASCADE"), index=True)
+    current_step: Mapped[str] = mapped_column(String(16), default="listen")
+    playback_speed: Mapped[float] = mapped_column(Float, default=1.0)
+    dictation_level: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(16), default="in_progress")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    script_ref: Mapped[ListeningScript] = relationship(back_populates="sessions")
+    attempts: Mapped[list["ListeningAttempt"]] = relationship(
+        back_populates="session_ref", cascade="all, delete-orphan"
+    )
+
+
+class ListeningAttempt(Base):
+    __tablename__ = "listening_attempts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    session_id: Mapped[int] = mapped_column(ForeignKey("listening_sessions.id", ondelete="CASCADE"), index=True)
+    line_id: Mapped[int] = mapped_column(ForeignKey("listening_lines.id", ondelete="CASCADE"), index=True)
+    dictation_level: Mapped[int] = mapped_column(Integer, default=0)
+    user_text: Mapped[str] = mapped_column(Text, default="")
+    is_correct: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    session_ref: Mapped[ListeningSession] = relationship(back_populates="attempts")
+    line_ref: Mapped[ListeningLine] = relationship(back_populates="attempts")
+    word_results: Mapped[list["ListeningWordResult"]] = relationship(
+        back_populates="attempt_ref", cascade="all, delete-orphan"
+    )
+
+
+class ListeningWordResult(Base):
+    __tablename__ = "listening_word_results"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    attempt_id: Mapped[int] = mapped_column(ForeignKey("listening_attempts.id", ondelete="CASCADE"), index=True)
+    word_text: Mapped[str] = mapped_column(String(128), index=True)
+    matched_word_id: Mapped[int | None] = mapped_column(
+        ForeignKey("words.id", ondelete="SET NULL"), index=True, nullable=True
+    )
+    is_correct: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    attempt_ref: Mapped[ListeningAttempt] = relationship(back_populates="word_results")
+    matched_word_ref: Mapped[Word | None] = relationship()
