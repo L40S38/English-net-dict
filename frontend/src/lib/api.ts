@@ -702,6 +702,9 @@ export const listeningApi = {
     });
     return data;
   },
+  async deleteSession(sessionId: number) {
+    await api.delete(`/api/listening/sessions/${sessionId}`);
+  },
   async getWeakWords(limit = 50) {
     const { data } = await api.get<WeakWordStat[]>("/api/listening/analytics/weak-words", {
       params: { limit },

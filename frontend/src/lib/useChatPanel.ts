@@ -2,7 +2,17 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query";
 
 import { chatApi } from "./api";
-import type { ChatSession } from "../types";
+import type { ChatReply, ChatSession } from "../types";
+
+// Tool names whose execution mutates word data; when one appears in an assistant
+// message's citations, the cached word detail query must be refreshed.
+const WRITE_TOOL_SOURCES = new Set(["register_related_word"]);
+
+function repliedWithDataChange(reply: ChatReply): boolean {
+  return reply.assistant_message.citations.some(
+    (c) => typeof c.source === "string" && WRITE_TOOL_SOURCES.has(c.source),
+  );
+}
 
 interface UseChatPanelOptions {
   sessionsQueryKey: QueryKey;
@@ -59,12 +69,15 @@ export function useChatPanel({
       }
       return chatApi.sendMessage(currentSessionId, content.trim());
     },
-    onSuccess: async () => {
+    onSuccess: async (reply) => {
       setPendingUserMessage(null);
       if (currentSession?.id) {
         await queryClient.invalidateQueries({ queryKey: ["chat-messages", currentSession.id] });
       }
       await queryClient.invalidateQueries({ queryKey: sessionsQueryKey });
+      if (repliedWithDataChange(reply)) {
+        await queryClient.invalidateQueries({ queryKey: ["word"] });
+      }
     },
     onError: () => {
       setPendingUserMessage(null);
