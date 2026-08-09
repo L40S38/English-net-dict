@@ -22,7 +22,7 @@ interface ScriptViewerProps {
   interactive?: boolean;
   playbackRate?: number;
   lineFeedback?: Record<number, ListeningWordResult[]>;
-  onSubmitLine?: (lineId: number, userText: string) => void;
+  onSubmitLine?: (lineId: number, userText: string) => void | Promise<void>;
   onAudioGenerated?: () => void;
   onSelectLine?: (line: ListeningLine) => void;
 }
@@ -84,11 +84,12 @@ function LineRow({
   playbackRate: number;
   feedback?: ListeningWordResult[];
   isActivePlayback: boolean;
-  onSubmitLine?: (lineId: number, userText: string) => void;
+  onSubmitLine?: (lineId: number, userText: string) => void | Promise<void>;
   onAudioGenerated?: () => void;
   onSelectLine?: (line: ListeningLine) => void;
 }) {
   const [inputs, setInputs] = useState<Record<number, string>>({});
+  const [submitting, setSubmitting] = useState(false);
   const tokens = useMemo(
     () => tokenizeLine(line.text, dictationLevel, interactive),
     [line.text, dictationLevel, interactive],
@@ -122,6 +123,9 @@ function LineRow({
                 return (
                   <input
                     key={idx}
+                    name={`dictation-blank-${line.id}-${token.wordIndex}`}
+                    aria-label={`空欄 ${(token.wordIndex ?? 0) + 1}語目`}
+                    autoComplete="off"
                     className="listening-blank-input"
                     style={{ width: `${Math.max(token.value.length, 2) + 1}ch` }}
                     value={inputs[token.wordIndex!] ?? ""}
@@ -166,7 +170,8 @@ function LineRow({
         <Row>
           <button
             type="button"
-            onClick={() => {
+            disabled={submitting}
+            onClick={async () => {
               const reconstructed = tokens
                 .map((token) => {
                   if (!token.isWord) return token.value;
@@ -174,10 +179,15 @@ function LineRow({
                   return token.value;
                 })
                 .join("");
-              onSubmitLine?.(line.id, reconstructed);
+              setSubmitting(true);
+              try {
+                await onSubmitLine?.(line.id, reconstructed);
+              } finally {
+                setSubmitting(false);
+              }
             }}
           >
-            採点する
+            {submitting ? "採点中…" : "採点する"}
           </button>
         </Row>
       )}
@@ -311,19 +321,19 @@ export function ScriptViewer({
     setIsPlayingAll(false);
   };
 
-  const progressLabel = genProgress ? `準備中... (${genProgress.done}/${genProgress.total})` : null;
+  const progressLabel = genProgress ? `準備中… (${genProgress.done}/${genProgress.total})` : null;
 
   return (
     <Card stack>
       <Row justify="between">
         <strong>スクリプト</strong>
-        <Row>
+        <Row aria-live="polite">
           <button
             type="button"
             onClick={() => void handleGenerateAll()}
             disabled={isGeneratingAll || isPlayingAll}
           >
-            {isGeneratingAll ? (progressLabel ?? "生成中...") : "⬇ 全部生成"}
+            {isGeneratingAll ? (progressLabel ?? "生成中…") : "⬇ 全部生成"}
           </button>
           <button
             type="button"

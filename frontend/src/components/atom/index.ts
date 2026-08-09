@@ -7,3 +7,4 @@ export { Muted } from "./Muted";
 export { LoadingBanner } from "./LoadingBanner";
 export { FormBlockLayout } from "./FormBlockLayout";
 export { PosSelect } from "./PosSelect";
+export { RadioButtonGroup } from "./RadioButtonGroup";

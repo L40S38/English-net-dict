@@ -26,3 +26,8 @@ def normalize_phrase_entries(raw_phrases: object) -> list[dict[str, str]]:
 def is_multi_token(text: str) -> bool:
     tokens = [t for t in re.split(r"\s+", text.strip()) if t]
     return len(tokens) >= 2
+
+
+def slugify(text: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+    return slug or "item"

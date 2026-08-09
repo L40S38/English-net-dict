@@ -797,7 +797,7 @@ class ListeningScriptRead(BaseModel):
 class ListeningRandomScriptRequest(BaseModel):
     topic: str | None = None
     level: str | None = None
-    speaker_count: int = Field(default=1, ge=1, le=4)
+    speaker_count: int = Field(default=1, ge=1, le=3)
     is_conversation: bool = False
 
 

@@ -80,6 +80,18 @@ button {
   cursor: pointer;
 }
 
+button:hover:not(:disabled) {
+  filter: brightness(0.92);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
 .container {
   max-width: 1160px;
   margin: 0 auto;
@@ -704,6 +716,7 @@ select:disabled {
   border-radius: var(--radius-lg);
   box-shadow: 0 20px 48px rgba(0, 0, 0, 0.2);
   padding: 18px;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: var(--space-md);
@@ -845,6 +858,123 @@ select:disabled {
   color: #dc2626;
   font-weight: 600;
   text-decoration: underline;
+}
+
+fieldset.stack {
+  border: none;
+  margin: 0;
+  padding: 0;
+}
+
+fieldset.stack > legend {
+  padding: 0;
+  font: inherit;
+}
+
+.radio-button-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.radio-button-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  border: 1px solid var(--color-input-border);
+  border-radius: var(--radius-md);
+  padding: 0.5rem 0.9rem;
+  background: var(--color-chip-bg);
+  cursor: pointer;
+  text-align: center;
+}
+
+.radio-button-option input[type="radio"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.radio-button-option:has(input:focus-visible) {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.radio-button-option.selected {
+  background: var(--color-primary);
+  color: var(--color-surface);
+  border-color: var(--color-primary);
+}
+
+.radio-button-label {
+  font-weight: 600;
+}
+
+.radio-button-description {
+  font-size: 0.8em;
+  color: var(--color-muted);
+}
+
+.radio-button-option.selected .radio-button-description {
+  color: var(--color-surface);
+  opacity: 0.85;
+}
+
+.persona-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.persona-picker-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.persona-picker-field-label {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.persona-picker-row select {
+  flex: 1;
+  min-width: 0;
+}
+
+.persona-picker-detail {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  border: 1px solid var(--color-input-border);
+  border-radius: var(--radius-md);
+  padding: 0.6rem;
+  background: var(--color-chip-bg);
+}
+
+.persona-picker-detail-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.persona-picker-detail-text p {
+  margin: 0;
+  font-size: 0.85em;
+  color: var(--color-muted);
+}
+
+.persona-icon {
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: white;
 }
 
 .listening-line {

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import uuid
 from pathlib import Path
 
@@ -9,11 +8,7 @@ from sqlalchemy.orm import Session
 
 from core.config import settings
 from core.models import DefinitionExample, Phrase, PhraseDefinition, Word
-
-
-def _slugify(text: str) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
-    return slug or "audio"
+from core.utils.text_helpers import slugify
 
 
 def synthesize_speech(text: str, slug: str, voice: str | None = None) -> str:
@@ -39,7 +34,7 @@ def synthesize_speech(text: str, slug: str, voice: str | None = None) -> str:
 
 
 def generate_word_audio(db: Session, word: Word) -> Word:
-    word.audio_path = synthesize_speech(word.word, _slugify(word.word))
+    word.audio_path = synthesize_speech(word.word, slugify(word.word))
     db.flush()
     return word
 
@@ -51,7 +46,7 @@ def generate_example_audio(db: Session, example: DefinitionExample) -> Definitio
 
 
 def generate_phrase_audio(db: Session, phrase: Phrase) -> Phrase:
-    phrase.audio_path = synthesize_speech(phrase.text, _slugify(phrase.text))
+    phrase.audio_path = synthesize_speech(phrase.text, slugify(phrase.text))
     db.flush()
     return phrase
 
