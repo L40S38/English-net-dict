@@ -87,7 +87,8 @@ def upgrade() -> None:
                 component_id INTEGER, variant_id INTEGER,
                 PRIMARY KEY (id),
                 FOREIGN KEY(etymology_id) REFERENCES etymologies (id) ON DELETE CASCADE,
-                FOREIGN KEY(component_id) REFERENCES etymology_components (id) ON DELETE SET NULL
+                FOREIGN KEY(component_id) REFERENCES etymology_components (id) ON DELETE SET NULL,
+                FOREIGN KEY(variant_id) REFERENCES etymology_variants (id) ON DELETE CASCADE
             )
             """,
             [
