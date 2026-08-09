@@ -656,25 +656,43 @@ def replace_definitions(word: Word, definitions: list[dict]) -> None:
         word.definitions.append(definition)
 
 
-def split_comma_items(text: str) -> list[str]:
-    # 括弧内の「、」「,」（各語に付いた日本語ニュアンス注記など）は区切りとして扱わない。
-    s = str(text)
-    parts: list[str] = []
-    buf: list[str] = []
+def _has_balanced_parens(text: str) -> bool:
     depth = 0
-    for ch in s:
+    for ch in text:
         if ch in "(（":
             depth += 1
-            buf.append(ch)
         elif ch in ")）":
-            depth = max(0, depth - 1)
-            buf.append(ch)
-        elif ch in ",、" and depth == 0:
-            parts.append("".join(buf))
-            buf = []
-        else:
-            buf.append(ch)
-    parts.append("".join(buf))
+            depth -= 1
+            if depth < 0:
+                return False
+    return depth == 0
+
+
+def split_comma_items(text: str) -> list[str]:
+    # 括弧内の「、」「,」（各語に付いた日本語ニュアンス注記など）は区切りとして扱わない。
+    # ただし開き括弧が閉じられないまま入力が終わる（スクレイパーの文字数打ち切り等による
+    # 不整合な括弧）場合、そこから末尾までのカンマが全て無視されてしまうため、
+    # 括弧の対応が取れていない入力では括弧を無視して単純にカンマ/読点だけで分割する。
+    s = str(text)
+    if not _has_balanced_parens(s):
+        parts = re.split(r"[,、]", s)
+    else:
+        parts = []
+        buf: list[str] = []
+        depth = 0
+        for ch in s:
+            if ch in "(（":
+                depth += 1
+                buf.append(ch)
+            elif ch in ")）":
+                depth = max(0, depth - 1)
+                buf.append(ch)
+            elif ch in ",、" and depth == 0:
+                parts.append("".join(buf))
+                buf = []
+            else:
+                buf.append(ch)
+        parts.append("".join(buf))
     parts = [part.strip() for part in parts]
     unique: list[str] = []
     seen: set[str] = set()
