@@ -603,13 +603,18 @@ class ListeningAttempt(Base):
     session_id: Mapped[int] = mapped_column(ForeignKey("listening_sessions.id", ondelete="CASCADE"), index=True)
     line_id: Mapped[int] = mapped_column(ForeignKey("listening_lines.id", ondelete="CASCADE"), index=True)
     dictation_level: Mapped[int] = mapped_column(Integer, default=0)
+    step: Mapped[str] = mapped_column(String(16), default="dictation")
     user_text: Mapped[str] = mapped_column(Text, default="")
     is_correct: Mapped[bool] = mapped_column(Boolean, default=False)
+    voice: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     session_ref: Mapped[ListeningSession] = relationship(back_populates="attempts")
     line_ref: Mapped[ListeningLine] = relationship(back_populates="attempts")
     word_results: Mapped[list["ListeningWordResult"]] = relationship(
+        back_populates="attempt_ref", cascade="all, delete-orphan"
+    )
+    weak_phrases: Mapped[list["ListeningWeakPhrase"]] = relationship(
         back_populates="attempt_ref", cascade="all, delete-orphan"
     )
 
@@ -628,3 +633,21 @@ class ListeningWordResult(Base):
 
     attempt_ref: Mapped[ListeningAttempt] = relationship(back_populates="word_results")
     matched_word_ref: Mapped[Word | None] = relationship()
+
+
+class ListeningWeakPhrase(Base):
+    """A multi-word span that came up wrong in a read-aloud attempt and matches
+    a known dictionary phrase, so weak idiom/chunk pronunciation can be
+    surfaced the same way single-word mistakes are via ListeningWordResult."""
+
+    __tablename__ = "listening_weak_phrases"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    attempt_id: Mapped[int] = mapped_column(ForeignKey("listening_attempts.id", ondelete="CASCADE"), index=True)
+    phrase_text: Mapped[str] = mapped_column(String(255), index=True)
+    matched_phrase_id: Mapped[int | None] = mapped_column(
+        ForeignKey("phrases.id", ondelete="SET NULL"), index=True, nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    attempt_ref: Mapped[ListeningAttempt] = relationship(back_populates="weak_phrases")

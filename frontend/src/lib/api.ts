@@ -21,6 +21,7 @@ import type {
   ListeningParsedScript,
   ListeningPersona,
   ListeningPersonaSample,
+  ListeningReadAloudGrade,
   ListeningScript,
   ListeningSession,
   ListeningSessionStatus,
@@ -34,6 +35,7 @@ import type {
   PhraseDefinition,
   WordSummary,
   RelatedWord,
+  WeakPhraseStat,
   WeakWordStat,
   Word,
   WordCreateResponse,
@@ -652,6 +654,16 @@ export const listeningApi = {
     const { data } = await api.get<ListeningLineAudio[]>(`/api/listening/lines/${lineId}/audio-variants`);
     return data;
   },
+  async gradeReadAloud(sessionId: number, audioBlob: Blob) {
+    const formData = new FormData();
+    formData.append("audio", audioBlob, "recording.webm");
+    const { data } = await api.post<ListeningReadAloudGrade>(
+      `/api/listening/sessions/${sessionId}/read-aloud-grade`,
+      formData,
+      { headers: { "Content-Type": "multipart/form-data" } },
+    );
+    return data;
+  },
   async createSession(scriptId: number) {
     const { data } = await api.post<ListeningSession>("/api/listening/sessions", {
       script_id: scriptId,
@@ -692,6 +704,12 @@ export const listeningApi = {
   },
   async getWeakWords(limit = 50) {
     const { data } = await api.get<WeakWordStat[]>("/api/listening/analytics/weak-words", {
+      params: { limit },
+    });
+    return data;
+  },
+  async getWeakPhrases(limit = 50) {
+    const { data } = await api.get<WeakPhraseStat[]>("/api/listening/analytics/weak-phrases", {
       params: { limit },
     });
     return data;

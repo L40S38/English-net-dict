@@ -6,7 +6,8 @@ import { PlaybackControls } from "../components/listening/PlaybackControls";
 import { ScriptViewer } from "../components/listening/ScriptViewer";
 import { VoiceCompareModal } from "../components/listening/VoiceCompareModal";
 import { PageHeader } from "../components/PageHeader";
-import { Card, Muted, Row } from "../components/atom";
+import { Card, Muted, Row, Stack } from "../components/atom";
+import { listeningApi } from "../lib/api";
 import { useListeningSession } from "../lib/useListeningSession";
 import type { ListeningStep, ListeningWordResult } from "../types";
 
@@ -18,6 +19,17 @@ export function ListeningPracticePage() {
   const sessionId = Number(params.sessionId);
   const [compareLineId, setCompareLineId] = useState<number | null>(null);
   const [lineFeedback, setLineFeedback] = useState<Record<number, ListeningWordResult[]>>({});
+  const [readAloudFeedback, setReadAloudFeedback] = useState<Record<number, ListeningWordResult[]>>({});
+  const [readAloudResult, setReadAloudResult] = useState<{
+    score: number;
+    goodPoints: string[];
+    reviewPoints: string[];
+  } | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isGradingReadAloud, setIsGradingReadAloud] = useState(false);
+  const [recordError, setRecordError] = useState<string | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
   const [showTranslation, setShowTranslation] = useState(true);
   const [searchParams, setSearchParams] = useSearchParams();
   const appliedInitialParams = useRef(false);
@@ -95,6 +107,46 @@ export function ListeningPracticePage() {
     setLineFeedback((prev) => ({ ...prev, [lineId]: attempt.word_results }));
   };
 
+  const handleStartRecording = async () => {
+    setRecordError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      chunksRef.current = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((track) => track.stop());
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType });
+        setIsGradingReadAloud(true);
+        try {
+          const grade = await listeningApi.gradeReadAloud(session.id, blob);
+          setReadAloudFeedback(
+            Object.fromEntries(grade.lines.map((line) => [line.line_id, line.word_results])),
+          );
+          setReadAloudResult({
+            score: grade.score,
+            goodPoints: grade.good_points,
+            reviewPoints: grade.review_points,
+          });
+        } finally {
+          setIsGradingReadAloud(false);
+        }
+      };
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setIsRecording(true);
+    } catch {
+      setRecordError("マイクを使用できませんでした");
+    }
+  };
+
+  const handleStopRecording = () => {
+    mediaRecorderRef.current?.stop();
+    setIsRecording(false);
+  };
+
   const isShadowing = session.current_step === "shadowing";
   const compareLine = script.lines.find((line) => line.id === compareLineId) ?? null;
 
@@ -121,6 +173,51 @@ export function ListeningPracticePage() {
         </Card>
       )}
 
+      {session.current_step === "read_aloud" && (
+        <Card stack>
+          <strong>音読の採点</strong>
+          <Row>
+            <button
+              type="button"
+              disabled={isGradingReadAloud}
+              onClick={isRecording ? handleStopRecording : () => void handleStartRecording()}
+            >
+              {isGradingReadAloud
+                ? "採点中…"
+                : isRecording
+                  ? "■ 録音終了して採点"
+                  : "🎤 全文を録音して採点"}
+            </button>
+            {recordError && <Muted as="span">{recordError}</Muted>}
+          </Row>
+          {readAloudResult && (
+            <Stack>
+              <strong>{readAloudResult.score} / 100点</strong>
+              {readAloudResult.goodPoints.length > 0 && (
+                <div>
+                  <strong>良かったところ</strong>
+                  <ul>
+                    {readAloudResult.goodPoints.map((point, idx) => (
+                      <li key={idx}>{point}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {readAloudResult.reviewPoints.length > 0 && (
+                <div>
+                  <strong>復習ポイント</strong>
+                  <ul>
+                    {readAloudResult.reviewPoints.map((point, idx) => (
+                      <li key={idx}>{point}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </Stack>
+          )}
+        </Card>
+      )}
+
       <Row justify="between">
         <PlaybackControls speed={session.playback_speed} onChange={setPlaybackSpeed} />
         <label>
@@ -141,7 +238,13 @@ export function ListeningPracticePage() {
         interactive={session.current_step === "dictation"}
         dictationLevel={session.dictation_level}
         playbackRate={session.playback_speed}
-        lineFeedback={session.current_step === "dictation" ? lineFeedback : undefined}
+        lineFeedback={
+          session.current_step === "dictation"
+            ? lineFeedback
+            : session.current_step === "read_aloud"
+              ? readAloudFeedback
+              : undefined
+        }
         onSubmitLine={handleSubmitLine}
         onAudioGenerated={refetchScript}
         onSelectLine={(line) => setCompareLineId(line.id)}

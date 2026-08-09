@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     openai_image_size: str = "1024x1536"
     openai_tts_model: str = "tts-1"
     openai_tts_voice: str = "alloy"
+    openai_transcribe_model: str = "whisper-1"
     data_dir: str = str(DATA_DIR.resolve())
     database_url: str = f"sqlite:///{DEFAULT_DB_PATH.as_posix()}"
     image_dir: str = str((DATA_DIR / "images").resolve())

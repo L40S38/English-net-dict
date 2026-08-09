@@ -167,7 +167,7 @@ function LineRow({
         </Muted>
       )}
       {canSubmit && (
-        <Row>
+        <Row className="listening-line-submit-row">
           <button
             type="button"
             disabled={submitting}
