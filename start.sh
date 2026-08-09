@@ -8,9 +8,6 @@ FRONTEND_PORT="${FRONTEND_PORT:-5173}"
 BACKEND_HOST="${BACKEND_HOST:-127.0.0.1}"
 BACKEND_PORT="${BACKEND_PORT:-8000}"
 
-echo "frontend: building dist..."
-(cd "$ROOT/frontend" && npm run build)
-
 echo "frontend: vite preview (http://${FRONTEND_HOST}:${FRONTEND_PORT})"
 (cd "$ROOT/frontend" && npx vite preview --host "$FRONTEND_HOST" --port "$FRONTEND_PORT" --strictPort) &
 FRONTEND_PID=$!
