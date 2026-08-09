@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, selectinload
@@ -38,7 +40,6 @@ from core.services.listening_script_service import (
     to_line_read,
     to_script_read,
 )
-from core.services.tts_service import get_or_create_persona_sample, transcribe_audio
 from core.services.listening_session_service import (
     build_fallback_good_points,
     build_fallback_review_points,
@@ -50,6 +51,9 @@ from core.services.listening_session_service import (
     record_read_aloud_attempts,
     update_session,
 )
+from core.services.tts_service import get_or_create_persona_sample, transcribe_audio
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/listening", tags=["listening"])
 
@@ -297,8 +301,10 @@ async def post_read_aloud_grade(
         raise HTTPException(status_code=400, detail="Audio file is empty")
     try:
         transcript = transcribe_audio(file_bytes, audio.filename or "recording.webm")
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 - surface as a clean 503 instead of an unhandled 500
+        logger.exception("Read-aloud transcription failed")
+        detail = str(exc) if isinstance(exc, RuntimeError) else "Speech-to-text service is unavailable"
+        raise HTTPException(status_code=503, detail=detail) from exc
     lines = sorted(script.lines, key=lambda line: line.sort_order)
     result = record_read_aloud_attempts(db, session, lines, transcript)
     db.commit()
@@ -313,6 +319,7 @@ async def post_read_aloud_grade(
             wrong_phrases=result["wrong_phrases"],
         )
     except Exception:  # noqa: BLE001 - LLM feedback is best-effort; fall back to templates
+        logger.exception("Pronunciation feedback generation failed; falling back to templates")
         feedback = {
             "good_points": build_fallback_good_points(result["score"], result["correct_long_words"]),
             "review_points": build_fallback_review_points(result["wrong_phrases"], result["wrong_words"]),
