@@ -549,6 +549,39 @@ def to_word_read(db: Session, word: Word) -> WordRead:
     return WordRead.model_validate(data)
 
 
+_VERB_ONLY_FORM_KEYS = ("third_person_singular", "present_participle", "past_tense", "past_participle")
+_ADJECTIVE_ONLY_FORM_KEYS = ("comparative", "superlative")
+_NOUN_ONLY_FORM_KEYS = ("plural", "uncountable")
+
+
+def _drop_forms_without_matching_pos(forms: dict, definitions: list) -> dict:
+    """`forms` は品詞に関係なく機械的に埋まる（GPT が動詞義の無い語にも活用形を生成する
+    ことがある）。対応する品詞の definitions が無いのに活用形だけ残ると、フロントエンドが
+    それを無条件表示するため「名詞専用の語に動詞活用が表示される」ような誤解を招く
+    （例: device に present_participle: deviceing が付く）。品詞の裏付けが無い活用形は落とす。
+    """
+    if not forms:
+        return forms
+    # normalize_part_of_speech は「動詞 verb」のように和英併記を返すため、末尾の英語トークンで判定する
+    # （"adverb" は部分文字列として "verb" を含むため、部分一致ではなく末尾トークンの完全一致で見る）。
+    pos_tails = {
+        normalize_part_of_speech(getattr(d, "part_of_speech", None)).strip().split()[-1].lower()
+        for d in definitions
+        if getattr(d, "part_of_speech", None)
+    }
+    result = dict(forms)
+    if "verb" not in pos_tails:
+        for key in _VERB_ONLY_FORM_KEYS:
+            result.pop(key, None)
+    if "adjective" not in pos_tails:
+        for key in _ADJECTIVE_ONLY_FORM_KEYS:
+            result.pop(key, None)
+    if "noun" not in pos_tails:
+        for key in _NOUN_ONLY_FORM_KEYS:
+            result.pop(key, None)
+    return result
+
+
 def apply_structured_payload(db: Session, word: Word, payload: dict) -> None:
     # Normalize legacy branch shapes before schema validation to keep old scraper outputs acceptable.
     if isinstance(payload, dict):
@@ -566,7 +599,7 @@ def apply_structured_payload(db: Session, word: Word, payload: dict) -> None:
     word.phonetic = parsed.phonetic
     forms = dict(parsed.forms or {})
     forms.pop("phrases", None)
-    word.forms = forms
+    word.forms = _drop_forms_without_matching_pos(forms, parsed.definitions)
 
     word.definitions.clear()
     for d in parsed.definitions:
