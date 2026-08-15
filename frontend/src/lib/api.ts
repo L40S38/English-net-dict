@@ -35,6 +35,7 @@ import type {
   PhraseDefinition,
   WordSummary,
   RelatedWord,
+  SearchSuggestItem,
   WeakPhraseStat,
   WeakWordStat,
   Word,
@@ -596,6 +597,15 @@ export const phraseApi = {
   },
   async delete(phraseId: number) {
     await api.delete(`/api/phrases/${phraseId}`);
+  },
+};
+
+export const searchApi = {
+  async suggest(q: string, limit = 10) {
+    const { data } = await api.get<SearchSuggestItem[]>("/api/search/suggest", {
+      params: { q, limit },
+    });
+    return data;
   },
 };
 

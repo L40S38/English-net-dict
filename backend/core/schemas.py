@@ -437,6 +437,12 @@ class GroupSearchResponse(BaseModel):
     phrases_total: int = 0
 
 
+class SearchSuggestItem(BaseModel):
+    type: Literal["word", "phrase"]
+    id: int
+    text: str
+
+
 class EtymologyComponentWiktionaryInfo(BaseModel):
     meanings: list[str] = Field(default_factory=list)
     related_terms: list[str] = Field(default_factory=list)

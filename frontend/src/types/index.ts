@@ -360,6 +360,14 @@ export interface PhraseCheckResponse {
   not_found: string[];
 }
 
+export type SearchSuggestType = "word" | "phrase";
+
+export interface SearchSuggestItem {
+  type: SearchSuggestType;
+  id: number;
+  text: string;
+}
+
 export interface InflectionCheckResult {
   word: string;
   is_inflected: boolean;

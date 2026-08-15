@@ -3,8 +3,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ConfirmModal } from "../components/ConfirmModal";
 import { PhraseCard } from "../components/PhraseCard";
-import { Card, Muted } from "../components/atom";
+import { PhraseRegisterAction } from "../components/PhraseRegisterAction";
+import { Card, Muted, Row } from "../components/atom";
 import { phraseApi } from "../lib/api";
+import { usePhraseRegistration } from "../lib/usePhraseRegistration";
 
 type PhraseSortBy = "updated_at" | "created_at" | "text";
 type SortOrder = "desc" | "asc";
@@ -49,6 +51,10 @@ export function PhraseListPage() {
   const phrases = useMemo(
     () => phrasesQuery.data?.pages.flatMap((page) => page) ?? [],
     [phrasesQuery.data],
+  );
+  const trimmedQuery = query.trim();
+  const { getPhraseId, registerPhrase, isRegistering, isMutating } = usePhraseRegistration(
+    trimmedQuery ? [trimmedQuery] : [],
   );
   const deleteMutation = useMutation({
     mutationFn: (phraseId: number) => phraseApi.delete(phraseId),
@@ -120,7 +126,23 @@ export function PhraseListPage() {
       </div>
       {phrasesQuery.isLoading && <Muted as="p">熟語を読み込み中...</Muted>}
       {!phrasesQuery.isLoading && phrases.length === 0 && (
-        <Muted as="p">熟語はまだありません。</Muted>
+        trimmedQuery ? (
+          <Card stack>
+            <h3>「{trimmedQuery}」は熟語として登録されていません</h3>
+            <p>この熟語を新規登録しますか？</p>
+            <Row>
+              <PhraseRegisterAction
+                text={trimmedQuery}
+                phraseId={getPhraseId(trimmedQuery)}
+                pending={isRegistering(trimmedQuery)}
+                disabled={isMutating}
+                onRegister={registerPhrase}
+              />
+            </Row>
+          </Card>
+        ) : (
+          <Muted as="p">熟語はまだありません。</Muted>
+        )
       )}
 
       <section className="grid">

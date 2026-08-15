@@ -3,7 +3,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
-import { wordApi } from "../lib/api";
+import { searchApi } from "../lib/api";
+import type { SearchSuggestItem } from "../types";
 
 const DEBOUNCE_MS = 300;
 
@@ -32,8 +33,8 @@ export function SearchHeader() {
   }, []);
 
   const suggestQuery = useQuery({
-    queryKey: ["word-suggest", debouncedKeyword],
-    queryFn: () => wordApi.suggest(debouncedKeyword),
+    queryKey: ["search-suggest", debouncedKeyword],
+    queryFn: () => searchApi.suggest(debouncedKeyword),
     enabled: dropdownOpen && debouncedKeyword.length > 0,
     staleTime: 1000 * 60,
   });
@@ -44,7 +45,7 @@ export function SearchHeader() {
     debouncedKeyword.length > 0 &&
     (suggestQuery.isFetching || suggestions.length > 0);
 
-  const search = (raw: string) => {
+  const searchByText = (raw: string) => {
     const value = raw.trim();
     if (!value) {
       return;
@@ -53,9 +54,15 @@ export function SearchHeader() {
     navigate(`/words/${encodeURIComponent(value)}`);
   };
 
+  const goToSuggestion = (item: SearchSuggestItem) => {
+    setDropdownOpen(false);
+    setKeyword(item.text);
+    navigate(item.type === "phrase" ? `/phrases/${item.id}` : `/words/${item.id}`);
+  };
+
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    search(keyword);
+    searchByText(keyword);
   };
 
   return (
@@ -74,8 +81,8 @@ export function SearchHeader() {
                 setDropdownOpen(true);
               }}
               onFocus={() => setDropdownOpen(true)}
-              placeholder="単語を検索"
-              aria-label="単語を検索"
+              placeholder="単語・熟語を検索"
+              aria-label="単語・熟語を検索"
             />
             {showDropdown && (
               <div className="suggest-dropdown">
@@ -84,15 +91,15 @@ export function SearchHeader() {
                 ) : (
                   suggestions.map((item) => (
                     <button
-                      key={item}
+                      key={`${item.type}-${item.id}`}
                       type="button"
                       className="suggest-item"
-                      onClick={() => {
-                        setKeyword(item);
-                        search(item);
-                      }}
+                      onClick={() => goToSuggestion(item)}
                     >
-                      {item}
+                      <span className={`suggest-item-type suggest-item-type--${item.type}`}>
+                        {item.type === "phrase" ? "熟語" : "単語"}
+                      </span>
+                      <span className="suggest-item-text">{item.text}</span>
                     </button>
                   ))
                 )}
