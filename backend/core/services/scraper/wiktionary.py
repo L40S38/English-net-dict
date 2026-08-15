@@ -67,7 +67,7 @@ _FORM_NOISE_TOKENS = {"of", "from", "for", "to", "by", "and", "or", "the", "a", 
 
 class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
     source_name = "wiktionary"
-    _FETCH_MAX_RETRIES = 20
+    _FETCH_MAX_RETRIES = 6
     _FETCH_BASE_DELAY_429 = 5.0
     _FETCH_BASE_DELAY_OTHER = 3.0
 

@@ -7,17 +7,28 @@ Three read-only tools are always available to the LLM:
 
 One write tool is available only in word-scoped chat sessions (see WRITE_TOOL_DEFINITIONS):
   4. register_related_word – add a related word/synonym/antonym/etc. entry to the current word
+
+One image tool is available in word/phrase/group-scoped sessions, but not etymology-component
+sessions (see IMAGE_TOOL_DEFINITIONS):
+  5. generate_chat_image – generate an illustrative image and return a URL for the LLM to embed
+     via Markdown in its reply. The image is chat-only and is not saved as the word/phrase/group's
+     official image (see core.services.image_service for that separate feature).
 """
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
+import uuid
+from pathlib import Path
 from typing import Any
 
+from openai import OpenAI
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
+from core.config import settings
 from core.models import Definition, Etymology, EtymologyComponentItem, RelatedWord, Word
 from core.services.web_word_search import search_web_dictionary, search_web_general
 from core.services.word_service import link_related_words
@@ -164,6 +175,40 @@ WRITE_TOOL_DEFINITIONS: list[dict[str, Any]] = [
 WRITE_TOOL_NAMES: set[str] = {tool["name"] for tool in WRITE_TOOL_DEFINITIONS}
 
 
+# Image tool is appended to the tool list for word/phrase/group-scoped chat sessions only
+# (see chat_service.answer_in_session) - not offered in etymology-component chats.
+IMAGE_TOOL_DEFINITIONS: list[dict[str, Any]] = [
+    {
+        "type": "function",
+        "name": "generate_chat_image",
+        "description": (
+            "Generate an illustrative image (イメージ図/イラスト) and return a URL to embed directly "
+            "in the chat reply. Call this when the user clearly asks for a visual, e.g. "
+            "「〜のイメージ図を出して」「〜を絵で見せて」「〜のイラストを生成して」「図解して」. "
+            "Do not call this for requests that are purely about explaining meaning in words."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                    "description": (
+                        "A detailed image-generation prompt in English describing what to draw, "
+                        "based on the word/phrase's meaning, etymology, or nuance being discussed."
+                    ),
+                },
+                "alt_text": {
+                    "type": "string",
+                    "description": "Short Japanese description of the image, used as Markdown alt text.",
+                },
+            },
+            "required": ["prompt", "alt_text"],
+            "additionalProperties": False,
+        },
+    },
+]
+
+
 # ---------------------------------------------------------------------------
 # Tool executors
 # ---------------------------------------------------------------------------
@@ -183,10 +228,43 @@ def execute_tool(db: Session, tool_name: str, arguments: dict[str, Any], word_id
                 return _exec_search_web(arguments)
             if tool_name == "register_related_word":
                 return _exec_register_related_word(db, word_id, arguments)
+            if tool_name == "generate_chat_image":
+                return _exec_generate_chat_image(arguments)
             return json.dumps({"error": f"Unknown tool: {tool_name}"}, ensure_ascii=False)
     except Exception:
         logger.exception("Tool execution failed: %s", tool_name)
         return json.dumps({"error": f"Tool '{tool_name}' failed"}, ensure_ascii=False)
+
+
+def _exec_generate_chat_image(args: dict) -> str:
+    prompt = str(args.get("prompt", "")).strip()
+    alt_text = str(args.get("alt_text", "")).strip() or "generated image"
+    if not prompt:
+        return json.dumps({"error": "prompt is required"}, ensure_ascii=False)
+    if not settings.openai_api_key:
+        return json.dumps(
+            {"error": "Image generation is not available (no API key configured)."}, ensure_ascii=False
+        )
+
+    try:
+        image_dir = Path(settings.image_dir)
+        image_dir.mkdir(parents=True, exist_ok=True)
+        client = OpenAI(api_key=settings.openai_api_key)
+        result = client.images.generate(
+            model=settings.openai_image_model,
+            prompt=prompt,
+            size=settings.openai_image_size,
+        )
+        b64 = result.data[0].b64_json
+        if not b64:
+            return json.dumps({"error": "Image generation returned no data."}, ensure_ascii=False)
+
+        filename = f"chat-{uuid.uuid4().hex[:8]}.png"
+        (image_dir / filename).write_bytes(base64.b64decode(b64))
+        return json.dumps({"url": f"/static/images/{filename}", "alt_text": alt_text}, ensure_ascii=False)
+    except Exception:
+        logger.exception("Chat image generation failed")
+        return json.dumps({"error": "Image generation failed."}, ensure_ascii=False)
 
 
 def _exec_register_related_word(db: Session, word_id: int | None, args: dict) -> str:

@@ -1,11 +1,24 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { Card, Chip, ChipList, Muted, Row } from "./atom";
 import { ConfirmModal } from "./ConfirmModal";
+import { SHARED_API_BASE_URL_DEFAULT } from "../lib/sharedConfig";
 import type { ChatMessage, ChatSession } from "../types";
+
+const CHAT_API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? SHARED_API_BASE_URL_DEFAULT;
+
+// Chat-generated images are returned by the backend as root-relative `/static/...` paths
+// (same convention as ImageViewer/AudioPlayButton), so resolve them against the API base URL
+// - otherwise they'd resolve against the frontend's own origin in dev, where it doesn't exist.
+const markdownComponents: Components = {
+  img: ({ src, alt }) => {
+    const resolvedSrc = typeof src === "string" && src.startsWith("/") ? `${CHAT_API_BASE_URL}${src}` : src;
+    return <img src={resolvedSrc} alt={alt ?? ""} />;
+  },
+};
 
 function normalizeText(input: string): string {
   // Strip control chars and guard against mojibake-like output from external LLM responses.
@@ -182,7 +195,7 @@ export function ChatPanel({
           <div key={msg.id} className={`bubble ${msg.role === "assistant" ? "assistant" : "user"}`}>
             {msg.role === "assistant" ? (
               <div className="markdown-body">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
                   {normalizeText(msg.content)}
                 </ReactMarkdown>
               </div>
