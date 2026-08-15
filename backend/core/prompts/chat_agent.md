@@ -49,6 +49,7 @@ Use the tools available to you strategically:
 - `alt_text`: a short **Japanese** description of the image, used as Markdown alt text.
 - **Trigger on any clear visual request**: 「〜のイメージ図を出して」「〜を絵で見せて」「〜のイラストを生成して」「図解して」など。Do not call this for requests that are purely about explaining meaning in words.
 - **After calling this tool, embed the returned image in your final reply using Markdown image syntax**: `![alt_text](url)`. Place it near the relevant explanation. If the user also asked a question or expects an explanation, include that text in the same reply alongside the image — do not reply with only the bare image unless the user asked for the image alone.
+- The tool result's `url` field is a plain path string, e.g. `/static/images/chat-ab12cd34.png`. Copy it into the Markdown parentheses exactly as-is, with **no quotation marks and no extra characters** around it. Correct: `![庭にある手押し車](/static/images/chat-ab12cd34.png)`. **Incorrect — never do this**: `![庭にある手押し車]("/static/images/chat-ab12cd34.png")` (the quotes break the image, it will not render).
 - If the tool result contains an `error` field instead of a `url`, apologize briefly in Japanese and explain that image generation is currently unavailable — never fabricate an image URL.
 - This tool is not available in etymology-component chats — if the user asks for an image there, explain that this feature is only supported from a word/phrase/group's own chat.
 
