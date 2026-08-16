@@ -4,11 +4,11 @@ import { Card, Chip, ChipList, Muted, Row, Stack } from "./atom";
 import { EMPTY_MESSAGES } from "../lib/constants";
 import type { Word } from "../types";
 
-interface Props {
+interface EtymologyMapProps {
   word: Word;
 }
 
-export function EtymologyMap({ word }: Props) {
+export function EtymologyMap({ word }: EtymologyMapProps) {
   const ety = word.etymology;
   const hasComponents = (ety?.components?.length ?? 0) > 0;
   const hasBranches = (ety?.branches?.length ?? 0) > 0;
@@ -67,6 +67,7 @@ export function EtymologyMap({ word }: Props) {
                   const hasWordMode =
                     component.candidate_word || (component.auto_modes ?? []).includes("word");
                   const displayMode = component.display_mode ?? "auto";
+                  // auto指定時は、リンク可能な単語候補がある場合のみ単語リンクを優先表示する。
                   const effectiveMode =
                     displayMode === "auto" ? (hasWordMode ? "word" : "morpheme") : displayMode;
                   const chipLabel = `${component.text} : ${mappedMeaning}`;

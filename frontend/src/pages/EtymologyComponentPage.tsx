@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import axios from "axios";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 
 import { ComponentChatPanel } from "../components/ComponentChatPanel";
@@ -9,8 +8,9 @@ import { PageHeader } from "../components/PageHeader";
 import { WordLinkRow } from "../components/WordLinkRow";
 import { WordCard } from "../components/WordCard";
 import { Card, Muted, Stack } from "../components/atom";
-import { componentApi, wordApi } from "../lib/api";
+import { componentApi, phraseApi, wordApi } from "../lib/api";
 import { EMPTY_MESSAGES } from "../lib/constants";
+import { isNotFoundError } from "../lib/errors";
 
 export function EtymologyComponentPage() {
   const params = useParams();
@@ -18,7 +18,10 @@ export function EtymologyComponentPage() {
   const queryClient = useQueryClient();
   const componentText = decodeURIComponent(params.componentText ?? "").trim();
   const [deletingWordId, setDeletingWordId] = useState<number | null>(null);
-  const [showRegisterConfirm, setShowRegisterConfirm] = useState(true);
+  const [pendingDeleteWord, setPendingDeleteWord] = useState<{ id: number; word: string } | null>(
+    null,
+  );
+  const [showRegisterConfirm, setShowRegisterConfirm] = useState(false);
   const componentMeaning = (searchParams.get("meaning") ?? "").trim();
   const fromWord = (searchParams.get("from") ?? "").trim();
   const componentQuery = useQuery({
@@ -68,10 +71,7 @@ export function EtymologyComponentPage() {
     },
   });
   const genericMeanings = new Set(["語根要素", "接頭要素", "語源要素"]);
-  const isNotRegistered =
-    componentQuery.isError &&
-    axios.isAxiosError(componentQuery.error) &&
-    componentQuery.error.response?.status === 404;
+  const isNotRegistered = componentQuery.isError && isNotFoundError(componentQuery.error);
   const fromApi = (wordsQuery.data?.resolved_meaning ?? "").trim();
   let resolvedMeaning = fromApi;
   if (!resolvedMeaning) {
@@ -100,11 +100,46 @@ export function EtymologyComponentPage() {
     }
   }
   const wiktionaryInfo = componentQuery.data;
+  const wiktionaryLinkTerms = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          [
+            ...(wiktionaryInfo?.wiktionary_related_terms ?? []),
+            ...(wiktionaryInfo?.wiktionary_derived_terms ?? []),
+          ]
+            .map((term) => term.trim())
+            .filter((term) => term.length > 0),
+        ),
+      ),
+    [wiktionaryInfo?.wiktionary_related_terms, wiktionaryInfo?.wiktionary_derived_terms],
+  );
+  const phraseCheckQuery = useQuery({
+    queryKey: ["etymology-component", componentText, "phrase-check", wiktionaryLinkTerms],
+    queryFn: () => phraseApi.check(wiktionaryLinkTerms),
+    enabled: wiktionaryLinkTerms.length > 0,
+  });
+  const phraseIdMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const found of phraseCheckQuery.data?.found ?? []) {
+      map.set(found.text, found.id);
+      map.set(found.text.toLowerCase(), found.id);
+    }
+    return map;
+  }, [phraseCheckQuery.data?.found]);
   const isBusy =
     wordsQuery.isLoading ||
     componentQuery.isLoading ||
     rescrapeMutation.isPending ||
     createComponentMutation.isPending;
+
+  if (componentQuery.isLoading) {
+    return (
+      <main className="container">
+        <Muted as="p">読み込み中...</Muted>
+      </main>
+    );
+  }
 
   if (isNotRegistered) {
     return (
@@ -180,7 +215,22 @@ export function EtymologyComponentPage() {
                 )}
                 {(wiktionaryInfo?.wiktionary_related_terms ?? []).map((term) => (
                   <Card key={term} variant="sub" stack>
-                    <WordLinkRow value={term} secondary="Wiktionary" />
+                    <WordLinkRow
+                      value={term}
+                      secondary="Wiktionary"
+                      trailing={(() => {
+                        const phraseId =
+                          phraseIdMap.get(term) ?? phraseIdMap.get(term.toLowerCase());
+                        if (!phraseId) {
+                          return null;
+                        }
+                        return (
+                          <Link className="detail-link-button" to={`/phrases/${phraseId}`}>
+                            詳細
+                          </Link>
+                        );
+                      })()}
+                    />
                   </Card>
                 ))}
               </Card>
@@ -191,7 +241,22 @@ export function EtymologyComponentPage() {
                 )}
                 {(wiktionaryInfo?.wiktionary_derived_terms ?? []).map((term) => (
                   <Card key={term} variant="sub" stack>
-                    <WordLinkRow value={term} secondary="Wiktionary" />
+                    <WordLinkRow
+                      value={term}
+                      secondary="Wiktionary"
+                      trailing={(() => {
+                        const phraseId =
+                          phraseIdMap.get(term) ?? phraseIdMap.get(term.toLowerCase());
+                        if (!phraseId) {
+                          return null;
+                        }
+                        return (
+                          <Link className="detail-link-button" to={`/phrases/${phraseId}`}>
+                            詳細
+                          </Link>
+                        );
+                      })()}
+                    />
                   </Card>
                 ))}
               </Card>
@@ -217,7 +282,7 @@ export function EtymologyComponentPage() {
                   key={word.id}
                   word={word}
                   deleting={deleteWordMutation.isPending && deletingWordId === word.id}
-                  onDelete={(wordId) => deleteWordMutation.mutate(wordId)}
+                  onDelete={(wordId) => setPendingDeleteWord({ id: wordId, word: word.word })}
                 />
               ))}
             </section>
@@ -228,6 +293,21 @@ export function EtymologyComponentPage() {
           {componentText && <ComponentChatPanel componentText={componentText} />}
         </aside>
       </div>
+      <ConfirmModal
+        open={pendingDeleteWord !== null}
+        title="削除の確認"
+        message={`単語「${pendingDeleteWord?.word ?? ""}」を削除しますか？`}
+        confirmText="削除する"
+        cancelText="キャンセル"
+        confirmVariant="danger"
+        disableActions={deleteWordMutation.isPending}
+        onCancel={() => setPendingDeleteWord(null)}
+        onConfirm={() => {
+          if (!pendingDeleteWord) return;
+          deleteWordMutation.mutate(pendingDeleteWord.id);
+          setPendingDeleteWord(null);
+        }}
+      />
     </main>
   );
 }

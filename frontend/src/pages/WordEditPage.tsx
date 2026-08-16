@@ -1,23 +1,22 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
-import { Card, Field, Row } from "../components/atom";
-import { BranchFormBlock } from "../components/BranchFormBlock";
-import { ComponentFormBlock } from "../components/ComponentFormBlock";
-import { ComponentMeaningFormBlock } from "../components/ComponentMeaningFormBlock";
+import { Row } from "../components/atom";
 import { ConfirmModal } from "../components/ConfirmModal";
-import { DefinitionFormBlock } from "../components/DefinitionFormBlock";
-import { DerivationFormBlock } from "../components/DerivationFormBlock";
-import { EtymologyVariantFormBlock } from "../components/EtymologyVariantFormBlock";
-import { LanguageChainFormBlock } from "../components/LanguageChainFormBlock";
-import { PhraseFormBlock } from "../components/PhraseFormBlock";
-import { RelatedWordFormBlock } from "../components/RelatedWordFormBlock";
 import { Tabs } from "../components/common/Tabs";
+import {
+  WordEditBasicTab,
+  WordEditDerivationsTab,
+  WordEditEtymologyTab,
+  WordEditFormsTab,
+  WordEditPhrasesTab,
+  WordEditRelatedTab,
+  WordEditVariantsTab,
+} from "../components/word-edit/WordEditTabs";
 import { wordApi } from "../lib/api";
-import { POS_OPTIONS } from "../lib/constants";
 import type {
+  ComponentMeaningItem,
   Derivation,
   EtymologyBranch,
   EtymologyComponent,
@@ -27,8 +26,6 @@ import type {
   RelatedWord,
   Word,
 } from "../types";
-
-type ComponentMeaningEntry = { text: string; meaning: string };
 
 type EditTabKey =
   | "basic"
@@ -43,10 +40,10 @@ type EditTabKey =
 const EDIT_TABS: Array<{ key: EditTabKey; label: string }> = [
   { key: "basic", label: "基本情報" },
   { key: "forms", label: "活用形" },
+  { key: "derivations", label: "派生語" },
   { key: "phrases", label: "成句・慣用句" },
   { key: "etymology", label: "語源" },
   { key: "etymologyVariants", label: "語源バリエーション" },
-  { key: "derivations", label: "派生語" },
   { key: "related", label: "関連語" },
 ];
 
@@ -86,31 +83,34 @@ export function WordEditPage() {
   const [components, setComponents] = useState<EtymologyComponent[]>([]);
   const [branches, setBranches] = useState<EtymologyBranch[]>([]);
   const [languageChain, setLanguageChain] = useState<LanguageChainLink[]>([]);
-  const [componentMeanings, setComponentMeanings] = useState<ComponentMeaningEntry[]>([]);
+  const [componentMeanings, setComponentMeanings] = useState<ComponentMeaningItem[]>([]);
   const [etymologyVariants, setEtymologyVariants] = useState<EtymologyVariant[]>([]);
   const [activeTab, setActiveTab] = useState<EditTabKey>("basic");
   const [confirmState, setConfirmState] = useState<{
     open: boolean;
     title: string;
     message: string;
+    confirmVariant?: "default" | "danger";
     confirmText?: string;
     cancelText?: string;
   }>({
     open: false,
     title: "",
     message: "",
+    confirmVariant: "default",
   });
   const confirmResolverRef = useRef<((result: boolean) => void) | null>(null);
 
   const openConfirm = (params: {
     title: string;
     message: string;
+    confirmVariant?: "default" | "danger";
     confirmText?: string;
     cancelText?: string;
   }) =>
     new Promise<boolean>((resolve) => {
       confirmResolverRef.current = resolve;
-      setConfirmState({ open: true, ...params });
+      setConfirmState({ open: true, confirmVariant: "default", ...params });
     });
 
   const closeConfirm = (result: boolean) => {
@@ -119,8 +119,13 @@ export function WordEditPage() {
     setConfirmState((prev) => ({ ...prev, open: false }));
   };
 
-  useEffect(() => {
-    if (!word) return;
+  // react-query の cache から新しい Word データが来たときに編集用 state を同期する。
+  // useEffect でなく render 中の setState（React 公式の「データが変わったときに state を調整する」パターン）
+  // を用いることで、`react-hooks/set-state-in-effect` 違反を回避しつつ無駄な再 render を避ける。
+  // ref: https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
+  const [syncedWord, setSyncedWord] = useState<Word | null>(null);
+  if (word && word !== syncedWord) {
+    setSyncedWord(word);
     const forms = word.forms ?? {};
     setEditWord(word.word);
     setPhonetic(word.phonetic ?? "");
@@ -132,7 +137,9 @@ export function WordEditPage() {
     setComparative(String(forms.comparative ?? ""));
     setSuperlative(String(forms.superlative ?? ""));
     setUncountable(Boolean(forms.uncountable));
-    setPhrases((word.phrases ?? []).map((item) => ({ text: item.text, meaning: item.meaning ?? "" })));
+    setPhrases(
+      (word.phrases ?? []).map((item) => ({ text: item.text, meaning: item.meaning ?? "" })),
+    );
     setDefinitions(word.definitions);
     setDerivations(word.derivations);
     setRelatedWords(word.related_words);
@@ -145,7 +152,7 @@ export function WordEditPage() {
     setLanguageChain(word.etymology?.language_chain ?? []);
     setComponentMeanings(word.etymology?.component_meanings ?? []);
     setEtymologyVariants(word.etymology?.etymology_variants ?? []);
-  }, [word]);
+  }
 
   const payload = useMemo(() => {
     return {
@@ -172,8 +179,12 @@ export function WordEditPage() {
         part_of_speech: d.part_of_speech,
         meaning_en: d.meaning_en,
         meaning_ja: d.meaning_ja,
-        example_en: d.example_en,
-        example_ja: d.example_ja,
+        examples: (d.examples ?? []).map((example, exampleIndex) => ({
+          id: example.id,
+          example_en: example.example_en,
+          example_ja: example.example_ja,
+          sort_order: example.sort_order ?? exampleIndex,
+        })),
         sort_order: d.sort_order ?? idx,
       })),
       etymology: {
@@ -226,6 +237,70 @@ export function WordEditPage() {
     derivations,
     relatedWords,
   ]);
+  const initialPayloadSerialized = useMemo(() => {
+    if (!word) {
+      return "";
+    }
+    const forms = word.forms ?? {};
+    return JSON.stringify({
+      word: word.word,
+      phonetic: word.phonetic ?? null,
+      forms: {
+        third_person_singular: String(forms.third_person_singular ?? "") || undefined,
+        present_participle: String(forms.present_participle ?? "") || undefined,
+        past_tense: String(forms.past_tense ?? "") || undefined,
+        past_participle: String(forms.past_participle ?? "") || undefined,
+        plural: String(forms.plural ?? "") || undefined,
+        comparative: String(forms.comparative ?? "") || undefined,
+        superlative: String(forms.superlative ?? "") || undefined,
+        uncountable: forms.uncountable ? true : undefined,
+      },
+      phrases: (word.phrases ?? [])
+        .map((entry) => ({
+          text: entry.text.trim(),
+          meaning: (entry.meaning ?? "").trim(),
+        }))
+        .filter((entry) => Boolean(entry.text)),
+      definitions: (word.definitions ?? []).map((d, idx) => ({
+        id: d.id,
+        part_of_speech: d.part_of_speech,
+        meaning_en: d.meaning_en,
+        meaning_ja: d.meaning_ja,
+        examples: (d.examples ?? []).map((example, exampleIndex) => ({
+          id: example.id,
+          example_en: example.example_en,
+          example_ja: example.example_ja,
+          sort_order: example.sort_order ?? exampleIndex,
+        })),
+        sort_order: d.sort_order ?? idx,
+      })),
+      etymology: {
+        components: word.etymology?.components ?? [],
+        origin_word: word.etymology?.origin_word ?? null,
+        origin_language: word.etymology?.origin_language ?? null,
+        core_image: word.etymology?.core_image ?? null,
+        branches: word.etymology?.branches ?? [],
+        language_chain: word.etymology?.language_chain ?? [],
+        component_meanings: word.etymology?.component_meanings ?? [],
+        etymology_variants: word.etymology?.etymology_variants ?? [],
+        raw_description: word.etymology?.raw_description ?? null,
+      },
+      derivations: (word.derivations ?? []).map((d, idx) => ({
+        id: d.id,
+        derived_word: d.derived_word,
+        part_of_speech: d.part_of_speech,
+        meaning_ja: d.meaning_ja,
+        sort_order: d.sort_order ?? idx,
+      })),
+      related_words: (word.related_words ?? []).map((r) => ({
+        id: r.id,
+        related_word: r.related_word,
+        relation_type: r.relation_type,
+        note: r.note,
+      })),
+    });
+  }, [word]);
+  const hasUnsavedChanges = word ? JSON.stringify(payload) !== initialPayloadSerialized : false;
 
   const saveMutation = useMutation({
     mutationFn: async () => wordApi.updateFull(word!.id, payload),
@@ -235,6 +310,13 @@ export function WordEditPage() {
       navigate(`/words/${updated.id}`);
     },
   });
+  const deleteWordMutation = useMutation({
+    mutationFn: () => wordApi.delete(word!.id),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["words"] });
+      navigate("/");
+    },
+  });
 
   const confirmRemove = async (targetLabel: string, onAccept: () => void) => {
     const ok = await openConfirm({
@@ -242,11 +324,36 @@ export function WordEditPage() {
       message: `${targetLabel}を本当に削除しますか？`,
       confirmText: "削除する",
       cancelText: "キャンセル",
+      confirmVariant: "danger",
     });
     if (!ok) {
       return;
     }
     onAccept();
+  };
+  const handleDeleteWord = async () => {
+    if (hasUnsavedChanges) {
+      const proceed = await openConfirm({
+        title: "未保存の変更があります",
+        message: "保存せずに削除しますか？",
+        confirmText: "続行",
+        cancelText: "キャンセル",
+      });
+      if (!proceed) {
+        return;
+      }
+    }
+    const ok = await openConfirm({
+      title: "削除の確認",
+      message: `単語「${editWord.trim() || (word?.word ?? "")}」を削除しますか？`,
+      confirmText: "削除する",
+      cancelText: "キャンセル",
+      confirmVariant: "danger",
+    });
+    if (!ok) {
+      return;
+    }
+    deleteWordMutation.mutate();
   };
 
   if (!word) {
@@ -262,6 +369,22 @@ export function WordEditPage() {
       <Row justify="between">
         <h2>{word.word} の編集</h2>
         <Row>
+          <button
+            type="button"
+            onClick={() => saveMutation.mutate()}
+            disabled={saveMutation.isPending || deleteWordMutation.isPending}
+          >
+            {saveMutation.isPending ? "保存中..." : "保存"}
+          </button>
+          <button
+            type="button"
+            className="button-delete"
+            onClick={() => void handleDeleteWord()}
+            disabled={saveMutation.isPending || deleteWordMutation.isPending}
+          >
+            {deleteWordMutation.isPending ? "削除中..." : "削除"}
+          </button>
+          <Link to={`/words/${word.id}`}>キャンセル</Link>
           <Link to={`/words/${word.id}`}>詳細へ戻る</Link>
         </Row>
       </Row>
@@ -269,427 +392,100 @@ export function WordEditPage() {
       <Tabs items={EDIT_TABS} activeKey={activeTab} onChange={setActiveTab} />
 
       {activeTab === "basic" && (
-        <Card stack>
-          <h3>基本情報</h3>
-          <Field label="単語">
-            <input
-              value={editWord}
-              onChange={(e) => setEditWord(e.target.value)}
-              placeholder="単語"
-            />
-          </Field>
-          <Field label="発音記号 / IPA">
-            <input
-              value={phonetic}
-              onChange={(e) => setPhonetic(e.target.value)}
-              placeholder="発音記号 / IPA"
-            />
-          </Field>
-          <hr className="section-divider" />
-          <h3>意味・例文</h3>
-          {definitions.map((def, idx) => (
-            <DefinitionFormBlock
-              key={def.id}
-              definition={def}
-              index={idx}
-              onUpdate={(index, next) =>
-                setDefinitions((prev) => prev.map((x, i) => (i === index ? next : x)))
-              }
-              onRemove={(index) =>
-                void confirmRemove("この意味・例文", () =>
-                  setDefinitions((prev) => prev.filter((_, i) => i !== index)),
-                )
-              }
-            />
-          ))}
-          <button
-            type="button"
-            className="icon-button-add"
-            aria-label="意味・例文を追加"
-            onClick={() =>
-              setDefinitions((prev) => [
-                ...prev,
-                {
-                  id: -Date.now(),
-                  part_of_speech: POS_OPTIONS[0].value,
-                  meaning_en: "",
-                  meaning_ja: "",
-                  example_en: "",
-                  example_ja: "",
-                  sort_order: prev.length,
-                },
-              ])
-            }
-          >
-            <Plus size={18} />
-          </button>
-        </Card>
+        <WordEditBasicTab
+          editWord={editWord}
+          phonetic={phonetic}
+          definitions={definitions}
+          setEditWord={setEditWord}
+          setPhonetic={setPhonetic}
+          setDefinitions={setDefinitions}
+          confirmRemove={confirmRemove}
+        />
       )}
 
       {activeTab === "forms" && (
-        <Card stack>
-          <h3>活用形</h3>
-          <Field label="三単現">
-            <input value={third} onChange={(e) => setThird(e.target.value)} placeholder="三単現" />
-          </Field>
-          <Field label="現在分詞">
-            <input
-              value={presentParticiple}
-              onChange={(e) => setPresentParticiple(e.target.value)}
-              placeholder="現在分詞"
-            />
-          </Field>
-          <Field label="過去形">
-            <input
-              value={pastTense}
-              onChange={(e) => setPastTense(e.target.value)}
-              placeholder="過去形"
-            />
-          </Field>
-          <Field label="過去分詞">
-            <input
-              value={pastParticiple}
-              onChange={(e) => setPastParticiple(e.target.value)}
-              placeholder="過去分詞"
-            />
-          </Field>
-          <Field label="複数形">
-            <input
-              value={plural}
-              onChange={(e) => setPlural(e.target.value)}
-              placeholder="複数形"
-            />
-          </Field>
-          <Field label="比較級">
-            <input
-              value={comparative}
-              onChange={(e) => setComparative(e.target.value)}
-              placeholder="比較級"
-            />
-          </Field>
-          <Field label="最上級">
-            <input
-              value={superlative}
-              onChange={(e) => setSuperlative(e.target.value)}
-              placeholder="最上級"
-            />
-          </Field>
-          <Field label="不可算名詞">
-            <label>
-              <input
-                type="checkbox"
-                checked={uncountable}
-                onChange={(e) => setUncountable(e.target.checked)}
-              />{" "}
-              不可算あり
-            </label>
-          </Field>
-        </Card>
+        <WordEditFormsTab
+          third={third}
+          presentParticiple={presentParticiple}
+          pastTense={pastTense}
+          pastParticiple={pastParticiple}
+          plural={plural}
+          comparative={comparative}
+          superlative={superlative}
+          uncountable={uncountable}
+          setThird={setThird}
+          setPresentParticiple={setPresentParticiple}
+          setPastTense={setPastTense}
+          setPastParticiple={setPastParticiple}
+          setPlural={setPlural}
+          setComparative={setComparative}
+          setSuperlative={setSuperlative}
+          setUncountable={setUncountable}
+        />
       )}
 
       {activeTab === "phrases" && (
-        <Card stack>
-          <h3>成句・慣用句</h3>
-          {phrases.map((item, idx) => (
-            <PhraseFormBlock
-              key={idx}
-              phraseEntry={item}
-              index={idx}
-              onUpdate={(index, next) =>
-                setPhrases((prev) => prev.map((x, i) => (i === index ? next : x)))
-              }
-              onRemove={(index) =>
-                void confirmRemove("この成句", () =>
-                  setPhrases((prev) => prev.filter((_, i) => i !== index)),
-                )
-              }
-            />
-          ))}
-          <button
-            type="button"
-            className="icon-button-add"
-            aria-label="成句を追加"
-            onClick={() =>
-              setPhrases((prev) => [
-                ...prev,
-                {
-                      text: "",
-                  meaning: "",
-                },
-              ])
-            }
-          >
-            <Plus size={18} />
-          </button>
-        </Card>
+        <WordEditPhrasesTab
+          phrases={phrases}
+          setPhrases={setPhrases}
+          confirmRemove={confirmRemove}
+        />
       )}
 
       {activeTab === "etymology" && (
-        <Card stack>
-          <h3>語源</h3>
-          <Field label="語源言語">
-            <input
-              value={originLanguage}
-              onChange={(e) => setOriginLanguage(e.target.value)}
-              placeholder="語源言語"
-            />
-          </Field>
-          <Field label="語源語">
-            <input
-              value={originWord}
-              onChange={(e) => setOriginWord(e.target.value)}
-              placeholder="語源語"
-            />
-          </Field>
-          <Field label="コアイメージ">
-            <input
-              value={coreImage}
-              onChange={(e) => setCoreImage(e.target.value)}
-              placeholder="コアイメージ"
-            />
-          </Field>
-          <Field label="語源説明">
-            <textarea
-              rows={5}
-              value={rawDescription}
-              onChange={(e) => setRawDescription(e.target.value)}
-              placeholder="語源説明"
-            />
-          </Field>
-          <h4>語源分解</h4>
-          {components.map((item, idx) => (
-            <ComponentFormBlock
-              key={`component-${idx}`}
-              component={item}
-              index={idx}
-              onUpdate={(index, next) =>
-                setComponents((prev) => prev.map((entry, i) => (i === index ? next : entry)))
-              }
-              onRemove={(index) =>
-                void confirmRemove("この語源分解", () =>
-                  setComponents((prev) => prev.filter((_, i) => i !== index)),
-                )
-              }
-            />
-          ))}
-          <button
-            type="button"
-            className="icon-button-add"
-            aria-label="語源分解を追加"
-            onClick={() =>
-              setComponents((prev) => [...prev, { text: "", meaning: "", type: "root" }])
-            }
-          >
-            <Plus size={18} />
-          </button>
-
-          <h4>意味の分岐</h4>
-          {branches.map((item, idx) => (
-            <BranchFormBlock
-              key={`branch-${idx}`}
-              branch={item}
-              index={idx}
-              onUpdate={(index, next) =>
-                setBranches((prev) => prev.map((entry, i) => (i === index ? next : entry)))
-              }
-              onRemove={(index) =>
-                void confirmRemove("この意味の分岐", () =>
-                  setBranches((prev) => prev.filter((_, i) => i !== index)),
-                )
-              }
-            />
-          ))}
-          <button
-            type="button"
-            className="icon-button-add"
-            aria-label="意味の分岐を追加"
-            onClick={() => setBranches((prev) => [...prev, { label: "", meaning_en: "" }])}
-          >
-            <Plus size={18} />
-          </button>
-
-          <h4>語源の来歴</h4>
-          {languageChain.map((item, idx) => (
-            <LanguageChainFormBlock
-              key={`language-chain-${idx}`}
-              link={item}
-              index={idx}
-              onUpdate={(index, next) =>
-                setLanguageChain((prev) => prev.map((entry, i) => (i === index ? next : entry)))
-              }
-              onRemove={(index) =>
-                void confirmRemove("この語源の来歴", () =>
-                  setLanguageChain((prev) => prev.filter((_, i) => i !== index)),
-                )
-              }
-            />
-          ))}
-          <button
-            type="button"
-            className="icon-button-add"
-            aria-label="語源の来歴を追加"
-            onClick={() =>
-              setLanguageChain((prev) => [
-                ...prev,
-                { lang: "", lang_name: "", word: "", relation: "" },
-              ])
-            }
-          >
-            <Plus size={18} />
-          </button>
-
-          <h4>語源要素の意味</h4>
-          {componentMeanings.map((item, idx) => (
-            <ComponentMeaningFormBlock
-              key={`component-meaning-${idx}`}
-              item={item}
-              index={idx}
-              onUpdate={(index, next) =>
-                setComponentMeanings((prev) => prev.map((entry, i) => (i === index ? next : entry)))
-              }
-              onRemove={(index) =>
-                void confirmRemove("この語源要素の意味", () =>
-                  setComponentMeanings((prev) => prev.filter((_, i) => i !== index)),
-                )
-              }
-            />
-          ))}
-          <button
-            type="button"
-            className="icon-button-add"
-            aria-label="語源要素の意味を追加"
-            onClick={() => setComponentMeanings((prev) => [...prev, { text: "", meaning: "" }])}
-          >
-            <Plus size={18} />
-          </button>
-        </Card>
+        <WordEditEtymologyTab
+          originLanguage={originLanguage}
+          originWord={originWord}
+          coreImage={coreImage}
+          rawDescription={rawDescription}
+          components={components}
+          branches={branches}
+          languageChain={languageChain}
+          componentMeanings={componentMeanings}
+          setOriginLanguage={setOriginLanguage}
+          setOriginWord={setOriginWord}
+          setCoreImage={setCoreImage}
+          setRawDescription={setRawDescription}
+          setComponents={setComponents}
+          setBranches={setBranches}
+          setLanguageChain={setLanguageChain}
+          setComponentMeanings={setComponentMeanings}
+          confirmRemove={confirmRemove}
+        />
       )}
 
       {activeTab === "etymologyVariants" && (
-        <Card stack>
-          <h3>語源バリエーション</h3>
-          {etymologyVariants.map((item, idx) => (
-            <EtymologyVariantFormBlock
-              key={`etymology-variant-${idx}`}
-              variant={item}
-              index={idx}
-              onUpdate={(index, next) =>
-                setEtymologyVariants((prev) => prev.map((entry, i) => (i === index ? next : entry)))
-              }
-              onRemove={(index) =>
-                void confirmRemove("この語源バリエーション", () =>
-                  setEtymologyVariants((prev) => prev.filter((_, i) => i !== index)),
-                )
-              }
-            />
-          ))}
-          <button
-            type="button"
-            className="icon-button-add"
-            aria-label="語源バリエーションを追加"
-            onClick={() => setEtymologyVariants((prev) => [...prev, { label: "", excerpt: "" }])}
-          >
-            <Plus size={18} />
-          </button>
-        </Card>
+        <WordEditVariantsTab
+          etymologyVariants={etymologyVariants}
+          setEtymologyVariants={setEtymologyVariants}
+          confirmRemove={confirmRemove}
+        />
       )}
 
       {activeTab === "derivations" && (
-        <Card stack>
-          <h3>派生語</h3>
-          {derivations.map((item, idx) => (
-            <DerivationFormBlock
-              key={item.id}
-              derivation={item}
-              index={idx}
-              onUpdate={(index, next) =>
-                setDerivations((prev) => prev.map((x, i) => (i === index ? next : x)))
-              }
-              onRemove={(index) =>
-                void confirmRemove("この派生語", () =>
-                  setDerivations((prev) => prev.filter((_, i) => i !== index)),
-                )
-              }
-            />
-          ))}
-          <button
-            type="button"
-            className="icon-button-add"
-            aria-label="派生語を追加"
-            onClick={() =>
-              setDerivations((prev) => [
-                ...prev,
-                {
-                  id: -Date.now(),
-                  derived_word: "",
-                  part_of_speech: POS_OPTIONS[0].value,
-                  meaning_ja: "",
-                  sort_order: prev.length,
-                },
-              ])
-            }
-          >
-            <Plus size={18} />
-          </button>
-        </Card>
+        <WordEditDerivationsTab
+          derivations={derivations}
+          setDerivations={setDerivations}
+          confirmRemove={confirmRemove}
+        />
       )}
 
       {activeTab === "related" && (
-        <Card stack>
-          <h3>関連語</h3>
-          {relatedWords.map((item, idx) => (
-            <RelatedWordFormBlock
-              key={item.id}
-              relatedWord={item}
-              index={idx}
-              onUpdate={(index, next) =>
-                setRelatedWords((prev) => prev.map((x, i) => (i === index ? next : x)))
-              }
-              onRemove={(index) =>
-                void confirmRemove("この関連語", () =>
-                  setRelatedWords((prev) => prev.filter((_, i) => i !== index)),
-                )
-              }
-            />
-          ))}
-          <button
-            type="button"
-            className="icon-button-add"
-            aria-label="関連語を追加"
-            onClick={() =>
-              setRelatedWords((prev) => [
-                ...prev,
-                {
-                  id: -Date.now(),
-                  related_word: "",
-                  relation_type: "synonym",
-                  note: "",
-                  linked_word_id: null,
-                },
-              ])
-            }
-          >
-            <Plus size={18} />
-          </button>
-        </Card>
+        <WordEditRelatedTab
+          relatedWords={relatedWords}
+          setRelatedWords={setRelatedWords}
+          confirmRemove={confirmRemove}
+        />
       )}
 
-      <Row>
-        <button
-          type="button"
-          onClick={() => saveMutation.mutate()}
-          disabled={saveMutation.isPending}
-        >
-          {saveMutation.isPending ? "保存中..." : "保存"}
-        </button>
-        <Link to={`/words/${word.id}`}>キャンセル</Link>
-      </Row>
       <ConfirmModal
         open={confirmState.open}
         title={confirmState.title}
         message={confirmState.message}
+        confirmVariant={confirmState.confirmVariant}
         confirmText={confirmState.confirmText}
         cancelText={confirmState.cancelText}
+        disableActions={deleteWordMutation.isPending}
         onCancel={() => closeConfirm(false)}
         onConfirm={() => closeConfirm(true)}
       />

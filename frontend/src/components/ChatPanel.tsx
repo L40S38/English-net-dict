@@ -4,9 +4,11 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { Card, Chip, ChipList, Muted, Row } from "./atom";
+import { ConfirmModal } from "./ConfirmModal";
 import type { ChatMessage, ChatSession } from "../types";
 
 function normalizeText(input: string): string {
+  // Strip control chars and guard against mojibake-like output from external LLM responses.
   const cleaned = Array.from(input)
     .filter((ch) => {
       const code = ch.charCodeAt(0);
@@ -65,6 +67,7 @@ export function ChatPanel({
   const chatBoxRef = useRef<HTMLDivElement>(null);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   useEffect(() => {
     const el = chatBoxRef.current;
@@ -88,9 +91,7 @@ export function ChatPanel({
 
   const handleDeleteSession = () => {
     if (!currentSession || !onDeleteSession) return;
-    if (window.confirm(`セッション「${currentSession.title}」を削除しますか？`)) {
-      onDeleteSession(currentSession.id);
-    }
+    setShowDeleteConfirm(true);
   };
 
   return (
@@ -157,9 +158,10 @@ export function ChatPanel({
             {currentSession && onDeleteSession && (
               <button
                 type="button"
+                className="button-delete"
                 onClick={handleDeleteSession}
                 title="セッションを削除"
-                style={{ background: "#fecaca", color: "#991b1b", padding: "0.55rem 0.6rem" }}
+                style={{ padding: "0.55rem 0.6rem" }}
               >
                 ✕
               </button>
@@ -185,7 +187,7 @@ export function ChatPanel({
                 </ReactMarkdown>
               </div>
             ) : (
-              <p>{normalizeText(msg.content)}</p>
+              <p className="bubble-user-text">{normalizeText(msg.content)}</p>
             )}
             {msg.role === "assistant" && msg.citations.length > 0 && (
               <Muted as="small">
@@ -199,7 +201,7 @@ export function ChatPanel({
         ))}
         {pendingUserMessage && (
           <div className="bubble user">
-            <p>{normalizeText(pendingUserMessage)}</p>
+            <p className="bubble-user-text">{normalizeText(pendingUserMessage)}</p>
           </div>
         )}
         {sendPending && (
@@ -211,6 +213,7 @@ export function ChatPanel({
       </div>
       <Row
         as="form"
+        className="chat-input-row"
         onSubmit={(e) => {
           e.preventDefault();
           const content = input.trim();
@@ -218,16 +221,42 @@ export function ChatPanel({
           onSendMessage(content);
         }}
       >
-        <input
+        <textarea
+          className="chat-input"
           value={input}
           onChange={(e) => onInputChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              const content = input.trim();
+              if (!content) return;
+              if (sendPending || createPending) return;
+              onSendMessage(content);
+            }
+          }}
           placeholder={placeholder}
           disabled={sendPending || createPending}
+          rows={2}
         />
         <button type="submit" disabled={sendPending || createPending}>
           {sendPending ? "送信中..." : "送信"}
         </button>
       </Row>
+      <ConfirmModal
+        open={showDeleteConfirm}
+        title="削除の確認"
+        message={`セッション「${currentSession?.title ?? ""}」を削除しますか？`}
+        confirmText="削除する"
+        cancelText="キャンセル"
+        confirmVariant="danger"
+        onCancel={() => setShowDeleteConfirm(false)}
+        onConfirm={() => {
+          if (currentSession && onDeleteSession) {
+            onDeleteSession(currentSession.id);
+          }
+          setShowDeleteConfirm(false);
+        }}
+      />
     </Card>
   );
 }

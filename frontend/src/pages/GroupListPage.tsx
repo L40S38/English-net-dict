@@ -1,23 +1,36 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { ConfirmModal } from "../components/ConfirmModal";
 import { Card, Muted, Row, Stack } from "../components/atom";
 import { groupApi } from "../lib/api";
-import { GROUP_NAME_MAX_LENGTH } from "../lib/constants";
 import { groupNameLengthErrorMessage, groupNameTooLong } from "../lib/groupNameLimits";
+import styles from "./GroupListPage.module.css";
+
+const DEBOUNCE_MS = 300;
 
 export function GroupListPage() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [groupNameErrorOpen, setGroupNameErrorOpen] = useState(false);
+  const [pendingDeleteGroup, setPendingDeleteGroup] = useState<{ id: number; name: string } | null>(
+    null,
+  );
   const queryClient = useQueryClient();
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedQuery(query.trim());
+    }, DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [query]);
+
   const groupsQuery = useQuery({
-    queryKey: ["groups", query],
-    queryFn: () => groupApi.list({ q: query.trim(), page: 1, page_size: 50 }),
+    queryKey: ["groups", debouncedQuery],
+    queryFn: () => groupApi.list({ q: debouncedQuery, page: 1, page_size: 50 }),
   });
 
   const createMutation = useMutation({
@@ -53,7 +66,7 @@ export function GroupListPage() {
             onChange={(event) => setName(event.target.value)}
             placeholder="例: 挨拶系"
           />
-          <Muted as="p">グループ名は最大{GROUP_NAME_MAX_LENGTH}文字です。</Muted>
+          <Muted as="p">{groupNameLengthErrorMessage()}</Muted>
         </label>
         <label>
           <small>説明</small>
@@ -99,9 +112,9 @@ export function GroupListPage() {
 
       <section className="grid">
         {groups.map((group) => (
-          <Card key={group.id} stack className="group-list-card">
-            <div className="group-list-card-body">
-              <div className="group-list-card-main">
+          <Card key={group.id} stack className={styles.groupListCard}>
+            <div className={styles.groupListCardBody}>
+              <div className={styles.groupListCardMain}>
                 <Link to={`/groups/${group.id}`}>{group.name}</Link>
                 {group.description && <Muted as="p">{group.description}</Muted>}
               </div>
@@ -110,12 +123,8 @@ export function GroupListPage() {
             <Stack gap="sm">
               <button
                 type="button"
-                className="modal-cancel"
-                onClick={() => {
-                  const ok = window.confirm(`グループ「${group.name}」を削除しますか？`);
-                  if (!ok) return;
-                  deleteMutation.mutate(group.id);
-                }}
+                className="button-delete"
+                onClick={() => setPendingDeleteGroup({ id: group.id, name: group.name })}
                 disabled={deleteMutation.isPending}
               >
                 削除
@@ -133,6 +142,21 @@ export function GroupListPage() {
         confirmText="閉じる"
         onConfirm={() => setGroupNameErrorOpen(false)}
         onCancel={() => setGroupNameErrorOpen(false)}
+      />
+      <ConfirmModal
+        open={pendingDeleteGroup !== null}
+        title="削除の確認"
+        message={`グループ「${pendingDeleteGroup?.name ?? ""}」を削除しますか？`}
+        confirmText="削除する"
+        cancelText="キャンセル"
+        confirmVariant="danger"
+        disableActions={deleteMutation.isPending}
+        onConfirm={() => {
+          if (!pendingDeleteGroup) return;
+          deleteMutation.mutate(pendingDeleteGroup.id);
+          setPendingDeleteGroup(null);
+        }}
+        onCancel={() => setPendingDeleteGroup(null)}
       />
     </main>
   );

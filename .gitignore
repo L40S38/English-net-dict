@@ -21,3 +21,9 @@ __pycache__/
 
 # IDE
 .cursor/
+
+# Script output / user-specific input
+backend/app/scripts/*.txt
+backend/app/scripts/*.csv
+backend/tmp*
+*.ipynb

@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 import { LoadingBanner, Row } from "./atom";
 
-interface Props {
+interface PageHeaderProps {
   title: ReactNode;
   actions?: ReactNode;
   busy?: boolean;
@@ -14,7 +14,7 @@ export function PageHeader({
   actions,
   busy = false,
   busyText = "サーバーと通信中...",
-}: Props) {
+}: PageHeaderProps) {
   return (
     <div className="page-header">
       <Row justify="between">

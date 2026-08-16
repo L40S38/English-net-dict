@@ -1,0 +1,653 @@
+from datetime import datetime
+
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from core.database import Base
+
+
+class TimestampMixin:
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Word(Base, TimestampMixin):
+    __tablename__ = "words"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    word: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    phonetic: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    audio_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    forms: Mapped[dict] = mapped_column(JSON, default=dict)
+    last_viewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    lemma_word_id: Mapped[int | None] = mapped_column(
+        ForeignKey("words.id", ondelete="SET NULL"), index=True, nullable=True
+    )
+    inflection_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+    definitions: Mapped[list["Definition"]] = relationship(back_populates="word_ref", cascade="all, delete-orphan")
+    etymology: Mapped["Etymology | None"] = relationship(
+        back_populates="word_ref", cascade="all, delete-orphan", uselist=False
+    )
+    derivations: Mapped[list["Derivation"]] = relationship(
+        back_populates="word_ref", cascade="all, delete-orphan", foreign_keys="Derivation.word_id"
+    )
+    related_words: Mapped[list["RelatedWord"]] = relationship(
+        back_populates="word_ref", cascade="all, delete-orphan", foreign_keys="RelatedWord.word_id"
+    )
+    phrase_links: Mapped[list["WordPhrase"]] = relationship(
+        back_populates="word_ref",
+        cascade="all, delete-orphan",
+        order_by="WordPhrase.id",
+    )
+    phrases: Mapped[list["Phrase"]] = relationship(
+        secondary="word_phrases",
+        viewonly=True,
+        order_by="Phrase.id",
+    )
+    images: Mapped[list["WordImage"]] = relationship(back_populates="word_ref", cascade="all, delete-orphan")
+    chat_sessions: Mapped[list["ChatSession"]] = relationship(back_populates="word_ref", cascade="all, delete-orphan")
+    lemma_ref: Mapped["Word | None"] = relationship(
+        "Word",
+        remote_side=[id],
+        foreign_keys=[lemma_word_id],
+        back_populates="inflected_forms",
+    )
+    inflected_forms: Mapped[list["Word"]] = relationship(
+        "Word",
+        foreign_keys="Word.lemma_word_id",
+        back_populates="lemma_ref",
+    )
+
+
+class Definition(Base):
+    __tablename__ = "definitions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    word_id: Mapped[int] = mapped_column(ForeignKey("words.id", ondelete="CASCADE"), index=True)
+    part_of_speech: Mapped[str] = mapped_column(String(64))
+    meaning_en: Mapped[str] = mapped_column(Text)
+    meaning_ja: Mapped[str] = mapped_column(Text)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+
+    word_ref: Mapped[Word] = relationship(back_populates="definitions")
+    examples: Mapped[list["DefinitionExample"]] = relationship(
+        back_populates="definition_ref",
+        cascade="all, delete-orphan",
+        order_by="DefinitionExample.sort_order, DefinitionExample.id",
+    )
+
+
+class DefinitionExample(Base):
+    __tablename__ = "definition_examples"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    definition_id: Mapped[int] = mapped_column(
+        ForeignKey("definitions.id", ondelete="CASCADE"),
+        index=True,
+    )
+    example_en: Mapped[str] = mapped_column(Text, default="")
+    example_ja: Mapped[str] = mapped_column(Text, default="")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    audio_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
+    definition_ref: Mapped[Definition] = relationship(back_populates="examples")
+
+
+class Etymology(Base):
+    __tablename__ = "etymologies"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    word_id: Mapped[int] = mapped_column(ForeignKey("words.id", ondelete="CASCADE"), unique=True, index=True)
+    origin_word: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    origin_language: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    core_image: Mapped[str | None] = mapped_column(Text, nullable=True)
+    raw_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    word_ref: Mapped[Word] = relationship(back_populates="etymology")
+    component_items: Mapped[list["EtymologyComponentItem"]] = relationship(
+        back_populates="etymology_ref",
+        cascade="all, delete-orphan",
+        order_by="EtymologyComponentItem.sort_order, EtymologyComponentItem.id",
+        primaryjoin="and_(EtymologyComponentItem.etymology_id==Etymology.id, EtymologyComponentItem.variant_id==None)",
+        foreign_keys="[EtymologyComponentItem.etymology_id]",
+    )
+    branches: Mapped[list["EtymologyBranch"]] = relationship(
+        back_populates="etymology_ref",
+        cascade="all, delete-orphan",
+        order_by="EtymologyBranch.sort_order, EtymologyBranch.id",
+    )
+    variants: Mapped[list["EtymologyVariant"]] = relationship(
+        back_populates="etymology_ref",
+        cascade="all, delete-orphan",
+        order_by="EtymologyVariant.sort_order, EtymologyVariant.id",
+    )
+    language_chain_links: Mapped[list["EtymologyLanguageChainLink"]] = relationship(
+        back_populates="etymology_ref",
+        cascade="all, delete-orphan",
+        order_by="EtymologyLanguageChainLink.sort_order, EtymologyLanguageChainLink.id",
+        primaryjoin=(
+            "and_(EtymologyLanguageChainLink.etymology_id==Etymology.id, "
+            "EtymologyLanguageChainLink.variant_id==None)"
+        ),
+        foreign_keys="[EtymologyLanguageChainLink.etymology_id]",
+    )
+    component_meanings: Mapped[list["EtymologyComponentMeaning"]] = relationship(
+        back_populates="etymology_ref",
+        cascade="all, delete-orphan",
+        order_by="EtymologyComponentMeaning.sort_order, EtymologyComponentMeaning.id",
+        primaryjoin=(
+            "and_(EtymologyComponentMeaning.etymology_id==Etymology.id, "
+            "EtymologyComponentMeaning.variant_id==None)"
+        ),
+        foreign_keys="[EtymologyComponentMeaning.etymology_id]",
+    )
+
+
+class EtymologyBranch(Base):
+    __tablename__ = "etymology_branches"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    etymology_id: Mapped[int] = mapped_column(
+        ForeignKey("etymologies.id", ondelete="CASCADE"), index=True
+    )
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    label: Mapped[str] = mapped_column(String(255))
+    meaning_en: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    meaning_ja: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    etymology_ref: Mapped[Etymology] = relationship(back_populates="branches")
+
+
+class EtymologyVariant(Base):
+    __tablename__ = "etymology_variants"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    etymology_id: Mapped[int] = mapped_column(
+        ForeignKey("etymologies.id", ondelete="CASCADE"), index=True
+    )
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    label: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    excerpt: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    etymology_ref: Mapped[Etymology] = relationship(back_populates="variants")
+    component_items: Mapped[list["EtymologyComponentItem"]] = relationship(
+        back_populates="variant_ref",
+        cascade="all, delete-orphan",
+        order_by="EtymologyComponentItem.sort_order, EtymologyComponentItem.id",
+    )
+    language_chain_links: Mapped[list["EtymologyLanguageChainLink"]] = relationship(
+        back_populates="variant_ref",
+        cascade="all, delete-orphan",
+        order_by="EtymologyLanguageChainLink.sort_order, EtymologyLanguageChainLink.id",
+    )
+    component_meanings: Mapped[list["EtymologyComponentMeaning"]] = relationship(
+        back_populates="variant_ref",
+        cascade="all, delete-orphan",
+        order_by="EtymologyComponentMeaning.sort_order, EtymologyComponentMeaning.id",
+    )
+
+
+class EtymologyLanguageChainLink(Base):
+    __tablename__ = "etymology_language_chain_links"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    etymology_id: Mapped[int] = mapped_column(
+        ForeignKey("etymologies.id", ondelete="CASCADE"), index=True
+    )
+    variant_id: Mapped[int | None] = mapped_column(
+        ForeignKey("etymology_variants.id", ondelete="CASCADE"), index=True, nullable=True
+    )
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    lang: Mapped[str] = mapped_column(String(32))
+    lang_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    word: Mapped[str] = mapped_column(String(128))
+    relation: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+    etymology_ref: Mapped[Etymology] = relationship(
+        back_populates="language_chain_links",
+        foreign_keys=[etymology_id],
+    )
+    variant_ref: Mapped["EtymologyVariant | None"] = relationship(
+        back_populates="language_chain_links",
+        foreign_keys=[variant_id],
+    )
+
+
+class EtymologyComponentMeaning(Base):
+    __tablename__ = "etymology_component_meanings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    etymology_id: Mapped[int] = mapped_column(
+        ForeignKey("etymologies.id", ondelete="CASCADE"), index=True
+    )
+    variant_id: Mapped[int | None] = mapped_column(
+        ForeignKey("etymology_variants.id", ondelete="CASCADE"), index=True, nullable=True
+    )
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    component_text: Mapped[str] = mapped_column(String(128))
+    meaning: Mapped[str] = mapped_column(Text)
+
+    etymology_ref: Mapped[Etymology] = relationship(
+        back_populates="component_meanings",
+        foreign_keys=[etymology_id],
+    )
+    variant_ref: Mapped["EtymologyVariant | None"] = relationship(
+        back_populates="component_meanings",
+        foreign_keys=[variant_id],
+    )
+
+
+class Derivation(Base):
+    __tablename__ = "derivations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    word_id: Mapped[int] = mapped_column(ForeignKey("words.id", ondelete="CASCADE"), index=True)
+    derived_word: Mapped[str] = mapped_column(String(128))
+    part_of_speech: Mapped[str] = mapped_column(String(32))
+    meaning_ja: Mapped[str] = mapped_column(Text)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    linked_word_id: Mapped[int | None] = mapped_column(ForeignKey("words.id", ondelete="SET NULL"), nullable=True)
+
+    word_ref: Mapped[Word] = relationship(back_populates="derivations", foreign_keys=[word_id])
+
+
+class RelatedWord(Base):
+    __tablename__ = "related_words"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    word_id: Mapped[int] = mapped_column(ForeignKey("words.id", ondelete="CASCADE"), index=True)
+    related_word: Mapped[str] = mapped_column(String(128))
+    relation_type: Mapped[str] = mapped_column(String(32))
+    note: Mapped[str] = mapped_column(Text, default="")
+    linked_word_id: Mapped[int | None] = mapped_column(ForeignKey("words.id", ondelete="SET NULL"), nullable=True)
+
+    word_ref: Mapped[Word] = relationship(back_populates="related_words", foreign_keys=[word_id])
+
+
+class WordImage(Base):
+    __tablename__ = "word_images"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    word_id: Mapped[int] = mapped_column(ForeignKey("words.id", ondelete="CASCADE"), index=True)
+    file_path: Mapped[str] = mapped_column(String(512))
+    prompt: Mapped[str] = mapped_column(Text)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    word_ref: Mapped[Word] = relationship(back_populates="images")
+
+
+class Phrase(Base, TimestampMixin):
+    __tablename__ = "phrases"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    text: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    meaning: Mapped[str] = mapped_column(Text, default="")
+    audio_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    wiktionary_synonyms: Mapped[list[str]] = mapped_column(JSON, default=list)
+    wiktionary_antonyms: Mapped[list[str]] = mapped_column(JSON, default=list)
+    wiktionary_see_also: Mapped[list[str]] = mapped_column(JSON, default=list)
+    wiktionary_derived_terms: Mapped[list[str]] = mapped_column(JSON, default=list)
+    wiktionary_phrases: Mapped[list[str]] = mapped_column(JSON, default=list)
+
+    definitions: Mapped[list["PhraseDefinition"]] = relationship(
+        back_populates="phrase_ref",
+        cascade="all, delete-orphan",
+        order_by="PhraseDefinition.sort_order, PhraseDefinition.id",
+    )
+    images: Mapped[list["PhraseImage"]] = relationship(
+        back_populates="phrase_ref",
+        cascade="all, delete-orphan",
+        order_by="PhraseImage.created_at.desc(), PhraseImage.id.desc()",
+    )
+    chat_sessions: Mapped[list["ChatSession"]] = relationship(back_populates="phrase_ref", cascade="all, delete-orphan")
+    word_links: Mapped[list["WordPhrase"]] = relationship(
+        back_populates="phrase_ref",
+        cascade="all, delete-orphan",
+        order_by="WordPhrase.id",
+    )
+    group_items: Mapped[list["WordGroupItem"]] = relationship(back_populates="phrase_ref")
+
+
+class PhraseDefinition(Base):
+    __tablename__ = "phrase_definitions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    phrase_id: Mapped[int] = mapped_column(ForeignKey("phrases.id", ondelete="CASCADE"), index=True)
+    part_of_speech: Mapped[str] = mapped_column(String(64), default="phrase")
+    meaning_en: Mapped[str] = mapped_column(Text, default="")
+    meaning_ja: Mapped[str] = mapped_column(Text, default="")
+    example_en: Mapped[str] = mapped_column(Text, default="")
+    example_ja: Mapped[str] = mapped_column(Text, default="")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    audio_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
+    phrase_ref: Mapped[Phrase] = relationship(back_populates="definitions")
+
+
+class PhraseImage(Base):
+    __tablename__ = "phrase_images"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    phrase_id: Mapped[int] = mapped_column(ForeignKey("phrases.id", ondelete="CASCADE"), index=True)
+    file_path: Mapped[str] = mapped_column(String(512))
+    prompt: Mapped[str] = mapped_column(Text)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    phrase_ref: Mapped[Phrase] = relationship(back_populates="images")
+
+
+class WordPhrase(Base):
+    __tablename__ = "word_phrases"
+    __table_args__ = (UniqueConstraint("word_id", "phrase_id", name="uq_word_phrases_word_id_phrase_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    word_id: Mapped[int] = mapped_column(ForeignKey("words.id", ondelete="CASCADE"), index=True)
+    phrase_id: Mapped[int] = mapped_column(ForeignKey("phrases.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    word_ref: Mapped[Word] = relationship(back_populates="phrase_links")
+    phrase_ref: Mapped[Phrase] = relationship(back_populates="word_links")
+
+
+class EtymologyComponent(Base, TimestampMixin):
+    __tablename__ = "etymology_components"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    component_text: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    resolved_meaning: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    wiktionary_meanings: Mapped[list[str]] = mapped_column(JSON, default=list)
+    wiktionary_related_terms: Mapped[list[str]] = mapped_column(JSON, default=list)
+    wiktionary_derived_terms: Mapped[list[str]] = mapped_column(JSON, default=list)
+    wiktionary_source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    component_items: Mapped[list["EtymologyComponentItem"]] = relationship(back_populates="component_ref")
+
+
+class EtymologyComponentItem(Base):
+    __tablename__ = "etymology_component_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    etymology_id: Mapped[int] = mapped_column(ForeignKey("etymologies.id", ondelete="CASCADE"), index=True)
+    variant_id: Mapped[int | None] = mapped_column(
+        ForeignKey("etymology_variants.id", ondelete="CASCADE"), index=True, nullable=True
+    )
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    component_text: Mapped[str] = mapped_column(String(128))
+    meaning: Mapped[str | None] = mapped_column(Text, nullable=True)
+    type: Mapped[str] = mapped_column(String(32), default="root")
+    component_id: Mapped[int | None] = mapped_column(
+        ForeignKey("etymology_components.id", ondelete="SET NULL"), index=True, nullable=True
+    )
+
+    etymology_ref: Mapped[Etymology] = relationship(
+        back_populates="component_items",
+        foreign_keys=[etymology_id],
+    )
+    variant_ref: Mapped["EtymologyVariant | None"] = relationship(
+        back_populates="component_items",
+        foreign_keys=[variant_id],
+    )
+    component_ref: Mapped[EtymologyComponent | None] = relationship(back_populates="component_items")
+
+
+class WordGroup(Base, TimestampMixin):
+    __tablename__ = "word_groups"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(128), index=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    items: Mapped[list["WordGroupItem"]] = relationship(
+        back_populates="group_ref",
+        cascade="all, delete-orphan",
+        order_by="WordGroupItem.sort_order, WordGroupItem.id",
+    )
+    images: Mapped[list["GroupImage"]] = relationship(back_populates="group_ref", cascade="all, delete-orphan")
+
+
+class WordGroupItem(Base):
+    __tablename__ = "word_group_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    group_id: Mapped[int] = mapped_column(ForeignKey("word_groups.id", ondelete="CASCADE"), index=True)
+    item_type: Mapped[str] = mapped_column(String(16), default="word")
+    word_id: Mapped[int | None] = mapped_column(ForeignKey("words.id", ondelete="CASCADE"), index=True, nullable=True)
+    definition_id: Mapped[int | None] = mapped_column(
+        ForeignKey("definitions.id", ondelete="CASCADE"), index=True, nullable=True
+    )
+    phrase_id: Mapped[int | None] = mapped_column(
+        ForeignKey("phrases.id", ondelete="SET NULL"), index=True, nullable=True
+    )
+    phrase_text: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    phrase_meaning: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    group_ref: Mapped[WordGroup] = relationship(back_populates="items")
+    word_ref: Mapped[Word | None] = relationship(foreign_keys=[word_id])
+    definition_ref: Mapped[Definition | None] = relationship(foreign_keys=[definition_id])
+    phrase_ref: Mapped[Phrase | None] = relationship(back_populates="group_items", foreign_keys=[phrase_id])
+
+
+class GroupImage(Base):
+    __tablename__ = "group_images"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    group_id: Mapped[int] = mapped_column(ForeignKey("word_groups.id", ondelete="CASCADE"), index=True)
+    file_path: Mapped[str] = mapped_column(String(512))
+    prompt: Mapped[str] = mapped_column(Text)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    group_ref: Mapped[WordGroup] = relationship(back_populates="images")
+
+
+class ChatSession(Base):
+    __tablename__ = "chat_sessions"
+    __table_args__ = (
+        CheckConstraint(
+            "(word_id IS NOT NULL AND component_text IS NULL AND component_id IS NULL AND group_id IS NULL AND phrase_id IS NULL) OR "
+            "(word_id IS NULL AND group_id IS NULL AND phrase_id IS NULL AND (component_text IS NOT NULL OR component_id IS NOT NULL)) OR "
+            "(group_id IS NOT NULL AND word_id IS NULL AND component_text IS NULL AND component_id IS NULL AND phrase_id IS NULL) OR "
+            "(phrase_id IS NOT NULL AND word_id IS NULL AND component_text IS NULL AND component_id IS NULL AND group_id IS NULL)",
+            name="ck_chat_sessions_scope",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    word_id: Mapped[int | None] = mapped_column(ForeignKey("words.id", ondelete="CASCADE"), index=True, nullable=True)
+    component_text: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    component_id: Mapped[int | None] = mapped_column(
+        ForeignKey("etymology_components.id", ondelete="SET NULL"), index=True, nullable=True
+    )
+    group_id: Mapped[int | None] = mapped_column(
+        ForeignKey("word_groups.id", ondelete="CASCADE"), index=True, nullable=True
+    )
+    phrase_id: Mapped[int | None] = mapped_column(
+        ForeignKey("phrases.id", ondelete="CASCADE"), index=True, nullable=True
+    )
+    title: Mapped[str] = mapped_column(String(255), default="Word Chat")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    word_ref: Mapped[Word | None] = relationship(back_populates="chat_sessions")
+    component_ref: Mapped[EtymologyComponent | None] = relationship()
+    group_ref: Mapped[WordGroup | None] = relationship()
+    phrase_ref: Mapped[Phrase | None] = relationship(back_populates="chat_sessions")
+    messages: Mapped[list["ChatMessage"]] = relationship(back_populates="session_ref", cascade="all, delete-orphan")
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    session_id: Mapped[int] = mapped_column(ForeignKey("chat_sessions.id", ondelete="CASCADE"), index=True)
+    role: Mapped[str] = mapped_column(String(16))
+    content: Mapped[str] = mapped_column(Text)
+    citations: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    session_ref: Mapped[ChatSession] = relationship(back_populates="messages")
+
+
+class ListeningScript(Base, TimestampMixin):
+    __tablename__ = "listening_scripts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    title: Mapped[str] = mapped_column(String(255))
+    topic: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    level: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    is_conversation: Mapped[bool] = mapped_column(Boolean, default=False)
+    generation_mode: Mapped[str] = mapped_column(String(16), default="random")
+    source_type: Mapped[str] = mapped_column(String(16), default="ai_generated")
+    source_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
+    speakers: Mapped[list["ListeningSpeaker"]] = relationship(
+        back_populates="script_ref",
+        cascade="all, delete-orphan",
+        order_by="ListeningSpeaker.sort_order, ListeningSpeaker.id",
+    )
+    lines: Mapped[list["ListeningLine"]] = relationship(
+        back_populates="script_ref",
+        cascade="all, delete-orphan",
+        order_by="ListeningLine.sort_order, ListeningLine.id",
+    )
+    sessions: Mapped[list["ListeningSession"]] = relationship(
+        back_populates="script_ref", cascade="all, delete-orphan"
+    )
+
+
+class ListeningSpeaker(Base):
+    __tablename__ = "listening_speakers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    script_id: Mapped[int] = mapped_column(ForeignKey("listening_scripts.id", ondelete="CASCADE"), index=True)
+    label: Mapped[str] = mapped_column(String(64))
+    voice: Mapped[str] = mapped_column(String(32))
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+
+    script_ref: Mapped[ListeningScript] = relationship(back_populates="speakers")
+    lines: Mapped[list["ListeningLine"]] = relationship(back_populates="speaker_ref")
+
+
+class ListeningLine(Base):
+    __tablename__ = "listening_lines"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    script_id: Mapped[int] = mapped_column(ForeignKey("listening_scripts.id", ondelete="CASCADE"), index=True)
+    speaker_id: Mapped[int] = mapped_column(ForeignKey("listening_speakers.id", ondelete="CASCADE"), index=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    text: Mapped[str] = mapped_column(Text)
+    translation_ja: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    script_ref: Mapped[ListeningScript] = relationship(back_populates="lines")
+    speaker_ref: Mapped[ListeningSpeaker] = relationship(back_populates="lines")
+    audio_variants: Mapped[list["ListeningLineAudio"]] = relationship(
+        back_populates="line_ref",
+        cascade="all, delete-orphan",
+        order_by="ListeningLineAudio.id",
+    )
+    attempts: Mapped[list["ListeningAttempt"]] = relationship(
+        back_populates="line_ref", cascade="all, delete-orphan"
+    )
+
+
+class ListeningLineAudio(Base):
+    __tablename__ = "listening_line_audios"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    line_id: Mapped[int] = mapped_column(ForeignKey("listening_lines.id", ondelete="CASCADE"), index=True)
+    voice: Mapped[str] = mapped_column(String(32))
+    audio_path: Mapped[str] = mapped_column(String(512))
+    is_primary: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    line_ref: Mapped[ListeningLine] = relationship(back_populates="audio_variants")
+
+
+class ListeningSession(Base):
+    __tablename__ = "listening_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    script_id: Mapped[int] = mapped_column(ForeignKey("listening_scripts.id", ondelete="CASCADE"), index=True)
+    current_step: Mapped[str] = mapped_column(String(16), default="listen")
+    playback_speed: Mapped[float] = mapped_column(Float, default=1.0)
+    dictation_level: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(16), default="in_progress")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    script_ref: Mapped[ListeningScript] = relationship(back_populates="sessions")
+    attempts: Mapped[list["ListeningAttempt"]] = relationship(
+        back_populates="session_ref", cascade="all, delete-orphan"
+    )
+
+
+class ListeningAttempt(Base):
+    __tablename__ = "listening_attempts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    session_id: Mapped[int] = mapped_column(ForeignKey("listening_sessions.id", ondelete="CASCADE"), index=True)
+    line_id: Mapped[int] = mapped_column(ForeignKey("listening_lines.id", ondelete="CASCADE"), index=True)
+    dictation_level: Mapped[int] = mapped_column(Integer, default=0)
+    step: Mapped[str] = mapped_column(String(16), default="dictation")
+    user_text: Mapped[str] = mapped_column(Text, default="")
+    is_correct: Mapped[bool] = mapped_column(Boolean, default=False)
+    voice: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    session_ref: Mapped[ListeningSession] = relationship(back_populates="attempts")
+    line_ref: Mapped[ListeningLine] = relationship(back_populates="attempts")
+    word_results: Mapped[list["ListeningWordResult"]] = relationship(
+        back_populates="attempt_ref", cascade="all, delete-orphan"
+    )
+    weak_phrases: Mapped[list["ListeningWeakPhrase"]] = relationship(
+        back_populates="attempt_ref", cascade="all, delete-orphan"
+    )
+
+
+class ListeningWordResult(Base):
+    __tablename__ = "listening_word_results"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    attempt_id: Mapped[int] = mapped_column(ForeignKey("listening_attempts.id", ondelete="CASCADE"), index=True)
+    word_text: Mapped[str] = mapped_column(String(128), index=True)
+    matched_word_id: Mapped[int | None] = mapped_column(
+        ForeignKey("words.id", ondelete="SET NULL"), index=True, nullable=True
+    )
+    is_correct: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    attempt_ref: Mapped[ListeningAttempt] = relationship(back_populates="word_results")
+    matched_word_ref: Mapped[Word | None] = relationship()
+
+
+class ListeningWeakPhrase(Base):
+    """A multi-word span that came up wrong in a read-aloud attempt and matches
+    a known dictionary phrase, so weak idiom/chunk pronunciation can be
+    surfaced the same way single-word mistakes are via ListeningWordResult."""
+
+    __tablename__ = "listening_weak_phrases"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    attempt_id: Mapped[int] = mapped_column(ForeignKey("listening_attempts.id", ondelete="CASCADE"), index=True)
+    phrase_text: Mapped[str] = mapped_column(String(255), index=True)
+    matched_phrase_id: Mapped[int | None] = mapped_column(
+        ForeignKey("phrases.id", ondelete="SET NULL"), index=True, nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    attempt_ref: Mapped[ListeningAttempt] = relationship(back_populates="weak_phrases")

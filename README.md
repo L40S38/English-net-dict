@@ -13,7 +13,7 @@ Personal dictionary app with:
 ```bash
 cd backend
 uv sync
-uv run uvicorn app.main:app --reload --port 8000
+uv run uvicorn server.main:app --reload --port 8000
 ```
 
 ## Frontend
@@ -23,6 +23,40 @@ cd frontend
 npm install
 npm run dev
 ```
+
+## Setup & Start
+
+Run from the project root.
+
+1. Setup (deps install & frontend build)
+
+```bash
+# PowerShell (Windows)
+./setup.ps1
+
+# Command Prompt (Windows)
+setup.bat
+
+# Bash (macOS / Linux / Git Bash)
+./setup.sh
+```
+
+Runs `uv sync` in `backend/`, then `npm ci` + `npm run build` in `frontend/`.
+
+2. Start (serve)
+
+```bash
+# PowerShell (Windows)
+./start.ps1
+
+# Command Prompt (Windows)
+start.bat
+
+# Bash (macOS / Linux / Git Bash)
+./start.sh
+```
+
+Starts the backend (uvicorn, `http://127.0.0.1:8000/`) and serves the built frontend via `vite preview` (`http://127.0.0.1:5173/`) as a separate origin, with CORS allowing the frontend to call the API. `start` does not rebuild — re-run `setup` only when deps or frontend assets change.
 
 ## Lint / Format
 
@@ -49,4 +83,3 @@ cd backend
 uv run pre-commit install
 uv run pre-commit run --all-files
 ```
-

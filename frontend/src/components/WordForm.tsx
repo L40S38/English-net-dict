@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { Row } from "./atom";
 
-interface Props {
+interface WordFormProps {
   onSubmit: (word: string) => Promise<boolean | void> | boolean | void;
   disabled?: boolean;
   loading?: boolean;
 }
 
-export function WordForm({ onSubmit, disabled = false, loading = false }: Props) {
+export function WordForm({ onSubmit, disabled = false, loading = false }: WordFormProps) {
   const [value, setValue] = useState("");
 
   return (

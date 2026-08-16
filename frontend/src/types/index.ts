@@ -2,13 +2,55 @@ export type RelationType = "synonym" | "confusable" | "cognate" | "antonym";
 export type ComponentDisplayMode = "auto" | "word" | "morpheme" | "both";
 export type WordSortBy = "last_viewed_at" | "created_at" | "updated_at" | "word";
 export type SortOrder = "desc" | "asc";
+export type InflectionAction = "merge" | "link" | "register_as_is";
+
+export interface ComponentMeaningItem {
+  text: string;
+  meaning: string;
+}
 
 export interface Phrase {
   id: number;
   text: string;
   meaning: string;
+  audio_path?: string | null;
   created_at: string;
   updated_at: string;
+  definitions?: PhraseDefinition[];
+  images?: PhraseImage[];
+  words?: WordSummary[];
+  chat_session_count?: number;
+  wiktionary_synonyms?: string[];
+  wiktionary_antonyms?: string[];
+  wiktionary_see_also?: string[];
+  wiktionary_derived_terms?: string[];
+  wiktionary_phrases?: string[];
+}
+
+export interface PhraseDefinition {
+  id: number;
+  part_of_speech: string;
+  meaning_en: string;
+  meaning_ja: string;
+  example_en: string;
+  example_ja: string;
+  sort_order: number;
+  audio_path?: string | null;
+}
+
+export interface PhraseImage {
+  id: number;
+  file_path: string;
+  prompt: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface WordSummary {
+  id: number;
+  word: string;
+  phonetic?: string | null;
+  audio_path?: string | null;
 }
 
 export interface WordForms {
@@ -50,7 +92,7 @@ export interface EtymologyVariant {
   label?: string;
   excerpt?: string;
   components?: EtymologyComponent[];
-  component_meanings?: Array<{ text: string; meaning: string }>;
+  component_meanings?: ComponentMeaningItem[];
   language_chain?: LanguageChainLink[];
 }
 
@@ -59,8 +101,13 @@ export interface Definition {
   part_of_speech: string;
   meaning_en: string;
   meaning_ja: string;
-  example_en: string;
-  example_ja: string;
+  examples: Array<{
+    id?: number;
+    example_en: string;
+    example_ja: string;
+    sort_order: number;
+    audio_path?: string | null;
+  }>;
   sort_order: number;
 }
 
@@ -72,7 +119,7 @@ export interface Etymology {
   core_image?: string | null;
   branches: EtymologyBranch[];
   language_chain?: LanguageChainLink[];
-  component_meanings?: Array<{ text: string; meaning: string }>;
+  component_meanings?: ComponentMeaningItem[];
   etymology_variants?: EtymologyVariant[];
   raw_description?: string | null;
 }
@@ -106,6 +153,7 @@ export interface Word {
   id: number;
   word: string;
   phonetic?: string | null;
+  audio_path?: string | null;
   forms?: WordForms;
   created_at: string;
   updated_at: string;
@@ -118,11 +166,38 @@ export interface Word {
   images: WordImage[];
   /** 単語に紐づくチャットセッション数（一覧APIで返る） */
   chat_session_count?: number;
+  lemma_word_id?: number | null;
+  inflection_type?: string | null;
+  lemma_word_text?: string | null;
+  inflected_forms?: Array<{
+    word_id: number;
+    word: string;
+    inflection_type?: string | null;
+  }>;
 }
 
 export interface WordListResponse {
   items: Word[];
   total: number;
+}
+
+export interface WordCreateResponse {
+  words: Word[];
+  phrase_id: number | null;
+}
+
+export interface WordSummaryForGroup {
+  id: number;
+  word: string;
+  phonetic?: string | null;
+  definitions: Definition[];
+}
+
+export interface GroupSearchResponse {
+  items: WordSummaryForGroup[];
+  total: number;
+  phrases: Phrase[];
+  phrases_total: number;
 }
 
 export interface EtymologyComponentSearchResponse {
@@ -181,6 +256,7 @@ export interface ChatSession {
   component_text?: string | null;
   component_id?: number | null;
   group_id?: number | null;
+  phrase_id?: number | null;
   title: string;
   created_at: string;
   updated_at: string;
@@ -274,7 +350,233 @@ export interface WordCheckResponse {
   not_found: string[];
 }
 
+export interface PhraseCheckFound {
+  id: number;
+  text: string;
+}
+
+export interface PhraseCheckResponse {
+  found: PhraseCheckFound[];
+  not_found: string[];
+}
+
+export type SearchSuggestType = "word" | "phrase";
+
+export interface SearchSuggestItem {
+  type: SearchSuggestType;
+  id: number;
+  text: string;
+}
+
+export interface InflectionCheckResult {
+  word: string;
+  is_inflected: boolean;
+  selected_lemma?: string | null;
+  selected_lemma_word_id?: number | null;
+  selected_spelling?: string | null;
+  lemma_resolution?: "direct" | "resolved_from_inflection" | "manual" | null;
+  selected_inflection_type?: string | null;
+  selected_has_own_content?: boolean | null;
+  selected_confidence?: "high" | "medium" | "low" | null;
+  selected_source?: "db_forms" | "possessive" | "wiktionary" | "nltk" | null;
+  selected_score?: number | null;
+  lemma_candidates?: Array<{
+    lemma: string;
+    lemma_word_id?: number | null;
+    inflection_type?: string | null;
+    has_own_content?: boolean | null;
+    confidence?: "high" | "medium" | "low" | null;
+    source?: "db_forms" | "possessive" | "wiktionary" | "nltk" | null;
+    score?: number | null;
+  }>;
+  spelling_candidates?: Array<{
+    spelling: string;
+    source?: string | null;
+    selected_lemma?: string | null;
+    lemma_resolution?: "direct" | "resolved_from_inflection" | "manual" | null;
+    lemma_candidates?: Array<{
+      lemma: string;
+      lemma_word_id?: number | null;
+      inflection_type?: string | null;
+      has_own_content?: boolean | null;
+      confidence?: "high" | "medium" | "low" | null;
+      source?: "db_forms" | "possessive" | "wiktionary" | "nltk" | null;
+      score?: number | null;
+    }>;
+  }>;
+  suggestion?: InflectionAction | null;
+}
+
+export interface InflectionCheckResponse {
+  result?: InflectionCheckResult | null;
+  results?: InflectionCheckResult[];
+}
+
+export interface MigrationInflectionTarget {
+  id: number;
+  word: string;
+}
+
+export interface MigrationInflectionTargetsResponse {
+  words: MigrationInflectionTarget[];
+  total: number;
+}
+
+export interface MigrationInflectionApplyDecision {
+  word_id: number;
+  action: "merge" | "link";
+  lemma_word_id: number;
+  inflection_type?: string | null;
+}
+
+export interface MigrationInflectionApplyResult {
+  word_id: number;
+  action: "merge" | "link";
+  status: "applied" | "skipped" | "error";
+  detail: string;
+}
+
+export interface MigrationInflectionApplyResponse {
+  applied: number;
+  skipped: number;
+  errors: number;
+  results: MigrationInflectionApplyResult[];
+}
+
 export interface GroupBulkAddItemsResponse {
   added: number;
   skipped: number;
+}
+
+export type ListeningStep = "listen" | "dictation" | "read_aloud" | "overlapping" | "shadowing";
+export type ListeningGenerationMode = "random" | "custom" | "weak_review";
+export type ListeningSourceType = "ai_generated" | "external_video";
+export type ListeningSessionStatus = "in_progress" | "completed";
+export type ListeningVoiceGender = "male" | "female" | "neutral";
+
+export interface ListeningPersona {
+  voice: string;
+  name: string;
+  description: string;
+  gender: ListeningVoiceGender;
+}
+
+export interface ListeningPersonaSample {
+  voice: string;
+  audio_path: string;
+}
+
+export interface ListeningParsedSpeaker {
+  label: string;
+  gender: ListeningVoiceGender;
+}
+
+export interface ListeningParsedLine {
+  speaker_label: string;
+  text: string;
+  translation_ja?: string | null;
+}
+
+export interface ListeningParsedScript {
+  title: string;
+  speakers: ListeningParsedSpeaker[];
+  lines: ListeningParsedLine[];
+}
+
+export interface ListeningSpeaker {
+  id: number;
+  label: string;
+  voice: string;
+  sort_order: number;
+}
+
+export interface ListeningLineAudio {
+  id: number;
+  voice: string;
+  audio_path: string;
+  is_primary: boolean;
+  created_at: string;
+}
+
+export interface ListeningLine {
+  id: number;
+  speaker_id: number;
+  speaker_label: string;
+  sort_order: number;
+  text: string;
+  translation_ja?: string | null;
+  audio_variants: ListeningLineAudio[];
+}
+
+export interface ListeningScript {
+  id: number;
+  title: string;
+  topic?: string | null;
+  level?: string | null;
+  is_conversation: boolean;
+  generation_mode: ListeningGenerationMode;
+  source_type: ListeningSourceType;
+  source_url?: string | null;
+  created_at: string;
+  updated_at: string;
+  speakers: ListeningSpeaker[];
+  lines: ListeningLine[];
+}
+
+export interface ListeningSession {
+  id: number;
+  script_id: number;
+  script_title: string;
+  current_step: ListeningStep;
+  playback_speed: number;
+  dictation_level: number;
+  status: ListeningSessionStatus;
+  created_at: string;
+  updated_at: string;
+  completed_at?: string | null;
+}
+
+export interface ListeningWordResult {
+  id: number;
+  word_text: string;
+  matched_word_id?: number | null;
+  is_correct: boolean;
+}
+
+export interface ListeningAttempt {
+  id: number;
+  session_id: number;
+  line_id: number;
+  dictation_level: number;
+  user_text: string;
+  is_correct: boolean;
+  created_at: string;
+  word_results: ListeningWordResult[];
+}
+
+export interface ListeningReadAloudLineGrade {
+  line_id: number;
+  is_correct: boolean;
+  word_results: ListeningWordResult[];
+}
+
+export interface ListeningReadAloudGrade {
+  score: number;
+  good_points: string[];
+  review_points: string[];
+  lines: ListeningReadAloudLineGrade[];
+}
+
+export interface WeakWordStat {
+  word_text: string;
+  total: number;
+  wrong: number;
+  accuracy: number;
+  matched_word_id?: number | null;
+}
+
+export interface WeakPhraseStat {
+  phrase_text: string;
+  count: number;
+  matched_phrase_id?: number | null;
 }

@@ -1,20 +1,24 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import axios from "axios";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
+import { AudioPlayButton } from "../components/AudioPlayButton";
 import { DerivationsPanel } from "../components/DerivationsPanel";
 import { EtymologyMap } from "../components/EtymologyMap";
 import { ImageViewer } from "../components/ImageViewer";
 import { PageHeader } from "../components/PageHeader";
 import { ConfirmModal } from "../components/ConfirmModal";
+import { PhraseCard } from "../components/PhraseCard";
 import { RelatedWords } from "../components/RelatedWords";
 import { WordCard } from "../components/WordCard";
 import { WordChatPanel } from "../components/WordChatPanel";
 import { WordDefinitions } from "../components/WordDefinitions";
+import { InflectionBatchModal } from "../components/InflectionBatchModal";
 import { Card, Muted, Row } from "../components/atom";
-import { wordApi } from "../lib/api";
-import { EMPTY_MESSAGES } from "../lib/constants";
+import { phraseApi, wordApi } from "../lib/api";
+import { EMPTY_MESSAGES, INFLECTION_LABELS } from "../lib/constants";
+import { isNotFoundError } from "../lib/errors";
+import type { InflectionAction, InflectionCheckResult } from "../types";
 
 function isPhrase(text: string): boolean {
   return text.trim().split(/\s+/).filter(Boolean).length >= 2;
@@ -38,9 +42,16 @@ export function WordDetailPage() {
   });
 
   const registerMutation = useMutation({
-    mutationFn: () => wordApi.create(rawWordKey),
-    onSuccess: (createdWords) => {
-      const first = createdWords[0];
+    mutationFn: (options?: {
+      inflection_action?: InflectionAction | null;
+      lemma_word?: string | null;
+    }) => wordApi.create(rawWordKey, options),
+    onSuccess: (response) => {
+      if (response.phrase_id != null) {
+        navigate(`/phrases/${response.phrase_id}`, { replace: true });
+        return;
+      }
+      const first = response.words[0];
       if (!first) {
         return;
       }
@@ -62,43 +73,88 @@ export function WordDetailPage() {
       await queryClient.invalidateQueries({ queryKey: ["words"] });
     },
   });
-  const deleteWordMutation = useMutation({
-    mutationFn: () => wordApi.delete(wordQuery.data!.id),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["words"] });
-      navigate("/");
-    },
-  });
 
   const word = wordQuery.data;
   const isBusy =
-    wordQuery.isLoading ||
-    rescrapeMutation.isPending ||
-    generateImageMutation.isPending ||
-    deleteWordMutation.isPending;
+    wordQuery.isLoading || rescrapeMutation.isPending || generateImageMutation.isPending;
   const forms = word?.forms ?? {};
   const formEntries = [
-    ["三単現", String(forms.third_person_singular ?? "")],
-    ["現在分詞", String(forms.present_participle ?? "")],
-    ["過去形", String(forms.past_tense ?? "")],
-    ["過去分詞", String(forms.past_participle ?? "")],
-    ["複数形", String(forms.plural ?? "")],
-    ["比較級", String(forms.comparative ?? "")],
-    ["最上級", String(forms.superlative ?? "")],
-    ["可算/不可算", forms.uncountable ? "不可算あり" : ""],
-  ].filter(([, value]) => value);
+    {
+      key: "third_person_singular",
+      label: INFLECTION_LABELS.third_person_singular,
+      value: String(forms.third_person_singular ?? ""),
+    },
+    {
+      key: "present_participle",
+      label: INFLECTION_LABELS.present_participle,
+      value: String(forms.present_participle ?? ""),
+    },
+    {
+      key: "past_tense",
+      label: INFLECTION_LABELS.past_tense,
+      value: String(forms.past_tense ?? ""),
+    },
+    {
+      key: "past_participle",
+      label: INFLECTION_LABELS.past_participle,
+      value: String(forms.past_participle ?? ""),
+    },
+    { key: "plural", label: INFLECTION_LABELS.plural, value: String(forms.plural ?? "") },
+    {
+      key: "comparative",
+      label: INFLECTION_LABELS.comparative,
+      value: String(forms.comparative ?? ""),
+    },
+    {
+      key: "superlative",
+      label: INFLECTION_LABELS.superlative,
+      value: String(forms.superlative ?? ""),
+    },
+    { key: "uncountable", label: "可算/不可算", value: forms.uncountable ? "不可算" : "" },
+  ].filter((item) => item.value);
 
-  const isNotFound =
-    wordQuery.isError &&
-    axios.isAxiosError(wordQuery.error) &&
-    wordQuery.error.response?.status === 404;
+  const isNotFound = wordQuery.isError && isNotFoundError(wordQuery.error);
+  const isPhraseLike = isPhrase(rawWordKey);
+  const isNotFoundText = isNotFound && numericWordId === null;
 
   const [deletingWordId, setDeletingWordId] = useState<number | null>(null);
+  const [pendingDeleteWord, setPendingDeleteWord] = useState<{ id: number; word: string } | null>(
+    null,
+  );
+  const [deletingPhraseId, setDeletingPhraseId] = useState<number | null>(null);
+  const [pendingDeletePhrase, setPendingDeletePhrase] = useState<{
+    id: number;
+    text: string;
+  } | null>(null);
   const [showPhraseConfirm, setShowPhraseConfirm] = useState(false);
+  const [showInflectionModal, setShowInflectionModal] = useState(false);
+  const [inflectionResult, setInflectionResult] = useState<InflectionCheckResult | null>(null);
+  const [isCheckingInflection, setIsCheckingInflection] = useState(false);
+
+  // 登録済みの熟語がテキスト検索経由(単語ページ)で「見つからない」表示にならないよう、
+  // 単語として404だったテキストが既に熟語として登録済みでないか確認する。
+  const phraseFallbackQuery = useQuery({
+    queryKey: ["word-404-phrase-fallback", rawWordKey],
+    queryFn: () => phraseApi.check([rawWordKey]),
+    enabled: isNotFoundText,
+  });
+  const fallbackPhraseId = phraseFallbackQuery.data?.found[0]?.id ?? null;
+
+  useEffect(() => {
+    if (fallbackPhraseId != null) {
+      navigate(`/phrases/${fallbackPhraseId}`, { replace: true });
+    }
+  }, [fallbackPhraseId, navigate]);
+
   const partialMatchQuery = useQuery({
     queryKey: ["words", "partial", rawWordKey],
     queryFn: () => wordApi.list({ q: rawWordKey, page_size: 20 }),
-    enabled: rawWordKey.length > 0 && numericWordId === null && isNotFound,
+    enabled: isNotFoundText && !isPhraseLike,
+  });
+  const partialPhraseMatchQuery = useQuery({
+    queryKey: ["phrases", "partial", rawWordKey],
+    queryFn: () => phraseApi.list({ q: rawWordKey, page_size: 20 }),
+    enabled: isNotFoundText && isPhraseLike,
   });
   const deleteFromListMutation = useMutation({
     mutationFn: (wordId: number) => wordApi.delete(wordId),
@@ -109,59 +165,211 @@ export function WordDetailPage() {
     },
     onSettled: () => setDeletingWordId(null),
   });
+  const deletePhraseFromListMutation = useMutation({
+    mutationFn: (phraseId: number) => phraseApi.delete(phraseId),
+    onMutate: (phraseId) => setDeletingPhraseId(phraseId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["phrases"] });
+      await queryClient.invalidateQueries({ queryKey: ["phrases", "partial", rawWordKey] });
+    },
+    onSettled: () => setDeletingPhraseId(null),
+  });
 
-  if (isNotFound && numericWordId === null) {
+  const handleRegisterWithCheck = async () => {
+    setIsCheckingInflection(true);
+    try {
+      const response = await wordApi.checkInflection({ word: rawWordKey });
+      const result = response.result ?? response.results?.[0] ?? null;
+      if (result?.is_inflected) {
+        setInflectionResult(result);
+        setShowInflectionModal(true);
+        return;
+      }
+      registerMutation.mutate({});
+    } finally {
+      setIsCheckingInflection(false);
+    }
+  };
+
+  if (isNotFoundText) {
+    if (phraseFallbackQuery.isLoading || fallbackPhraseId != null) {
+      return (
+        <main className="container">
+          <p>Loading...</p>
+        </main>
+      );
+    }
     const partialItems = partialMatchQuery.data?.items ?? [];
+    const partialPhrases = partialPhraseMatchQuery.data ?? [];
     return (
       <main className="container">
         <Card>
-          <h2>単語「{rawWordKey}」は未登録です</h2>
-          <p>登録しますか？</p>
-          <Row>
-            <button
-              onClick={() => {
-                if (isPhrase(rawWordKey)) {
-                  setShowPhraseConfirm(true);
-                  return;
-                }
-                registerMutation.mutate();
-              }}
-              disabled={registerMutation.isPending}
-            >
-              {registerMutation.isPending ? "登録中..." : "単語として登録する"}
-            </button>
-            <button onClick={() => navigate("/")} disabled={registerMutation.isPending}>
-              キャンセル
-            </button>
-          </Row>
+          {isPhraseLike ? (
+            <>
+              <h2>熟語「{rawWordKey}」は未登録です</h2>
+              <p>登録しますか？</p>
+              <Row>
+                <button
+                  onClick={() => setShowPhraseConfirm(true)}
+                  disabled={registerMutation.isPending}
+                >
+                  {registerMutation.isPending ? "登録中..." : "熟語として登録する"}
+                </button>
+                <button onClick={() => navigate("/")} disabled={registerMutation.isPending}>
+                  キャンセル
+                </button>
+              </Row>
+            </>
+          ) : (
+            <>
+              <h2>単語「{rawWordKey}」は未登録です</h2>
+              <p>登録しますか？</p>
+              <Row>
+                <button
+                  onClick={() => void handleRegisterWithCheck()}
+                  disabled={isCheckingInflection || registerMutation.isPending}
+                >
+                  {isCheckingInflection || registerMutation.isPending
+                    ? "登録中..."
+                    : "単語として登録する"}
+                </button>
+                <button
+                  onClick={() => navigate("/")}
+                  disabled={isCheckingInflection || registerMutation.isPending}
+                >
+                  キャンセル
+                </button>
+              </Row>
+            </>
+          )}
         </Card>
-        {partialMatchQuery.isLoading && <Muted as="p">部分一致の単語を検索中...</Muted>}
-        {!partialMatchQuery.isLoading && partialItems.length > 0 && (
-          <section className="partial-match-section">
-            <h3>部分一致した単語</h3>
-            <div className="grid">
-              {partialItems.map((word) => (
-                <WordCard
-                  key={word.id}
-                  word={word}
-                  deleting={deleteFromListMutation.isPending && deletingWordId === word.id}
-                  onDelete={(wordId) => deleteFromListMutation.mutate(wordId)}
-                />
-              ))}
-            </div>
-          </section>
+        {isPhraseLike ? (
+          <>
+            {partialPhraseMatchQuery.isLoading && <Muted as="p">部分一致の熟語を検索中...</Muted>}
+            {!partialPhraseMatchQuery.isLoading && partialPhrases.length > 0 && (
+              <section className="partial-match-section">
+                <h3>部分一致した熟語</h3>
+                <div className="grid">
+                  {partialPhrases.map((phrase) => (
+                    <PhraseCard
+                      key={phrase.id}
+                      phrase={phrase}
+                      deleting={
+                        deletePhraseFromListMutation.isPending && deletingPhraseId === phrase.id
+                      }
+                      onDelete={(phraseId) =>
+                        setPendingDeletePhrase({ id: phraseId, text: phrase.text })
+                      }
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
+          </>
+        ) : (
+          <>
+            {partialMatchQuery.isLoading && <Muted as="p">部分一致の単語を検索中...</Muted>}
+            {!partialMatchQuery.isLoading && partialItems.length > 0 && (
+              <section className="partial-match-section">
+                <h3>部分一致した単語</h3>
+                <div className="grid">
+                  {partialItems.map((word) => (
+                    <WordCard
+                      key={word.id}
+                      word={word}
+                      deleting={deleteFromListMutation.isPending && deletingWordId === word.id}
+                      onDelete={(wordId) => setPendingDeleteWord({ id: wordId, word: word.word })}
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
+          </>
         )}
         <ConfirmModal
           open={showPhraseConfirm}
-          title="熟語の分割登録"
-          message={`「${rawWordKey}」は熟語です。単語ごとに登録し、各単語の成句/慣用句にこの熟語を追加します。よろしいですか？`}
+          title="熟語の登録"
+          message={`「${rawWordKey}」を熟語として登録し、各単語も個別に辞書登録されます。よろしいですか？`}
           confirmText="登録する"
           onCancel={() => setShowPhraseConfirm(false)}
           onConfirm={() => {
             setShowPhraseConfirm(false);
-            registerMutation.mutate();
+            registerMutation.mutate({});
           }}
         />
+        <ConfirmModal
+          open={pendingDeleteWord !== null}
+          title="削除の確認"
+          message={`単語「${pendingDeleteWord?.word ?? ""}」を削除しますか？`}
+          confirmText="削除する"
+          cancelText="キャンセル"
+          confirmVariant="danger"
+          disableActions={deleteFromListMutation.isPending}
+          onCancel={() => setPendingDeleteWord(null)}
+          onConfirm={() => {
+            if (!pendingDeleteWord) return;
+            deleteFromListMutation.mutate(pendingDeleteWord.id);
+            setPendingDeleteWord(null);
+          }}
+        />
+        <ConfirmModal
+          open={pendingDeletePhrase !== null}
+          title="削除の確認"
+          message={`熟語「${pendingDeletePhrase?.text ?? ""}」を削除しますか？`}
+          confirmText="削除する"
+          cancelText="キャンセル"
+          confirmVariant="danger"
+          disableActions={deletePhraseFromListMutation.isPending}
+          onCancel={() => setPendingDeletePhrase(null)}
+          onConfirm={() => {
+            if (!pendingDeletePhrase) return;
+            deletePhraseFromListMutation.mutate(pendingDeletePhrase.id);
+            setPendingDeletePhrase(null);
+          }}
+        />
+        {showInflectionModal && inflectionResult && (
+          <InflectionBatchModal
+            open={showInflectionModal}
+            title="活用形の確認"
+            items={[
+              {
+                word: inflectionResult.word,
+                selectedLemma: inflectionResult.selected_lemma ?? null,
+                selectedSpelling: inflectionResult.selected_spelling ?? null,
+                lemmaResolution: inflectionResult.lemma_resolution ?? null,
+                selectedInflectionType: inflectionResult.selected_inflection_type ?? null,
+                lemmaCandidates: (inflectionResult.lemma_candidates ?? []).map((candidate) => ({
+                  lemma: candidate.lemma,
+                  lemmaWordId: candidate.lemma_word_id ?? null,
+                  inflectionType: candidate.inflection_type ?? null,
+                })),
+                spellingCandidates: (inflectionResult.spelling_candidates ?? []).map((entry) => ({
+                  spelling: entry.spelling,
+                  source: entry.source ?? null,
+                  selectedLemma: entry.selected_lemma ?? null,
+                  lemmaResolution: entry.lemma_resolution ?? null,
+                  lemmaCandidates: (entry.lemma_candidates ?? []).map((candidate) => ({
+                    lemma: candidate.lemma,
+                    lemmaWordId: candidate.lemma_word_id ?? null,
+                    inflectionType: candidate.inflection_type ?? null,
+                  })),
+                })),
+                suggestion: inflectionResult.suggestion ?? "register_as_is",
+              },
+            ]}
+            onClose={() => setShowInflectionModal(false)}
+            onConfirm={(decisions) => {
+              const decision = decisions[inflectionResult.word];
+              const action = decision?.action ?? "register_as_is";
+              const lemmaWord = decision?.lemma ?? inflectionResult.selected_lemma ?? null;
+              registerMutation.mutate({
+                inflection_action: action,
+                lemma_word: action === "register_as_is" ? null : lemmaWord,
+              });
+              setShowInflectionModal(false);
+            }}
+          />
+        )}
       </main>
     );
   }
@@ -184,26 +392,46 @@ export function WordDetailPage() {
             <button onClick={() => rescrapeMutation.mutate()} disabled={isBusy}>
               {rescrapeMutation.isPending ? "再取得中..." : "データ再取得"}
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                const ok = window.confirm(`単語「${word.word}」を削除しますか？`);
-                if (!ok) return;
-                deleteWordMutation.mutate();
-              }}
-              disabled={isBusy}
-            >
-              {deleteWordMutation.isPending ? "削除中..." : "削除"}
-            </button>
             <Link to={`/words/${word.id}/edit`}>編集</Link>
             <Link to="/">一覧へ戻る</Link>
           </>
         }
       />
-      <Muted as="p">{word.phonetic || EMPTY_MESSAGES.noPhonetic}</Muted>
+      <Row>
+        <Muted as="p">{word.phonetic || EMPTY_MESSAGES.noPhonetic}</Muted>
+        <AudioPlayButton
+          audioPath={word.audio_path}
+          onGenerate={async () => {
+            const updated = await wordApi.generateAudio(word.id);
+            await queryClient.invalidateQueries({ queryKey: ["word"] });
+            return updated;
+          }}
+        />
+      </Row>
+      {word.lemma_word_id && (
+        <Muted as="p">
+          この単語は
+          <Link to={`/words/${word.lemma_word_id}`}> {word.lemma_word_text ?? "原形"} </Link>の
+          {INFLECTION_LABELS[word.inflection_type ?? "inflection"] ??
+            word.inflection_type ??
+            "活用形"}
+          です。
+        </Muted>
+      )}
       {formEntries.length > 0 && (
         <Muted as="p">
-          {formEntries.map(([label, value]) => `${label}: ${value}`).join(" / ")}
+          {formEntries.map((entry, idx) => {
+            const linked = word.inflected_forms?.find(
+              (item) => item.word.toLowerCase() === entry.value.toLowerCase(),
+            );
+            return (
+              <span key={entry.key}>
+                {idx > 0 ? " / " : ""}
+                {entry.label}:{" "}
+                {linked ? <Link to={`/words/${linked.word_id}`}>{entry.value}</Link> : entry.value}
+              </span>
+            );
+          })}
         </Muted>
       )}
       <div className="detail-layout">
@@ -215,7 +443,10 @@ export function WordDetailPage() {
         </div>
         <aside className="detail-side">
           <ImageViewer
-            word={word}
+            title="イメージ画像"
+            entityLabel={word.word}
+            images={word.images}
+            fetchDefaultPrompt={() => wordApi.getDefaultImagePrompt(word.id)}
             onGenerate={(prompt) => generateImageMutation.mutateAsync(prompt)}
             loading={generateImageMutation.isPending}
           />

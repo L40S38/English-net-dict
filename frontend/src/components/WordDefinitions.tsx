@@ -1,12 +1,17 @@
-import { Card, Muted, Stack } from "./atom";
+import { useQueryClient } from "@tanstack/react-query";
+
+import { AudioPlayButton } from "./AudioPlayButton";
+import { Card, Muted, Row, Stack } from "./atom";
+import { wordApi } from "../lib/api";
 import { POS_OPTIONS } from "../lib/constants";
 import type { Word } from "../types";
 
-interface Props {
+interface WordDefinitionsProps {
   word: Word;
 }
 
-export function WordDefinitions({ word }: Props) {
+export function WordDefinitions({ word }: WordDefinitionsProps) {
+  const queryClient = useQueryClient();
   const grouped = new Map<string, Word["definitions"]>();
   for (const def of word.definitions) {
     const key = def.part_of_speech || "その他";
@@ -46,10 +51,29 @@ export function WordDefinitions({ word }: Props) {
                     </p>
                     {def.meaning_ja && <Muted as="p">{def.meaning_ja}</Muted>}
                     <Muted as="p">例文)</Muted>
-                    <p>
-                      <em>{def.example_en}</em>
-                    </p>
-                    {def.example_ja && <Muted as="p">{def.example_ja}</Muted>}
+                    {(def.examples || []).map((example, exampleIndex) => (
+                      <div key={`${def.id}-${exampleIndex}`}>
+                        <Row>
+                          <p>
+                            <em>{example.example_en}</em>
+                          </p>
+                          {example.id != null && (
+                            <AudioPlayButton
+                              audioPath={example.audio_path}
+                              onGenerate={async () => {
+                                const updated = await wordApi.generateExampleAudio(
+                                  word.id,
+                                  example.id!,
+                                );
+                                await queryClient.invalidateQueries({ queryKey: ["word"] });
+                                return updated;
+                              }}
+                            />
+                          )}
+                        </Row>
+                        {example.example_ja && <Muted as="p">{example.example_ja}</Muted>}
+                      </div>
+                    ))}
                   </div>
                 ))}
               </Stack>

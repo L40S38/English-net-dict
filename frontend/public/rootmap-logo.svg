@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="My Own Rootmap logo">
+  <defs>
+    <linearGradient id="rmBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2563eb" />
+      <stop offset="100%" stop-color="#1e3a8a" />
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#rmBg)" />
+  <path d="M15 49V17h10c7.2 0 11.5 3.6 11.5 10 0 4.8-2.2 8-6.3 9.6L41 49h-9.1l-9.1-11.2V49H15zm7.8-16.9h2.3c2.8 0 4.2-1.5 4.2-4.1 0-2.5-1.4-4-4.2-4h-2.3v8.1z" fill="#ffffff" />
+  <circle cx="49" cy="20" r="5" fill="#93c5fd" />
+  <circle cx="53" cy="44" r="4" fill="#bfdbfe" />
+</svg>

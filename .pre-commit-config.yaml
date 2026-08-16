@@ -27,4 +27,3 @@ repos:
         entry: npm --prefix English-net-dict/frontend run lint
         language: system
         pass_filenames: false
-

@@ -1,0 +1,23 @@
+.wordCard {
+  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+}
+
+.wordCardMeta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.wordCardMeta small {
+  margin-left: 0;
+}
+
+.wordCardContent {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  min-height: 0;
+}
