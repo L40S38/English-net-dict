@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any
 
@@ -12,6 +13,8 @@ from core.services.example_cache import get_cached_example, make_cache_key, save
 from core.utils.pos_labels import normalize_part_of_speech
 from core.utils.prompt_loader import PROMPT_VERSION, load_prompt
 from core.utils.text_repair import repair_nested_strings, repair_text
+
+logger = logging.getLogger(__name__)
 
 
 def _wiktionary_items(scraped_data: list[dict]) -> list[dict]:
@@ -468,19 +471,80 @@ def generate_structured_word_data(word: str, wordnet_data: dict, scraped_data: l
         "scraped_data": scraped_for_prompt,
         "prompt_version": PROMPT_VERSION,
     }
-    try:
-        completion = client.responses.create(
-            model=settings.openai_model_structured,
-            temperature=0.0,
-            input=[
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
-            ],
+    user_content = json.dumps(payload, ensure_ascii=False)
+    data: dict[str, Any] | None = None
+    last_error: Exception | None = None
+    for attempt in range(2):
+        try:
+            completion = client.responses.create(
+                model=settings.openai_model_structured,
+                temperature=0.0,
+                input=[
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": user_content},
+                ],
+            )
+            text = _strip_json_code_fence(completion.output_text or "")
+            candidate = repair_nested_strings(json.loads(text))
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+            logger.warning(
+                "word_structuring: GPT call failed for %r (attempt %d/2): %s", word, attempt + 1, exc,
+            )
+            continue
+
+        candidate_defs = candidate.get("definitions") if isinstance(candidate, dict) else None
+        # プロンプトは scraped_data.definitions と 1:1 対応させるよう明示的に指示しているが、
+        # モデルがこれに従わず一部の語義（特に短い語義）を無言で省くことがある
+        # （例: dominate の adjective/noun 義）。件数不一致は黙って通さず、一度だけ再試行し、
+        # それでも不一致なら警告ログを残した上で結果は採用する（フォールバックより実データの方が良い）。
+        if curated_defs and (not isinstance(candidate_defs, list) or len(candidate_defs) != len(curated_defs)):
+            logger.warning(
+                "word_structuring: definitions count mismatch for %r (attempt %d/2): expected %d, got %s",
+                word, attempt + 1, len(curated_defs),
+                len(candidate_defs) if isinstance(candidate_defs, list) else "invalid",
+            )
+            if attempt == 0:
+                continue
+
+        data = candidate
+        break
+
+    if data is None or not isinstance(data, dict):
+        logger.error(
+            "word_structuring: falling back to degraded structuring for %r after repeated failures: %s",
+            word, last_error,
         )
-        text = _strip_json_code_fence(completion.output_text or "")
-        data = repair_nested_strings(json.loads(text))
-    except Exception:  # noqa: BLE001
         return _fallback_structured(word, wordnet_data, scraped_data)
+    if isinstance(data.get("definitions"), list) and curated_defs:
+        # 件数不一致のまま最終試行を採用した場合（497-508行目）、GPTが品詞ごと語義を省略している
+        # ことがある。その品詞を丸ごと欠いたまま word_service._drop_forms_without_matching_pos に
+        # 渡すと、実際には存在する活用形（例: 動詞の過去形）まで誤って削除されてしまう。curated_defs
+        # （プロンプトに渡した Wiktionary 由来の正データ）にあって data に無い品詞は、最小限の語義
+        # （meaning_ja は空のまま）として補完しておく。
+        present_pos = {
+            normalize_part_of_speech(d.get("part_of_speech")).strip().split()[-1].lower()
+            for d in data["definitions"] if isinstance(d, dict)
+        }
+        seen_missing: set[str] = set()
+        for cdef in curated_defs:
+            pos = str(cdef.get("part_of_speech", "")).strip()
+            tail = normalize_part_of_speech(pos).strip().split()[-1].lower()
+            if tail in present_pos or tail in seen_missing:
+                continue
+            seen_missing.add(tail)
+            examples_en = cdef.get("examples_en") or ([cdef["example_en"]] if cdef.get("example_en") else [])
+            data["definitions"].append({
+                "part_of_speech": pos,
+                "meaning_en": cdef.get("meaning_en", ""),
+                "meaning_ja": "",
+                "examples_en": examples_en,
+                "examples_ja": [],
+                "sort_order": len(data["definitions"]),
+            })
+            logger.warning(
+                "word_structuring: recovered GPT-omitted %s definition for %r from curated data", tail, word,
+            )
     data.setdefault("forms", {})
     if not isinstance(data["forms"], dict):
         data["forms"] = {}

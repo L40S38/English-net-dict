@@ -24,7 +24,13 @@ from core.models import (
     WordGroupItem,
     WordPhrase,
 )
-from core.services.chat_tools import TOOL_DEFINITIONS, WRITE_TOOL_DEFINITIONS, WRITE_TOOL_NAMES, execute_tool
+from core.services.chat_tools import (
+    IMAGE_TOOL_DEFINITIONS,
+    TOOL_DEFINITIONS,
+    WRITE_TOOL_DEFINITIONS,
+    WRITE_TOOL_NAMES,
+    execute_tool,
+)
 from core.services.etymology_component_service import get_component_cache, normalize_component_text
 from core.utils.prompt_loader import load_prompt
 from core.utils.text_repair import has_suspected_mojibake, repair_text
@@ -646,6 +652,11 @@ def answer_in_session(db: Session, session: ChatSession, user_input: str) -> tup
         context_json = json.dumps(build_word_context(word), ensure_ascii=False)
         tools_for_agent = TOOL_DEFINITIONS + WRITE_TOOL_DEFINITIONS
         word_id_for_agent = word.id
+
+    # Image generation is offered for word/phrase/group chats, but not etymology-component
+    # chats (a component isn't a single visualizable entity in the same way).
+    if not session.component_text:
+        tools_for_agent = tools_for_agent + IMAGE_TOOL_DEFINITIONS
 
     system_prompt = load_prompt("chat_agent.md")
     history = _load_history(db, session.id, exclude_msg_id=user_msg.id)

@@ -45,52 +45,71 @@ def _pick_definition_items(scraped: dict) -> list[dict]:
     return picked[:12]
 
 
-async def enrich_phrase(db, phrase: Phrase, *, scraper, cache: dict[str, str | None]) -> Phrase:
+async def enrich_phrase(
+    db,
+    phrase: Phrase,
+    *,
+    scraper,
+    cache: dict[str, str | None],
+    phrase_cache: dict[str, dict] | None = None,
+) -> Phrase:
     phrase.meaning = (await resolve_meaning_ja(phrase.text, scraper, cache)) or phrase.meaning or ""
 
-    scraped = await scraper.scrape(phrase.text)
-    data = scraped if isinstance(scraped, dict) else {}
-    if not data.get("error"):
-        phrase.wiktionary_synonyms = _wiktionary_str_list(data, "synonyms")
-        phrase.wiktionary_antonyms = _wiktionary_str_list(data, "antonyms")
-        phrase.wiktionary_see_also = _wiktionary_str_list(data, "see_also")
-        phrase.wiktionary_derived_terms = _wiktionary_str_list(data, "derived_terms")
-        phrase.wiktionary_phrases = _wiktionary_str_list(data, "phrases")
-
-    items = _pick_definition_items(data)
-
-    translated = await asyncio.to_thread(
-        translate_phrase_definitions,
-        phrase.text,
-        [{"meaning_en": item["meaning_en"], "example_en": item["example_en"]} for item in items],
-    )
-
-    definitions: list[dict] = []
-    for idx, item in enumerate(items):
-        tr = translated[idx] if idx < len(translated) else {}
-        definitions.append(
-            {
-                "part_of_speech": item["part_of_speech"],
-                "meaning_en": item["meaning_en"],
-                "meaning_ja": str(tr.get("meaning_ja", "")).strip(),
-                "example_en": item["example_en"],
-                "example_ja": str(tr.get("example_ja", "")).strip(),
-                "sort_order": idx,
+    key = phrase.text.strip().lower()
+    cached = phrase_cache.get(key) if phrase_cache is not None else None
+    if cached is None:
+        scraped = await scraper.scrape(phrase.text)
+        data = scraped if isinstance(scraped, dict) else {}
+        wiktionary_fields: dict[str, list[str]] = {}
+        if not data.get("error"):
+            wiktionary_fields = {
+                "wiktionary_synonyms": _wiktionary_str_list(data, "synonyms"),
+                "wiktionary_antonyms": _wiktionary_str_list(data, "antonyms"),
+                "wiktionary_see_also": _wiktionary_str_list(data, "see_also"),
+                "wiktionary_derived_terms": _wiktionary_str_list(data, "derived_terms"),
+                "wiktionary_phrases": _wiktionary_str_list(data, "phrases"),
             }
+
+        items = _pick_definition_items(data)
+
+        translated = await asyncio.to_thread(
+            translate_phrase_definitions,
+            phrase.text,
+            [{"meaning_en": item["meaning_en"], "example_en": item["example_en"]} for item in items],
         )
 
-    if not definitions:
-        definitions = [
-            {
-                "part_of_speech": "phrase",
-                "meaning_en": "",
-                "meaning_ja": phrase.meaning or "",
-                "example_en": "",
-                "example_ja": "",
-                "sort_order": 0,
-            }
-        ]
+        definitions: list[dict] = []
+        for idx, item in enumerate(items):
+            tr = translated[idx] if idx < len(translated) else {}
+            definitions.append(
+                {
+                    "part_of_speech": item["part_of_speech"],
+                    "meaning_en": item["meaning_en"],
+                    "meaning_ja": str(tr.get("meaning_ja", "")).strip(),
+                    "example_en": item["example_en"],
+                    "example_ja": str(tr.get("example_ja", "")).strip(),
+                    "sort_order": idx,
+                }
+            )
 
-    replace_definitions(db, phrase, definitions)
+        if not definitions:
+            definitions = [
+                {
+                    "part_of_speech": "phrase",
+                    "meaning_en": "",
+                    "meaning_ja": phrase.meaning or "",
+                    "example_en": "",
+                    "example_ja": "",
+                    "sort_order": 0,
+                }
+            ]
+
+        cached = {"wiktionary_fields": wiktionary_fields, "definitions": definitions}
+        if phrase_cache is not None:
+            phrase_cache[key] = cached
+
+    for field, value in cached["wiktionary_fields"].items():
+        setattr(phrase, field, value)
+    replace_definitions(db, phrase, cached["definitions"])
     db.flush()
     return phrase

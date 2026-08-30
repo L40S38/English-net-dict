@@ -555,6 +555,14 @@ button:hover:not(:disabled) {
   font-size: 0.9em;
 }
 
+.markdown-body img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm);
+  margin: 0.4rem 0;
+}
+
 /* チャット内の長いURL・テキストを折り返す */
 .markdown-body,
 .markdown-body a,

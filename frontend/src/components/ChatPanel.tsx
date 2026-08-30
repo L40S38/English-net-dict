@@ -1,11 +1,43 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { Card, Chip, ChipList, Muted, Row } from "./atom";
 import { ConfirmModal } from "./ConfirmModal";
+import { SHARED_API_BASE_URL_DEFAULT } from "../lib/sharedConfig";
 import type { ChatMessage, ChatSession } from "../types";
+
+const CHAT_API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? SHARED_API_BASE_URL_DEFAULT;
+
+// Chat-generated images are returned by the backend as root-relative `/static/...` paths
+// (same convention as ImageViewer/AudioPlayButton) and need the API base URL prefixed -
+// otherwise they resolve against the frontend's own origin in dev, where they don't exist.
+//
+// The LLM also occasionally wraps the URL in stray quote marks (e.g. `("/static/...")`).
+// By the time react-markdown's `urlTransform` sees it, mdast-util-to-hast has already run
+// it through `normalizeUri`, which percent-encodes those quotes (`"` -> `%22`) rather than
+// leaving them literal - so a plain string-based quote strip on the raw src never matches.
+// Decode first, then strip, to undo both problems before resolving the final URL.
+function chatMarkdownUrlTransform(value: string): string {
+  // Only `/static/...` image paths need the decode/quote-strip treatment below - anything
+  // else (e.g. a search_web citation link) should pass through untouched, since decoding an
+  // arbitrary external URL can corrupt its query string (e.g. %26 -> & turns one query param
+  // into two). mdast-util-to-hast's normalizeUri leaves path slashes alone, so this substring
+  // check on the raw value is a safe, cheap way to scope the special-casing to image paths.
+  if (!value.includes("/static/")) {
+    return defaultUrlTransform(value);
+  }
+  let candidate = value;
+  try {
+    candidate = decodeURIComponent(value);
+  } catch {
+    // Not a validly percent-encoded sequence - fall back to the raw value.
+  }
+  candidate = candidate.trim().replace(/^["']+|["']+$/g, "");
+  const safe = defaultUrlTransform(candidate);
+  return safe.startsWith("/static/") ? `${CHAT_API_BASE_URL}${safe}` : safe;
+}
 
 function normalizeText(input: string): string {
   // Strip control chars and guard against mojibake-like output from external LLM responses.
@@ -182,7 +214,7 @@ export function ChatPanel({
           <div key={msg.id} className={`bubble ${msg.role === "assistant" ? "assistant" : "user"}`}>
             {msg.role === "assistant" ? (
               <div className="markdown-body">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                <ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={chatMarkdownUrlTransform}>
                   {normalizeText(msg.content)}
                 </ReactMarkdown>
               </div>
