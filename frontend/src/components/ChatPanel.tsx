@@ -20,6 +20,14 @@ const CHAT_API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? SHARED_API_BASE_U
 // leaving them literal - so a plain string-based quote strip on the raw src never matches.
 // Decode first, then strip, to undo both problems before resolving the final URL.
 function chatMarkdownUrlTransform(value: string): string {
+  // Only `/static/...` image paths need the decode/quote-strip treatment below - anything
+  // else (e.g. a search_web citation link) should pass through untouched, since decoding an
+  // arbitrary external URL can corrupt its query string (e.g. %26 -> & turns one query param
+  // into two). mdast-util-to-hast's normalizeUri leaves path slashes alone, so this substring
+  // check on the raw value is a safe, cheap way to scope the special-casing to image paths.
+  if (!value.includes("/static/")) {
+    return defaultUrlTransform(value);
+  }
   let candidate = value;
   try {
     candidate = decodeURIComponent(value);

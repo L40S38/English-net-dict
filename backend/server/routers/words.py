@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Literal
 
@@ -559,93 +560,92 @@ async def create_word(
     )
     payload_cache: dict[str, dict] = {}
     meaning_cache: dict[str, str | None] = {}
+    phrase_cache: dict[str, dict] = {}
     scraper = WiktionaryScraper()
     action = payload.inflection_action
     input_word = payload.word.strip()
     if not input_word:
         raise HTTPException(status_code=400, detail="word is required")
-    last_locked: OperationalError | None = None
-    for attempt in range(_SQLITE_LOCK_RETRIES):
-        phrase_id: int | None = None
-        try:
-            if action == "merge":
-                lemma_target = (payload.lemma_word or input_word).strip()
-                if not lemma_target:
-                    raise HTTPException(status_code=400, detail="lemma_word is required for merge")
-                lemma_result = await ingest_word_or_phrase(
-                    db,
-                    lemma_target,
-                    scraper=scraper,
-                    payload_cache=payload_cache,
-                    meaning_cache=meaning_cache,
-                    options=options,
-                )
-                lemma_word = db.scalar(_word_query().where(func.lower(Word.word) == lemma_target.lower()))
-                if lemma_word is None:
-                    raise HTTPException(status_code=500, detail="Failed to create/find lemma word")
-                inflected_word = db.scalar(_word_query().where(func.lower(Word.word) == input_word.lower()))
-                if inflected_word and inflected_word.id != lemma_word.id:
-                    merge_into_lemma(db, inflected_word, lemma_word)
-                result_words = [lemma_word]
-                _ = lemma_result
-            elif action == "link":
-                lemma_target = (payload.lemma_word or "").strip()
-                if not lemma_target:
-                    raise HTTPException(status_code=400, detail="lemma_word is required for link")
-                await ingest_word_or_phrase(
-                    db,
-                    lemma_target,
-                    scraper=scraper,
-                    payload_cache=payload_cache,
-                    meaning_cache=meaning_cache,
-                    options=options,
-                )
-                await ingest_word_or_phrase(
-                    db,
-                    input_word,
-                    scraper=scraper,
-                    payload_cache=payload_cache,
-                    meaning_cache=meaning_cache,
-                    options=options,
-                )
-                lemma_word = db.scalar(_word_query().where(func.lower(Word.word) == lemma_target.lower()))
-                inflected_word = db.scalar(_word_query().where(func.lower(Word.word) == input_word.lower()))
-                if lemma_word is None or inflected_word is None:
-                    raise HTTPException(status_code=500, detail="Failed to create/find words for link")
-                candidate = await detect_lemma(input_word, db, scraper=scraper)
-                inflection_type = candidate.inflection_type if candidate else "inflection"
-                link_to_lemma(db, inflected_word, lemma_word, inflection_type)
-                result_words = [inflected_word, lemma_word]
-            else:
-                result = await ingest_word_or_phrase(
-                    db,
-                    input_word,
-                    scraper=scraper,
-                    payload_cache=payload_cache,
-                    meaning_cache=meaning_cache,
-                    options=options,
-                )
-                result_words = list(result.words)
-                if result.phrase is not None:
-                    phrase_id = result.phrase.id
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except OperationalError as exc:
-            if not _is_sqlite_database_locked(exc):
-                raise
-            last_locked = exc
-            db.rollback()
-            if attempt + 1 >= _SQLITE_LOCK_RETRIES:
-                raise
-            await asyncio.sleep(_SQLITE_LOCK_BACKOFF_S * (2**attempt))
-            continue
-        db.commit()
-        for word in result_words:
-            db.refresh(word)
-        word_reads = [_to_word_read(db, word) for word in result_words]
-        return WordCreateResponse(words=word_reads, phrase_id=phrase_id)
-    assert last_locked is not None
-    raise last_locked
+
+    phrase_id: int | None = None
+
+    async def _do_ingest() -> list[Word]:
+        nonlocal phrase_id
+        phrase_id = None
+        if action == "merge":
+            lemma_target = (payload.lemma_word or input_word).strip()
+            if not lemma_target:
+                raise HTTPException(status_code=400, detail="lemma_word is required for merge")
+            lemma_result = await ingest_word_or_phrase(
+                db,
+                lemma_target,
+                scraper=scraper,
+                payload_cache=payload_cache,
+                meaning_cache=meaning_cache,
+                options=options,
+                phrase_cache=phrase_cache,
+            )
+            lemma_word = db.scalar(_word_query().where(func.lower(Word.word) == lemma_target.lower()))
+            if lemma_word is None:
+                raise HTTPException(status_code=500, detail="Failed to create/find lemma word")
+            inflected_word = db.scalar(_word_query().where(func.lower(Word.word) == input_word.lower()))
+            if inflected_word and inflected_word.id != lemma_word.id:
+                merge_into_lemma(db, inflected_word, lemma_word)
+            _ = lemma_result
+            return [lemma_word]
+        elif action == "link":
+            lemma_target = (payload.lemma_word or "").strip()
+            if not lemma_target:
+                raise HTTPException(status_code=400, detail="lemma_word is required for link")
+            await ingest_word_or_phrase(
+                db,
+                lemma_target,
+                scraper=scraper,
+                payload_cache=payload_cache,
+                meaning_cache=meaning_cache,
+                options=options,
+                phrase_cache=phrase_cache,
+            )
+            await ingest_word_or_phrase(
+                db,
+                input_word,
+                scraper=scraper,
+                payload_cache=payload_cache,
+                meaning_cache=meaning_cache,
+                options=options,
+                phrase_cache=phrase_cache,
+            )
+            lemma_word = db.scalar(_word_query().where(func.lower(Word.word) == lemma_target.lower()))
+            inflected_word = db.scalar(_word_query().where(func.lower(Word.word) == input_word.lower()))
+            if lemma_word is None or inflected_word is None:
+                raise HTTPException(status_code=500, detail="Failed to create/find words for link")
+            candidate = await detect_lemma(input_word, db, scraper=scraper)
+            inflection_type = candidate.inflection_type if candidate else "inflection"
+            link_to_lemma(db, inflected_word, lemma_word, inflection_type)
+            return [inflected_word, lemma_word]
+        else:
+            result = await ingest_word_or_phrase(
+                db,
+                input_word,
+                scraper=scraper,
+                payload_cache=payload_cache,
+                meaning_cache=meaning_cache,
+                options=options,
+                phrase_cache=phrase_cache,
+            )
+            if result.phrase is not None:
+                phrase_id = result.phrase.id
+            return list(result.words)
+
+    try:
+        result_words = await _run_with_sqlite_lock_retry(db, _do_ingest)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    for word in result_words:
+        db.refresh(word)
+    word_reads = [_to_word_read(db, word) for word in result_words]
+    return WordCreateResponse(words=word_reads, phrase_id=phrase_id)
 
 
 _SQLITE_LOCK_RETRIES = 4
@@ -667,34 +667,16 @@ def _is_sqlite_database_locked(exc: OperationalError) -> bool:
     return "locked" in message or "busy" in message
 
 
-async def _ingest_bulk_item_with_commit(
-    db: Session,
-    item: str,
-    *,
-    scraper: WiktionaryScraper,
-    payload_cache: dict[str, dict],
-    meaning_cache: dict[str, str | None],
-    options: IngestOptions,
-    result_words: dict[int, Word],
-) -> None:
-    """One payload row per transaction; retry commit on transient SQLite lock."""
+async def _run_with_sqlite_lock_retry[T](db: Session, fn: Callable[[], Awaitable[T]]) -> T:
+    """Run `fn` and commit, retrying with backoff if `fn` or the commit itself hits a
+    transient SQLite lock. Any other exception (including the final lock error once
+    retries are exhausted) propagates immediately."""
     last_locked: OperationalError | None = None
     for attempt in range(_SQLITE_LOCK_RETRIES):
         try:
-            result = await ingest_word_or_phrase(
-                db,
-                item,
-                scraper=scraper,
-                payload_cache=payload_cache,
-                meaning_cache=meaning_cache,
-                options=options,
-            )
-            for word in result.words:
-                result_words[word.id] = word
+            result = await fn()
             db.commit()
-            for word in result.words:
-                db.refresh(word)
-            return
+            return result
         except OperationalError as exc:
             if not _is_sqlite_database_locked(exc):
                 raise
@@ -705,6 +687,38 @@ async def _ingest_bulk_item_with_commit(
             await asyncio.sleep(_SQLITE_LOCK_BACKOFF_S * (2**attempt))
     assert last_locked is not None
     raise last_locked
+
+
+async def _ingest_bulk_item_with_commit(
+    db: Session,
+    item: str,
+    *,
+    scraper: WiktionaryScraper,
+    payload_cache: dict[str, dict],
+    meaning_cache: dict[str, str | None],
+    phrase_cache: dict[str, dict],
+    options: IngestOptions,
+    result_words: dict[int, Word],
+) -> None:
+    """One payload row per transaction; retry commit on transient SQLite lock."""
+
+    async def _do_ingest() -> list[Word]:
+        result = await ingest_word_or_phrase(
+            db,
+            item,
+            scraper=scraper,
+            payload_cache=payload_cache,
+            meaning_cache=meaning_cache,
+            options=options,
+            phrase_cache=phrase_cache,
+        )
+        for word in result.words:
+            result_words[word.id] = word
+        return result.words
+
+    words = await _run_with_sqlite_lock_retry(db, _do_ingest)
+    for word in words:
+        db.refresh(word)
 
 
 @router.post("/bulk", response_model=list[WordRead])
@@ -729,6 +743,7 @@ async def bulk_create_words(
     scraper = WiktionaryScraper()
     payload_cache: dict[str, dict] = {}
     meaning_cache: dict[str, str | None] = {}
+    phrase_cache: dict[str, dict] = {}
     result_words: dict[int, Word] = {}
     for item in payload.words:
         if not item.strip():
@@ -739,6 +754,7 @@ async def bulk_create_words(
             scraper=scraper,
             payload_cache=payload_cache,
             meaning_cache=meaning_cache,
+            phrase_cache=phrase_cache,
             options=options,
             result_words=result_words,
         )

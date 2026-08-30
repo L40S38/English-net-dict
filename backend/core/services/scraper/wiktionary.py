@@ -742,6 +742,11 @@ class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
 
             section_count = 0
             current_index: int | None = None
+            # current_index が `##`（ネスト）由来の語義を指しているかどうか。`##:` 例文行の採用を
+            # このフラグで絞ることで、実 `#` 定義の下にある本物の `##` サブ語義（無視される）の例文が
+            # 親の `#` 定義に誤って紐付くのを防ぐ（そのサブ語義自体は pending_nested が False の間は
+            # マッチしないため、生の `##` 本文だけが捨てられ、`##:` 例文だけが漏れて親に付いていた）。
+            current_is_nested = False
             # ラベルのみの `#` 行（例: `# {{lb|en|transitive}}`）に続けて、実際の語義が
             # 一段深い `##` 項目として書かれるページがある（例: retain, be の Verb セクション）。
             # そのまま `#` 行だけを見ると本文が空で 0 件になり、`##` 側は無条件に無視されて
@@ -767,6 +772,7 @@ class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
                             }
                         )
                         current_index = len(definitions) - 1
+                        current_is_nested = False
                         section_count += 1
                         pending_nested = False
                     else:
@@ -789,12 +795,16 @@ class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
                             }
                         )
                         current_index = len(definitions) - 1
+                        current_is_nested = True
                         section_count += 1
                     continue
 
                 if current_index is None:
                     continue
-                if not (line.startswith("#:") or line.startswith("##:")):
+                if line.startswith("##:"):
+                    if not current_is_nested:
+                        continue
+                elif not line.startswith("#:"):
                     continue
                 if definitions[current_index]["example_en"]:
                     continue

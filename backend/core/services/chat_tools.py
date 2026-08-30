@@ -17,19 +17,18 @@ sessions (see IMAGE_TOOL_DEFINITIONS):
 
 from __future__ import annotations
 
-import base64
 import json
 import logging
 import uuid
 from pathlib import Path
 from typing import Any
 
-from openai import OpenAI
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
 from core.config import settings
 from core.models import Definition, Etymology, EtymologyComponentItem, RelatedWord, Word
+from core.services.image_service import generate_image_bytes
 from core.services.web_word_search import search_web_dictionary, search_web_general
 from core.services.word_service import link_related_words
 
@@ -215,22 +214,25 @@ IMAGE_TOOL_DEFINITIONS: list[dict[str, Any]] = [
 
 def execute_tool(db: Session, tool_name: str, arguments: dict[str, Any], word_id: int | None = None) -> str:
     try:
-        # Run in a SAVEPOINT so a failed write (e.g. register_related_word) only
-        # undoes its own change on error, rather than db.rollback() reverting the
-        # whole outer transaction - including the user's chat message, which was
-        # already flushed (but not committed) before the tool-calling loop started.
-        with db.begin_nested():
-            if tool_name == "lookup_word_data":
-                return _exec_lookup(db, arguments)
-            if tool_name == "search_db":
-                return _exec_search_db(db, arguments)
-            if tool_name == "search_web":
-                return _exec_search_web(arguments)
-            if tool_name == "register_related_word":
+        if tool_name == "lookup_word_data":
+            return _exec_lookup(db, arguments)
+        if tool_name == "search_db":
+            return _exec_search_db(db, arguments)
+        if tool_name == "search_web":
+            return _exec_search_web(arguments)
+        if tool_name == "generate_chat_image":
+            return _exec_generate_chat_image(arguments)
+        if tool_name == "register_related_word":
+            # Run in a SAVEPOINT so a failed write only undoes its own change on
+            # error, rather than db.rollback() reverting the whole outer transaction
+            # - including the user's chat message, which was already flushed (but
+            # not committed) before the tool-calling loop started. Only this tool
+            # actually writes to the DB, so only it needs the SAVEPOINT: wrapping the
+            # other (read-only or network-bound) tools too just holds SQLite's write
+            # lock for the duration of their web/API calls for no benefit.
+            with db.begin_nested():
                 return _exec_register_related_word(db, word_id, arguments)
-            if tool_name == "generate_chat_image":
-                return _exec_generate_chat_image(arguments)
-            return json.dumps({"error": f"Unknown tool: {tool_name}"}, ensure_ascii=False)
+        return json.dumps({"error": f"Unknown tool: {tool_name}"}, ensure_ascii=False)
     except Exception:
         logger.exception("Tool execution failed: %s", tool_name)
         return json.dumps({"error": f"Tool '{tool_name}' failed"}, ensure_ascii=False)
@@ -249,18 +251,12 @@ def _exec_generate_chat_image(args: dict) -> str:
     try:
         image_dir = Path(settings.image_dir)
         image_dir.mkdir(parents=True, exist_ok=True)
-        client = OpenAI(api_key=settings.openai_api_key)
-        result = client.images.generate(
-            model=settings.openai_image_model,
-            prompt=prompt,
-            size=settings.openai_image_size,
-        )
-        b64 = result.data[0].b64_json
-        if not b64:
+        image_bytes = generate_image_bytes(prompt)
+        if not image_bytes:
             return json.dumps({"error": "Image generation returned no data."}, ensure_ascii=False)
 
         filename = f"chat-{uuid.uuid4().hex[:8]}.png"
-        (image_dir / filename).write_bytes(base64.b64decode(b64))
+        (image_dir / filename).write_bytes(image_bytes)
         return json.dumps({"url": f"/static/images/{filename}", "alt_text": alt_text}, ensure_ascii=False)
     except Exception:
         logger.exception("Chat image generation failed")

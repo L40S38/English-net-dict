@@ -573,7 +573,9 @@ def _drop_forms_without_matching_pos(forms: dict, definitions: list) -> dict:
     if "verb" not in pos_tails:
         for key in _VERB_ONLY_FORM_KEYS:
             result.pop(key, None)
-    if "adjective" not in pos_tails:
+    # comparative/superlative は形容詞だけでなく副詞にも存在する活用（例: soon/sooner/soonest）
+    # なので、どちらの品詞も無い場合のみ削除する。
+    if "adjective" not in pos_tails and "adverb" not in pos_tails:
         for key in _ADJECTIVE_ONLY_FORM_KEYS:
             result.pop(key, None)
     if "noun" not in pos_tails:

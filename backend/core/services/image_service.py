@@ -132,6 +132,19 @@ def _write_placeholder_png(path: Path) -> None:
     path.write_bytes(png_data)
 
 
+def generate_image_bytes(prompt: str) -> bytes | None:
+    """Call OpenAI image generation and return the decoded PNG bytes, or None if no
+    image data was returned. Raises on API/network failure - callers decide the fallback."""
+    client = OpenAI(api_key=settings.openai_api_key)
+    result = client.images.generate(
+        model=settings.openai_image_model,
+        prompt=prompt,
+        size=settings.openai_image_size,
+    )
+    b64 = result.data[0].b64_json
+    return base64.b64decode(b64) if b64 else None
+
+
 def generate_word_image(db: Session, word: Word, user_prompt: str | None) -> WordImage:
     image_dir = Path(settings.image_dir)
     image_dir.mkdir(parents=True, exist_ok=True)
@@ -141,15 +154,9 @@ def generate_word_image(db: Session, word: Word, user_prompt: str | None) -> Wor
 
     if settings.openai_api_key:
         try:
-            client = OpenAI(api_key=settings.openai_api_key)
-            result = client.images.generate(
-                model=settings.openai_image_model,
-                prompt=prompt,
-                size=settings.openai_image_size,
-            )
-            b64 = result.data[0].b64_json
-            if b64:
-                file_path.write_bytes(base64.b64decode(b64))
+            image_bytes = generate_image_bytes(prompt)
+            if image_bytes:
+                file_path.write_bytes(image_bytes)
             else:
                 _write_placeholder_png(file_path)
         except Exception:  # noqa: BLE001
@@ -223,15 +230,9 @@ def generate_group_image(db: Session, group: WordGroup, user_prompt: str | None)
 
     if settings.openai_api_key:
         try:
-            client = OpenAI(api_key=settings.openai_api_key)
-            result = client.images.generate(
-                model=settings.openai_image_model,
-                prompt=prompt,
-                size=settings.openai_image_size,
-            )
-            b64 = result.data[0].b64_json
-            if b64:
-                file_path.write_bytes(base64.b64decode(b64))
+            image_bytes = generate_image_bytes(prompt)
+            if image_bytes:
+                file_path.write_bytes(image_bytes)
             else:
                 _write_placeholder_png(file_path)
         except Exception:  # noqa: BLE001
@@ -300,15 +301,9 @@ def generate_phrase_image(db: Session, phrase: Phrase, user_prompt: str | None) 
 
     if settings.openai_api_key:
         try:
-            client = OpenAI(api_key=settings.openai_api_key)
-            result = client.images.generate(
-                model=settings.openai_image_model,
-                prompt=prompt,
-                size=settings.openai_image_size,
-            )
-            b64 = result.data[0].b64_json
-            if b64:
-                file_path.write_bytes(base64.b64decode(b64))
+            image_bytes = generate_image_bytes(prompt)
+            if image_bytes:
+                file_path.write_bytes(image_bytes)
             else:
                 _write_placeholder_png(file_path)
         except Exception:  # noqa: BLE001
