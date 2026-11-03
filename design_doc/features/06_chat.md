@@ -37,7 +37,7 @@ DBに書き込みを行うツール（`register_related_word`）は、チャッ�
 
 ## チャット内画像生成
 
-`generate_chat_image` ツールは、`image_service.generate_image_bytes`（`gpt-image-1`）を使ってLLMが自ら考えたプロンプト＋代替テキストからPNGを生成し、`data/images/chat-<uuid>.png` として保存、`/static/images/<file>` のURLを返す。LLMはこのURLをMarkdown画像記法（`![alt](/static/images/xxx.png)`）で自分の返信テキストに直接埋め込む。単語/熟語/グループの「公式画像」（`WordImage`等、永続的でDB管理される）とは異なり、この画像はエンティティに紐づく専用テーブルへは保存されず、チャットメッセージのMarkdown内に埋め込まれるのみである。両者の違いの詳細な対比表は `features/07_image_generation.md` を参照。
+`generate_chat_image` ツールは、`image_service.generate_image_bytes`（`gpt-image-2`）を使ってLLMが自ら考えたプロンプト＋代替テキストからPNGを生成し、`data/images/chat-<uuid>.png` として保存、`/static/images/<file>` のURLを返す。LLMはこのURLをMarkdown画像記法（`![alt](/static/images/xxx.png)`）で自分の返信テキストに直接埋め込む。単語/熟語/グループの「公式画像」（`WordImage`等、永続的でDB管理される）とは異なり、この画像はエンティティに紐づく専用テーブルへは保存されず、チャットメッセージのMarkdown内に埋め込まれるのみである。両者の違いの詳細な対比表は `features/07_image_generation.md` を参照。
 
 ## フロントエンド共有ロジック
 

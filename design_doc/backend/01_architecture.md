@@ -70,7 +70,7 @@ graph TD
 | `openai_api_key` | `""` | 空の場合、GPT/画像/TTS/Whisperの全機能が無効化され、ルールベースのフォールバックに切り替わる |
 | `openai_model_structured` | `gpt-4o-mini` | 単語構造化・語源補完・リスニング台本生成・フィードバック生成など、構造化JSON生成全般 |
 | `openai_model_chat` | `gpt-4o-mini` | チャット機能（単語/語源要素/グループ/熟語チャット） |
-| `openai_image_model` | `gpt-image-1` | 単語/熟語/グループの画像生成 |
+| `openai_image_model` | `gpt-image-2` | 単語/熟語/グループの画像生成 |
 | `openai_image_size` | `1024x1536` | 生成画像のサイズ |
 | `openai_tts_model` | `tts-1` | 単語/例文/熟語音声、リスニング台本の行音声 |
 | `openai_tts_voice` | `alloy` | デフォルト音声 |

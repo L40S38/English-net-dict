@@ -26,7 +26,8 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model_structured: str = "gpt-4o-mini"
     openai_model_chat: str = "gpt-4o-mini"
-    openai_image_model: str = "gpt-image-1"
+    # gpt-image-1 は Images API で廃止済み（"model does not exist" で 400 になる）
+    openai_image_model: str = "gpt-image-2"
     openai_image_size: str = "1024x1536"
     openai_tts_model: str = "tts-1"
     openai_tts_voice: str = "alloy"

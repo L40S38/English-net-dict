@@ -25,7 +25,7 @@
 | ルーティング | React Router | `frontend/src/App.tsx` |
 | データフェッチ | TanStack Query（React Query） | `frontend/src/main.tsx` |
 | HTTPクライアント | axios | `frontend/src/lib/api.ts` |
-| LLM/画像/音声 | OpenAI API（Responses API, gpt-image-1, tts-1, whisper-1） | `backend/core/services/gpt_service*.py` 等 |
+| LLM/画像/音声 | OpenAI API（Responses API, gpt-image-2, tts-1, whisper-1） | `backend/core/services/gpt_service*.py` 等 |
 | 運用CLI | 独自の `database_build` パッケージ（argparse） | `backend/database_build/` |
 | パッケージ管理 | uv（backend）、npm（frontend） | ルートの `setup.*`/`start.*` |
 

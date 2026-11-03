@@ -25,7 +25,10 @@ def generate_image(
     word = db.scalar(stmt)
     if not word:
         raise HTTPException(status_code=404, detail="Word not found")
-    image = generate_word_image(db, word, payload.prompt)
+    try:
+        image = generate_word_image(db, word, payload.prompt)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     db.commit()
     db.refresh(image)
     return WordImageRead.model_validate(image)
@@ -58,7 +61,10 @@ def generate_phrase_image_route(
     phrase = db.scalar(stmt)
     if not phrase:
         raise HTTPException(status_code=404, detail="Phrase not found")
-    image = generate_phrase_image(db, phrase, payload.prompt)
+    try:
+        image = generate_phrase_image(db, phrase, payload.prompt)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     db.commit()
     db.refresh(image)
     return PhraseImageRead.model_validate(image)

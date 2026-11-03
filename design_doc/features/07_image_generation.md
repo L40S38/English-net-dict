@@ -2,11 +2,11 @@
 
 前提：`backend/02_database.md`（`word_images`/`group_images`/`phrase_images`）、`backend/03_api.md`（imagesセクション）、`backend/04_services.md`（`image_service.py`）、`features/06_chat.md`（`generate_chat_image`ツール）を読んでいること。**画像生成の仕組みはこのファイルにのみ記述する**。
 
-このアプリには見た目が似ているが仕組みの異なる2種類の画像生成機能があり、いずれも同じ `image_service.generate_image_bytes`（OpenAI画像API、`openai_image_model`＝`gpt-image-1`、サイズ`openai_image_size`）を土台にしている。
+このアプリには見た目が似ているが仕組みの異なる2種類の画像生成機能があり、いずれも同じ `image_service.generate_image_bytes`（OpenAI画像API、`openai_image_model`＝`gpt-image-2`、サイズ`openai_image_size`）を土台にしている。
 
 ```mermaid
 flowchart TD
-    Shared[image_service_generate_image_bytes\ngpt-image-1]
+    Shared[image_service_generate_image_bytes\ngpt-image-2]
     Shared --> Official[公式エンティティ画像\nWord_Group_PhraseImage]
     Shared --> ChatImg[チャット内画像\ngenerate_chat_image_tool]
     Official --> DB1[(DBに永続レコード\nis_active管理)]
