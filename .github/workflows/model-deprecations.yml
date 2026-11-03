@@ -1,0 +1,65 @@
+name: OpenAI model deprecations
+
+# Dependabot 風の定期チェック: 使用中の OpenAI モデルに廃止予定日が出たら、置き換え PR を develop 向けに作る。
+# - PR は担当者にリポジトリオーナーを割り当てるので、GitHub の通知が届く
+# - 置き換え先を自動で決められないモデルがある・チェック自体が失敗した場合はジョブを失敗させ、失敗通知を飛ばす
+# schedule と workflow_dispatch は、このファイルがデフォルトブランチ (main) にあるときだけ動く。
+on:
+  schedule:
+    - cron: "0 0 * * 1" # 毎週月曜 09:00 JST
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: model-deprecations
+
+env:
+  BASE_BRANCH: develop
+  PR_BRANCH: chore/openai-model-deprecations
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.BASE_BRANCH }}
+
+      - name: Check models
+        id: check
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          python3 tools/check_model_deprecations.py --apply --report "$RUNNER_TEMP/report.md"
+          cat "$RUNNER_TEMP/report.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Open PR
+        if: steps.check.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # 開いている PR があれば触らない（PR ブランチ上の手動修正を上書きしないため）。
+          # マージかクローズされたら、次回の実行でまだ残っているものの PR を作り直す。
+          open_pr="$(gh pr list --head "$PR_BRANCH" --state open --json url --jq '.[0].url')"
+          if [ -n "$open_pr" ]; then
+            echo "既存の PR があるため更新しません: $open_pr" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C "$PR_BRANCH"
+          git commit -am "chore: 廃止予定の OpenAI モデルを置き換え"
+          git push --force origin "$PR_BRANCH"
+          gh pr create --base "$BASE_BRANCH" --head "$PR_BRANCH" \
+            --title "chore: 廃止予定の OpenAI モデルを置き換え" \
+            --body-file "$RUNNER_TEMP/report.md" \
+            --assignee "$GITHUB_REPOSITORY_OWNER"
+
+      - name: Fail if manual migration is needed
+        if: steps.check.outputs.needs_manual == 'true'
+        run: |
+          echo "::error::置き換え先を自動で決められないモデルがあります。ジョブのサマリーを確認してください。"
+          exit 1

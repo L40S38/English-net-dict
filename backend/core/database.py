@@ -1,4 +1,4 @@
-﻿from collections.abc import Generator
+from collections.abc import Generator
 from pathlib import Path
 
 from sqlalchemy import create_engine, event
