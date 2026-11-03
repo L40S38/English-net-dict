@@ -20,7 +20,7 @@ flowchart TD
 単語・グループ・熟語それぞれに、詳細ページに表示される「公式画像」がある。
 
 - **プロンプト構築**：`build_image_prompt`（単語）/`build_group_image_prompt`（グループ）/`build_phrase_image_prompt`（熟語）が、それぞれのプロンプトテンプレート（`image_generation.md`/`group_image_generation.md`/`phrase_image_generation.md`）にDBから組み立てたテキスト要約（単語なら `core_image`・`raw_description`・意味分岐の要約、意味分岐は語源branches→定義→component_meanings→etymology_variants→WordNetスナップショットの順にフォールバック）を埋め込む。
-- **生成**：`POST /api/words/{id}/generate-image` 等（`backend/03_api.md`）。APIキー未設定またはAPI呼び出し失敗時は、1×1透明PNGのプレースホルダーが書き込まれ、フロー自体は失敗しない。
+- **生成**：`POST /api/words/{id}/generate-image` 等（`backend/03_api.md`）。APIキー未設定・API呼び出し失敗・画像データが空のいずれの場合も `_write_generated_png` が `RuntimeError` を送出し、ルーターは理由を `detail` に入れた503を返す。このときファイルもDBレコードも作られず、既存のアクティブ画像は非アクティブ化されずにそのまま残る（プレースホルダー画像は書き込まない）。`ImageViewer.tsx` は生成ボタンの下にエラーメッセージを表示する。
 - **保存**：`data/images/`（`{slug(word)}-{uuid8}.png`/`group-{id}-{uuid8}.png`/`phrase-{slug}-{uuid8}.png`）にファイルを保存し、`WordImage`/`GroupImage`/`PhraseImage` 行に `file_path`（相対パス、例：`images/foo.png`）・`prompt`・`is_active=true` を記録する。新しい画像を生成すると、そのエンティティの過去の画像は `is_active=false` になる（削除ではなくソフト履歴）。`/static` マウント経由で `/static/images/<filename>` として配信される。
 - **フロントエンド**：`ImageViewer.tsx`（単語/熟語/グループ詳細ページに表示）。
 
