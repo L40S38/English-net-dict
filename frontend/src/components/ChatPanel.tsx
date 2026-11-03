@@ -20,14 +20,6 @@ const CHAT_API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? SHARED_API_BASE_U
 // leaving them literal - so a plain string-based quote strip on the raw src never matches.
 // Decode first, then strip, to undo both problems before resolving the final URL.
 function chatMarkdownUrlTransform(value: string): string {
-  // Only `/static/...` image paths need the decode/quote-strip treatment below - anything
-  // else (e.g. a search_web citation link) should pass through untouched, since decoding an
-  // arbitrary external URL can corrupt its query string (e.g. %26 -> & turns one query param
-  // into two). mdast-util-to-hast's normalizeUri leaves path slashes alone, so this substring
-  // check on the raw value is a safe, cheap way to scope the special-casing to image paths.
-  if (!value.includes("/static/")) {
-    return defaultUrlTransform(value);
-  }
   let candidate = value;
   try {
     candidate = decodeURIComponent(value);
@@ -35,8 +27,14 @@ function chatMarkdownUrlTransform(value: string): string {
     // Not a validly percent-encoded sequence - fall back to the raw value.
   }
   candidate = candidate.trim().replace(/^["']+|["']+$/g, "");
-  const safe = defaultUrlTransform(candidate);
-  return safe.startsWith("/static/") ? `${CHAT_API_BASE_URL}${safe}` : safe;
+  // Only a decoded value that is itself a root-relative `/static/...` path gets the special
+  // handling. Anything else (e.g. a search_web citation link, even one with `/static/` in
+  // its path or query) must keep its original value, since the decoded form of an arbitrary
+  // external URL can have a corrupted query string (e.g. %26 -> & turns one param into two).
+  if (!candidate.startsWith("/static/")) {
+    return defaultUrlTransform(value);
+  }
+  return `${CHAT_API_BASE_URL}${defaultUrlTransform(candidate)}`;
 }
 
 function normalizeText(input: string): string {
