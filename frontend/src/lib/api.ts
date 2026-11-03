@@ -1,4 +1,4 @@
-import axios from "axios";
+import axios, { AxiosError, type InternalAxiosRequestConfig } from "axios";
 import type {
   ChatMessage,
   ChatReply,
@@ -11,10 +11,35 @@ import type {
   Etymology,
   GroupSuggestResponse,
   GroupBulkAddItemsResponse,
+  GroupSearchResponse,
   GroupImage,
+  InflectionAction,
+  InflectionCheckResponse,
+  ListeningAttempt,
+  ListeningLine,
+  ListeningLineAudio,
+  ListeningParsedScript,
+  ListeningPersona,
+  ListeningPersonaSample,
+  ListeningReadAloudGrade,
+  ListeningScript,
+  ListeningSession,
+  ListeningSessionStatus,
+  ListeningStep,
+  MigrationInflectionApplyDecision,
+  MigrationInflectionApplyResponse,
+  MigrationInflectionTargetsResponse,
+  PhraseImage,
+  PhraseCheckResponse,
   Phrase,
+  PhraseDefinition,
+  WordSummary,
   RelatedWord,
+  SearchSuggestItem,
+  WeakPhraseStat,
+  WeakWordStat,
   Word,
+  WordCreateResponse,
   WordForms,
   WordImage,
   WordListResponse,
@@ -25,10 +50,88 @@ import type {
   WordSortBy,
   SortOrder,
 } from "../types";
+import { SHARED_API_BASE_URL_DEFAULT } from "./sharedConfig";
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000",
+  baseURL: import.meta.env.VITE_API_BASE_URL ?? SHARED_API_BASE_URL_DEFAULT,
 });
+
+const MAX_RETRY_COUNT = 3;
+const RETRY_BASE_DELAY_MS = 300;
+const CONNECTION_ERROR_EVENT = "api-connection-error";
+const CONNECTION_RECOVERED_EVENT = "api-connection-recovered";
+let hasActiveConnectionError = false;
+
+interface RetryRequestConfig extends InternalAxiosRequestConfig {
+  _retryCount?: number;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function isIdempotentMethod(method?: string): boolean {
+  const normalized = (method ?? "get").toLowerCase();
+  return normalized === "get" || normalized === "head" || normalized === "options";
+}
+
+function isRetryableConnectionError(error: AxiosError): boolean {
+  if (error.response) {
+    return false;
+  }
+  // POST/PUT/DELETE 等は、サーバー側で処理が完了した後にレスポンスだけが
+  // ネットワークエラーで失われるケースがあり、自動リトライすると同じ操作が
+  // 二重に実行されてしまう（例: 単語の重複作成）。安全に再送できるのは
+  // 副作用のない GET 系メソッドのみ。
+  if (!isIdempotentMethod(error.config?.method)) {
+    return false;
+  }
+  if (error.code === "ERR_NETWORK" || error.code === "ECONNABORTED") {
+    return true;
+  }
+  return /network error/i.test(error.message ?? "");
+}
+
+function notifyConnectionError(): void {
+  hasActiveConnectionError = true;
+  window.dispatchEvent(
+    new CustomEvent(CONNECTION_ERROR_EVENT, {
+      detail: {
+        message: "サーバーに接続できません。ネットワークまたはサーバー状態を確認してください。",
+      },
+    }),
+  );
+}
+
+function notifyConnectionRecovered(): void {
+  if (!hasActiveConnectionError) {
+    return;
+  }
+  hasActiveConnectionError = false;
+  window.dispatchEvent(new CustomEvent(CONNECTION_RECOVERED_EVENT));
+}
+
+api.interceptors.response.use(
+  async (response) => {
+    notifyConnectionRecovered();
+    return response;
+  },
+  async (error: AxiosError) => {
+    const config = error.config as RetryRequestConfig | undefined;
+    if (!config || !isRetryableConnectionError(error)) {
+      throw error;
+    }
+    const retryCount = config._retryCount ?? 0;
+    if (retryCount >= MAX_RETRY_COUNT) {
+      notifyConnectionError();
+      throw error;
+    }
+    config._retryCount = retryCount + 1;
+    const delayMs = RETRY_BASE_DELAY_MS * 2 ** retryCount;
+    await sleep(delayMs);
+    return api.request(config);
+  },
+);
 
 export const wordApi = {
   async list(params?: {
@@ -39,6 +142,17 @@ export const wordApi = {
     sort_order?: SortOrder;
   }) {
     const { data } = await api.get<WordListResponse>("/api/words", { params });
+    return data;
+  },
+  async searchForGroup(params: {
+    q: string;
+    page_words?: number;
+    page_phrases?: number;
+    page_size?: number;
+    sort_by?: WordSortBy;
+    sort_order?: SortOrder;
+  }) {
+    const { data } = await api.get<GroupSearchResponse>("/api/words/search-for-group", { params });
     return data;
   },
   async suggest(q: string, limit = 10) {
@@ -60,12 +174,27 @@ export const wordApi = {
     const { data } = await api.get<Word>(`/api/words/${wordId}`);
     return data;
   },
+  async byIds(wordIds: number[]) {
+    if (wordIds.length === 0) return [] as Word[];
+    const { data } = await api.post<Word[]>("/api/words/by-ids", { word_ids: wordIds });
+    return data;
+  },
   async getByWord(word: string) {
     const { data } = await api.get<Word>(`/api/words/by-text/${encodeURIComponent(word)}`);
     return data;
   },
-  async create(word: string) {
-    const { data } = await api.post<Word[]>("/api/words", { word });
+  async create(
+    word: string,
+    options?: {
+      inflection_action?: InflectionAction | null;
+      lemma_word?: string | null;
+    },
+  ) {
+    const { data } = await api.post<WordCreateResponse>("/api/words", {
+      word,
+      inflection_action: options?.inflection_action ?? null,
+      lemma_word: options?.lemma_word ?? null,
+    });
     return data;
   },
   async bulkCreate(words: string[]) {
@@ -74,6 +203,13 @@ export const wordApi = {
   },
   async check(words: string[]) {
     const { data } = await api.post<WordCheckResponse>("/api/words/check", { words });
+    return data;
+  },
+  async checkInflection(payload: { word?: string; words?: string[] }) {
+    const { data } = await api.post<InflectionCheckResponse>(
+      "/api/words/check-inflection",
+      payload,
+    );
     return data;
   },
   async rescrape(wordId: number) {
@@ -106,8 +242,12 @@ export const wordApi = {
         part_of_speech: string;
         meaning_en: string;
         meaning_ja: string;
-        example_en: string;
-        example_ja: string;
+        examples: Array<{
+          id?: number | null;
+          example_en: string;
+          example_ja: string;
+          sort_order: number;
+        }>;
         sort_order: number;
       }>;
       etymology?: Etymology | null;
@@ -166,6 +306,16 @@ export const wordApi = {
   async getDefaultImagePrompt(wordId: number) {
     const { data } = await api.get<{ prompt: string }>(`/api/words/${wordId}/default-image-prompt`);
     return data.prompt;
+  },
+  async generateAudio(wordId: number) {
+    const { data } = await api.post<Word>(`/api/words/${wordId}/generate-audio`);
+    return data;
+  },
+  async generateExampleAudio(wordId: number, exampleId: number) {
+    const { data } = await api.post<Definition["examples"][number]>(
+      `/api/words/${wordId}/examples/${exampleId}/generate-audio`,
+    );
+    return data;
   },
   async listPhrases(wordId: number) {
     const { data } = await api.get<Phrase[]>(`/api/words/${wordId}/phrases`);
@@ -235,6 +385,19 @@ export const groupChatApi = {
   },
   async createSession(groupId: number, title?: string) {
     const { data } = await api.post<ChatSession>(`/api/groups/${groupId}/chat/sessions`, { title });
+    return data;
+  },
+};
+
+export const phraseChatApi = {
+  async sessions(phraseId: number) {
+    const { data } = await api.get<ChatSession[]>(`/api/phrases/${phraseId}/chat/sessions`);
+    return data;
+  },
+  async createSession(phraseId: number, title?: string) {
+    const { data } = await api.post<ChatSession>(`/api/phrases/${phraseId}/chat/sessions`, {
+      title,
+    });
     return data;
   },
 };
@@ -314,10 +477,10 @@ export const groupApi = {
   async removeItem(groupId: number, itemId: number) {
     await api.delete(`/api/groups/${groupId}/items/${itemId}`);
   },
-  async bulkAddItems(groupId: number, wordIds: number[]) {
+  async bulkAddItems(groupId: number, payload: { word_ids?: number[]; phrase_ids?: number[] }) {
     const { data } = await api.post<GroupBulkAddItemsResponse>(
       `/api/groups/${groupId}/bulk-add-items`,
-      { word_ids: wordIds },
+      payload,
     );
     return data;
   },
@@ -343,10 +506,18 @@ export const groupApi = {
 };
 
 export const phraseApi = {
-  async list(params?: { q?: string; page?: number; page_size?: number }) {
+  async list(params?: {
+    q?: string;
+    sort_by?: "created_at" | "updated_at" | "text";
+    sort_order?: "desc" | "asc";
+    page?: number;
+    page_size?: number;
+  }) {
     const { data } = await api.get<Phrase[]>("/api/phrases", {
       params: {
         q: params?.q,
+        sort_by: params?.sort_by ?? "updated_at",
+        sort_order: params?.sort_order ?? "desc",
         page: params?.page ?? 1,
         page_size: params?.page_size ?? 50,
       },
@@ -361,12 +532,222 @@ export const phraseApi = {
     const { data } = await api.post<Phrase>("/api/phrases", payload);
     return data;
   },
+  async check(texts: string[]) {
+    const { data } = await api.post<PhraseCheckResponse>("/api/phrases/check", { texts });
+    return data;
+  },
   async update(phraseId: number, payload: { meaning: string }) {
     const { data } = await api.put<Phrase>(`/api/phrases/${phraseId}`, payload);
     return data;
   },
+  async updateFull(
+    phraseId: number,
+    payload: {
+      text: string;
+      meaning: string;
+      definitions: Array<{
+        id?: number | null;
+        part_of_speech: string;
+        meaning_en: string;
+        meaning_ja: string;
+        example_en: string;
+        example_ja: string;
+        sort_order: number;
+      }>;
+      word_ids: number[];
+      wiktionary_synonyms?: string[];
+      wiktionary_antonyms?: string[];
+      wiktionary_see_also?: string[];
+      wiktionary_derived_terms?: string[];
+      wiktionary_phrases?: string[];
+    },
+  ) {
+    const { data } = await api.put<Phrase>(`/api/phrases/${phraseId}/full`, payload);
+    return data;
+  },
+  async listWords(phraseId: number) {
+    const { data } = await api.get<WordSummary[]>(`/api/phrases/${phraseId}/words`);
+    return data;
+  },
+  async enrich(phraseId: number) {
+    const { data } = await api.post<Phrase>(`/api/phrases/${phraseId}/enrich`);
+    return data;
+  },
+  async generateImage(phraseId: number, prompt?: string) {
+    const { data } = await api.post<PhraseImage>(`/api/phrases/${phraseId}/generate-image`, {
+      prompt: prompt ?? null,
+    });
+    return data;
+  },
+  async getDefaultImagePrompt(phraseId: number) {
+    const { data } = await api.get<{ prompt: string }>(
+      `/api/phrases/${phraseId}/default-image-prompt`,
+    );
+    return data.prompt;
+  },
+  async generateAudio(phraseId: number) {
+    const { data } = await api.post<Phrase>(`/api/phrases/${phraseId}/generate-audio`);
+    return data;
+  },
+  async generateDefinitionAudio(phraseId: number, definitionId: number) {
+    const { data } = await api.post<PhraseDefinition>(
+      `/api/phrases/${phraseId}/definitions/${definitionId}/generate-audio`,
+    );
+    return data;
+  },
   async delete(phraseId: number) {
     await api.delete(`/api/phrases/${phraseId}`);
+  },
+};
+
+export const searchApi = {
+  async suggest(q: string, limit = 10) {
+    const { data } = await api.get<SearchSuggestItem[]>("/api/search/suggest", {
+      params: { q, limit },
+    });
+    return data;
+  },
+};
+
+export const listeningApi = {
+  async getPersonas() {
+    const { data } = await api.get<ListeningPersona[]>("/api/listening/personas");
+    return data;
+  },
+  async getPersonaSample(voice: string) {
+    const { data } = await api.get<ListeningPersonaSample>(`/api/listening/personas/${voice}/sample`);
+    return data;
+  },
+  async generateRandomScript(payload?: {
+    topic?: string;
+    level?: string;
+    speaker_count?: number;
+    is_conversation?: boolean;
+    voices?: (string | null)[];
+  }) {
+    const { data } = await api.post<ListeningScript>("/api/listening/scripts/random", payload ?? {});
+    return data;
+  },
+  async analyzeCustomScript(rawText: string) {
+    const { data } = await api.post<ListeningParsedScript>("/api/listening/scripts/custom/analyze", {
+      raw_text: rawText,
+    });
+    return data;
+  },
+  async confirmCustomScript(parsed: ListeningParsedScript, voices?: (string | null)[]) {
+    const { data } = await api.post<ListeningScript>("/api/listening/scripts/custom/confirm", {
+      parsed,
+      voices: voices ?? null,
+    });
+    return data;
+  },
+  async generateWeakReviewScript(payload?: {
+    level?: string;
+    speaker_count?: number;
+    is_conversation?: boolean;
+    voices?: (string | null)[];
+  }) {
+    const { data } = await api.post<ListeningScript>("/api/listening/scripts/weak-review", payload ?? {});
+    return data;
+  },
+  async getScript(scriptId: number) {
+    const { data } = await api.get<ListeningScript>(`/api/listening/scripts/${scriptId}`);
+    return data;
+  },
+  async generateLineAudio(lineId: number, voice?: string) {
+    const { data } = await api.post<ListeningLine>(`/api/listening/lines/${lineId}/generate-audio`, {
+      voice: voice ?? null,
+    });
+    return data;
+  },
+  async getLineAudioVariants(lineId: number) {
+    const { data } = await api.get<ListeningLineAudio[]>(`/api/listening/lines/${lineId}/audio-variants`);
+    return data;
+  },
+  async gradeReadAloud(sessionId: number, audioBlob: Blob) {
+    const formData = new FormData();
+    formData.append("audio", audioBlob, "recording.webm");
+    const { data } = await api.post<ListeningReadAloudGrade>(
+      `/api/listening/sessions/${sessionId}/read-aloud-grade`,
+      formData,
+      { headers: { "Content-Type": "multipart/form-data" } },
+    );
+    return data;
+  },
+  async createSession(scriptId: number) {
+    const { data } = await api.post<ListeningSession>("/api/listening/sessions", {
+      script_id: scriptId,
+    });
+    return data;
+  },
+  async getSession(sessionId: number) {
+    const { data } = await api.get<ListeningSession>(`/api/listening/sessions/${sessionId}`);
+    return data;
+  },
+  async updateSession(
+    sessionId: number,
+    payload: Partial<{
+      current_step: ListeningStep;
+      playback_speed: number;
+      dictation_level: number;
+      status: ListeningSessionStatus;
+    }>,
+  ) {
+    const { data } = await api.patch<ListeningSession>(`/api/listening/sessions/${sessionId}`, payload);
+    return data;
+  },
+  async recordAttempt(
+    sessionId: number,
+    payload: { line_id: number; dictation_level: number; user_text: string },
+  ) {
+    const { data } = await api.post<ListeningAttempt>(
+      `/api/listening/sessions/${sessionId}/attempts`,
+      payload,
+    );
+    return data;
+  },
+  async listSessions(status?: ListeningSessionStatus) {
+    const { data } = await api.get<ListeningSession[]>("/api/listening/sessions", {
+      params: { status },
+    });
+    return data;
+  },
+  async deleteSession(sessionId: number) {
+    await api.delete(`/api/listening/sessions/${sessionId}`);
+  },
+  async getWeakWords(limit = 50) {
+    const { data } = await api.get<WeakWordStat[]>("/api/listening/analytics/weak-words", {
+      params: { limit },
+    });
+    return data;
+  },
+  async getWeakPhrases(limit = 50) {
+    const { data } = await api.get<WeakPhraseStat[]>("/api/listening/analytics/weak-phrases", {
+      params: { limit },
+    });
+    return data;
+  },
+};
+
+export const migrationApi = {
+  async listInflectionTargets(params?: { page?: number; page_size?: number }) {
+    const { data } = await api.get<MigrationInflectionTargetsResponse>(
+      "/api/migration/inflection/targets",
+      {
+        params: {
+          page: params?.page ?? 1,
+          page_size: params?.page_size ?? 100,
+        },
+      },
+    );
+    return data;
+  },
+  async applyInflection(decisions: MigrationInflectionApplyDecision[]) {
+    const { data } = await api.post<MigrationInflectionApplyResponse>(
+      "/api/migration/inflection/apply",
+      { decisions },
+    );
+    return data;
   },
 };
 

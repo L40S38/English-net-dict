@@ -16,9 +16,9 @@
 
 ### 改善を検討したい点
 
-- **Molecules / Organisms の不足**: アトミックデザインの「Molecules」「Organisms」に相当する層がなく、機能コンポーネント（WordCard, DerivationsPanel など）が atom の直上に並んでいます。  
+- **Molecules / Organisms の不足**: アトミックデザインの「Molecules」「Organisms」に相当する層がなく、機能コンポーネント（WordCard, DerivationsPanel など）が atom の直上に並んでいます。
   例: 「意味・例文」1件分のブロックを `DefinitionCard`、「分岐」1行を `BranchRow` のような molecule に切り出すと、編集画面や一覧の追加時に再利用しやすくなります。
-- **WordEditPage の肥大化**: 約 450 行で、定義・派生語・関連語のフォームが同じような「Field + input/select + 追加/削除」の繰り返しになっています。  
+- **WordEditPage の肥大化**: 約 450 行で、定義・派生語・関連語のフォームが同じような「Field + input/select + 追加/削除」の繰り返しになっています。
   `DefinitionFormBlock` / `DerivationFormBlock` / `RelatedWordFormBlock` のようなサブコンポーネントに分けると、見通しとテストがしやすくなります。
   -> 対応したい
 - **WordCard の分岐**: `showDeleteButton` で 2 つの return に分かれており、構造が重複しています。共通部分を 1 つの JSX にまとめ、削除ボタンの有無だけ props で切り替える形にすると、修正時の二重管理を避けられます。
@@ -37,7 +37,7 @@
 
 ### 改善を検討したい点
 
-- **コメントがほぼない**: フロント・バックエンドとも、ファイル先頭の説明や「なぜこうしているか」のコメントがほとんどありません。  
+- **コメントがほぼない**: フロント・バックエンドとも、ファイル先頭の説明や「なぜこうしているか」のコメントがほとんどありません。
   特に次のような箇所は、短文のコメントがあると読み手に優しいです。
   - **バックエンド**: `words.py` の `_is_forced_morpheme_component`, `_resolve_component_link`, `_to_word_read` の語源コンポーネント enrichment など、ドメインルールが込められた関数。
   -> もう少しリファクタしてから対応するか決める
@@ -65,12 +65,12 @@
 
 ### 改善を検討したい点
 
-- **words ルーターの責務**: `words.py` に `_apply_structured_payload`, `_to_word_read`（コンポーネントの linked_word_id 解決など）, `_link_derivations`, `_link_related_words` など、ドメイン寄りの処理が多く入っています。  
+- **words ルーターの責務**: `words.py` に `_apply_structured_payload`, `_to_word_read`（コンポーネントの linked_word_id 解決など）, `_link_derivations`, `_link_related_words` など、ドメイン寄りの処理が多く入っています。
   これらを `word_service` や `WordRepository` のようなモジュールに移すと、「HTTP 層」と「単語ドメインの扱い」の境界がはっきりし、テストや将来の API 増設がしやすくなります。
   -> 対応したい
 - **Repository 層の有無**: 現状はサービスやルーターが直接 `Session` と `models` を使っています。規模が大きくなった場合は、Repository を挟んで「永続化の方法」を隠すと、DB 変更やキャッシュ導入時の影響範囲を限定しやすくなります。
 　-> 対応したいがRepositoryというクラス名だと分かりにくいので別の名前にしてほしい
-- **マイグレーション**: `main.py` の `_ensure_runtime_migrations()` に SQLite 用のスキーマ変更が直書きされています。  
+- **マイグレーション**: `main.py` の `_ensure_runtime_migrations()` に SQLite 用のスキーマ変更が直書きされています。
   マイグレーション専用モジュール（例: `app/migrations/` や `alembic`）に切り出すと、起動処理がすっきりし、本番のスキーマ管理も扱いやすくなります。
   -> 対応したい
 - **API モジュール分割**: `api.ts` は 1 ファイルで 200 行弱です。現状でも `wordApi` などで分離されているので無理は不要ですが、さらに機能が増える場合は `api/words.ts`, `api/chat.ts` のようにエンドポイント単位でファイルを分ける選択肢があります。

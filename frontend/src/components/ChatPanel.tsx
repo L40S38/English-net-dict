@@ -1,12 +1,44 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { Card, Chip, ChipList, Muted, Row } from "./atom";
+import { ConfirmModal } from "./ConfirmModal";
+import { SHARED_API_BASE_URL_DEFAULT } from "../lib/sharedConfig";
 import type { ChatMessage, ChatSession } from "../types";
 
+const CHAT_API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? SHARED_API_BASE_URL_DEFAULT;
+
+// Chat-generated images are returned by the backend as root-relative `/static/...` paths
+// (same convention as ImageViewer/AudioPlayButton) and need the API base URL prefixed -
+// otherwise they resolve against the frontend's own origin in dev, where they don't exist.
+//
+// The LLM also occasionally wraps the URL in stray quote marks (e.g. `("/static/...")`).
+// By the time react-markdown's `urlTransform` sees it, mdast-util-to-hast has already run
+// it through `normalizeUri`, which percent-encodes those quotes (`"` -> `%22`) rather than
+// leaving them literal - so a plain string-based quote strip on the raw src never matches.
+// Decode first, then strip, to undo both problems before resolving the final URL.
+function chatMarkdownUrlTransform(value: string): string {
+  let candidate = value;
+  try {
+    candidate = decodeURIComponent(value);
+  } catch {
+    // Not a validly percent-encoded sequence - fall back to the raw value.
+  }
+  candidate = candidate.trim().replace(/^["']+|["']+$/g, "");
+  // Only a decoded value that is itself a root-relative `/static/...` path gets the special
+  // handling. Anything else (e.g. a search_web citation link, even one with `/static/` in
+  // its path or query) must keep its original value, since the decoded form of an arbitrary
+  // external URL can have a corrupted query string (e.g. %26 -> & turns one param into two).
+  if (!candidate.startsWith("/static/")) {
+    return defaultUrlTransform(value);
+  }
+  return `${CHAT_API_BASE_URL}${defaultUrlTransform(candidate)}`;
+}
+
 function normalizeText(input: string): string {
+  // Strip control chars and guard against mojibake-like output from external LLM responses.
   const cleaned = Array.from(input)
     .filter((ch) => {
       const code = ch.charCodeAt(0);
@@ -65,6 +97,7 @@ export function ChatPanel({
   const chatBoxRef = useRef<HTMLDivElement>(null);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   useEffect(() => {
     const el = chatBoxRef.current;
@@ -88,9 +121,7 @@ export function ChatPanel({
 
   const handleDeleteSession = () => {
     if (!currentSession || !onDeleteSession) return;
-    if (window.confirm(`セッション「${currentSession.title}」を削除しますか？`)) {
-      onDeleteSession(currentSession.id);
-    }
+    setShowDeleteConfirm(true);
   };
 
   return (
@@ -157,9 +188,10 @@ export function ChatPanel({
             {currentSession && onDeleteSession && (
               <button
                 type="button"
+                className="button-delete"
                 onClick={handleDeleteSession}
                 title="セッションを削除"
-                style={{ background: "#fecaca", color: "#991b1b", padding: "0.55rem 0.6rem" }}
+                style={{ padding: "0.55rem 0.6rem" }}
               >
                 ✕
               </button>
@@ -180,12 +212,12 @@ export function ChatPanel({
           <div key={msg.id} className={`bubble ${msg.role === "assistant" ? "assistant" : "user"}`}>
             {msg.role === "assistant" ? (
               <div className="markdown-body">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                <ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={chatMarkdownUrlTransform}>
                   {normalizeText(msg.content)}
                 </ReactMarkdown>
               </div>
             ) : (
-              <p>{normalizeText(msg.content)}</p>
+              <p className="bubble-user-text">{normalizeText(msg.content)}</p>
             )}
             {msg.role === "assistant" && msg.citations.length > 0 && (
               <Muted as="small">
@@ -199,7 +231,7 @@ export function ChatPanel({
         ))}
         {pendingUserMessage && (
           <div className="bubble user">
-            <p>{normalizeText(pendingUserMessage)}</p>
+            <p className="bubble-user-text">{normalizeText(pendingUserMessage)}</p>
           </div>
         )}
         {sendPending && (
@@ -211,6 +243,7 @@ export function ChatPanel({
       </div>
       <Row
         as="form"
+        className="chat-input-row"
         onSubmit={(e) => {
           e.preventDefault();
           const content = input.trim();
@@ -218,16 +251,42 @@ export function ChatPanel({
           onSendMessage(content);
         }}
       >
-        <input
+        <textarea
+          className="chat-input"
           value={input}
           onChange={(e) => onInputChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              const content = input.trim();
+              if (!content) return;
+              if (sendPending || createPending) return;
+              onSendMessage(content);
+            }
+          }}
           placeholder={placeholder}
           disabled={sendPending || createPending}
+          rows={2}
         />
         <button type="submit" disabled={sendPending || createPending}>
           {sendPending ? "送信中..." : "送信"}
         </button>
       </Row>
+      <ConfirmModal
+        open={showDeleteConfirm}
+        title="削除の確認"
+        message={`セッション「${currentSession?.title ?? ""}」を削除しますか？`}
+        confirmText="削除する"
+        cancelText="キャンセル"
+        confirmVariant="danger"
+        onCancel={() => setShowDeleteConfirm(false)}
+        onConfirm={() => {
+          if (currentSession && onDeleteSession) {
+            onDeleteSession(currentSession.id);
+          }
+          setShowDeleteConfirm(false);
+        }}
+      />
     </Card>
   );
 }

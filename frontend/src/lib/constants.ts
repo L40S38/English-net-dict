@@ -1,4 +1,5 @@
 import type { RelationType } from "../types";
+import { SHARED_GROUP_NAME_MAX_LENGTH } from "./sharedConfig";
 
 export const EMPTY_MESSAGES = {
   noData: "データなし",
@@ -8,7 +9,7 @@ export const EMPTY_MESSAGES = {
 } as const;
 
 /** 最長想定:「ややこしい単語：delightful / delighted」と同程度（30 文字） */
-export const GROUP_NAME_MAX_LENGTH = 50;
+export const GROUP_NAME_MAX_LENGTH = SHARED_GROUP_NAME_MAX_LENGTH;
 
 export const RELATION_TYPE_LABELS: Record<RelationType, string> = {
   synonym: "類義語",
@@ -115,3 +116,15 @@ export const POS_OPTIONS = [
   { value: "形容詞 adjective", label: "形容詞 adjective" },
   { value: "副詞 adverb", label: "副詞 adverb" },
 ] as const;
+
+export const INFLECTION_LABELS: Record<string, string> = {
+  third_person_singular: "三単現",
+  present_participle: "現在分詞",
+  past_tense: "過去形",
+  past_participle: "過去分詞",
+  plural: "複数形",
+  comparative: "比較級",
+  superlative: "最上級",
+  possessive: "所有格",
+  inflection: "活用形",
+};

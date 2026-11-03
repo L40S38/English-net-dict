@@ -60,9 +60,9 @@
 - **etymologies → etymology_component_items**: 1:N。`variant_id` が NULL のときトップレベル、非 NULL のときバリアント内。CASCADE。
 - **etymology_variants → etymology_component_items**: 1:N。`etymology_component_items.variant_id` → `etymology_variants.id`。CASCADE。
 - **etymology_components → etymology_component_items**: 1:N。`etymology_component_items.component_id` → `etymology_components.id`（nullable, ON DELETE SET NULL）。
-- **words → derivations**: 1:N。`derivations.word_id` → `words.id`。CASCADE。  
+- **words → derivations**: 1:N。`derivations.word_id` → `words.id`。CASCADE。
   `derivations.linked_word_id` → `words.id` で派生先単語を参照（ON DELETE SET NULL）。
-- **words → related_words**: 1:N。`related_words.word_id` → `words.id`。CASCADE。  
+- **words → related_words**: 1:N。`related_words.word_id` → `words.id`。CASCADE。
   `related_words.linked_word_id` → `words.id` で関連単語を参照（ON DELETE SET NULL）。
 - **words ↔ phrases**: 多対多。`word_phrases.word_id` → `words.id`、`word_phrases.phrase_id` → `phrases.id`。両方 CASCADE。並び順カラムはなし。
 - **phrases → word_group_items**: 1:N。`word_group_items.phrase_id` → `phrases.id`（ON DELETE SET NULL）。表示は `phrase_ref` を優先し、未設定時は `phrase_text` / `phrase_meaning` にフォールバック。
@@ -312,4 +312,3 @@ This repository now uses only the consolidated `data/` layout. Legacy paths
 not used by current runtime code.
 
 New records store word_images.file_path as images/<filename>.png. Existing absolute-path rows still render as long as the files exist in data/images/, because the frontend builds URLs from the filename segment.
-

@@ -1,0 +1,103 @@
+from __future__ import annotations
+
+import io
+import uuid
+from pathlib import Path
+
+from openai import OpenAI
+from sqlalchemy.orm import Session
+
+from core.config import settings
+from core.models import DefinitionExample, Phrase, PhraseDefinition, Word
+from core.personas import PERSONA_BY_VOICE
+from core.utils.text_helpers import slugify
+
+
+def synthesize_speech(text: str, slug: str, voice: str | None = None) -> str:
+    if not settings.openai_api_key:
+        raise RuntimeError("OpenAI API key is not configured")
+    if not text.strip():
+        raise RuntimeError("Text is empty")
+
+    audio_dir = Path(settings.audio_dir)
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    filename = f"{slug}-{uuid.uuid4().hex[:8]}.mp3"
+    file_path = audio_dir / filename
+
+    client = OpenAI(api_key=settings.openai_api_key)
+    response = client.audio.speech.create(
+        model=settings.openai_tts_model,
+        voice=voice or settings.openai_tts_voice,
+        input=text,
+    )
+    response.stream_to_file(file_path)
+
+    return f"audio/{filename}"
+
+
+def get_or_create_persona_sample(voice: str) -> str:
+    """Return the cached sample clip path for a persona's voice, generating
+    it once on first request. Uses a fixed filename (no UUID) so repeat calls
+    reuse the same file instead of calling OpenAI every time."""
+    persona = PERSONA_BY_VOICE.get(voice)
+    if persona is None:
+        raise ValueError(f"Unknown voice: {voice}")
+
+    audio_dir = Path(settings.audio_dir)
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    filename = f"persona-sample-{voice}.mp3"
+    file_path = audio_dir / filename
+
+    if not file_path.exists():
+        if not settings.openai_api_key:
+            raise RuntimeError("OpenAI API key is not configured")
+        client = OpenAI(api_key=settings.openai_api_key)
+        response = client.audio.speech.create(
+            model=settings.openai_tts_model,
+            voice=voice,
+            input=f"Hi, I'm {persona.name}. I'll be your voice for today's listening practice.",
+        )
+        response.stream_to_file(file_path)
+
+    return f"audio/{filename}"
+
+
+def generate_word_audio(db: Session, word: Word) -> Word:
+    word.audio_path = synthesize_speech(word.word, slugify(word.word))
+    db.flush()
+    return word
+
+
+def generate_example_audio(db: Session, example: DefinitionExample) -> DefinitionExample:
+    example.audio_path = synthesize_speech(example.example_en, f"example-{example.id}")
+    db.flush()
+    return example
+
+
+def transcribe_audio(file_bytes: bytes, filename: str) -> str:
+    if not settings.openai_api_key:
+        raise RuntimeError("OpenAI API key is not configured")
+
+    client = OpenAI(api_key=settings.openai_api_key)
+    buffer = io.BytesIO(file_bytes)
+    buffer.name = filename
+    response = client.audio.transcriptions.create(
+        model=settings.openai_transcribe_model,
+        file=buffer,
+        language="en",
+    )
+    return response.text
+
+
+def generate_phrase_audio(db: Session, phrase: Phrase) -> Phrase:
+    phrase.audio_path = synthesize_speech(phrase.text, slugify(phrase.text))
+    db.flush()
+    return phrase
+
+
+def generate_phrase_definition_audio(db: Session, phrase_definition: PhraseDefinition) -> PhraseDefinition:
+    phrase_definition.audio_path = synthesize_speech(
+        phrase_definition.example_en, f"phrase-example-{phrase_definition.id}"
+    )
+    db.flush()
+    return phrase_definition

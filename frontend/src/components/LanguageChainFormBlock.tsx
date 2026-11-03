@@ -3,14 +3,19 @@ import { Card, Field } from "./atom";
 import { ETYMOLOGY_RELATION_OPTIONS, LANGUAGE_OPTIONS } from "../lib/constants";
 import type { LanguageChainLink } from "../types";
 
-interface Props {
+interface LanguageChainFormBlockProps {
   link: LanguageChainLink;
   index: number;
   onUpdate: (index: number, next: LanguageChainLink) => void;
   onRemove: (index: number) => void;
 }
 
-export function LanguageChainFormBlock({ link, index, onUpdate, onRemove }: Props) {
+export function LanguageChainFormBlock({
+  link,
+  index,
+  onUpdate,
+  onRemove,
+}: LanguageChainFormBlockProps) {
   const isKnownLanguage = LANGUAGE_OPTIONS.some((option) => option.code === link.lang);
   const languageSelectValue = !link.lang ? "" : isKnownLanguage ? link.lang : "__custom__";
   const isKnownRelation = ETYMOLOGY_RELATION_OPTIONS.some(

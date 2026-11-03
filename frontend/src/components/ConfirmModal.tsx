@@ -6,8 +6,12 @@ type Props = {
   message: string;
   /** 確定のみ（エラー表示など）。キャンセルボタンを出さない */
   variant?: "confirm" | "alert";
+  /** danger は削除などの破壊的操作向け */
+  confirmVariant?: "default" | "danger";
   confirmText?: string;
   cancelText?: string;
+  /** 真のとき操作ボタンを無効化し、オーバーレイ・Esc による閉じるも無効 */
+  disableActions?: boolean;
   onConfirm: () => void | Promise<void>;
   onCancel: () => void;
 };
@@ -17,11 +21,15 @@ export function ConfirmModal({
   title,
   message,
   variant = "confirm",
+  confirmVariant = "default",
   confirmText = "OK",
   cancelText = "キャンセル",
+  disableActions = false,
   onConfirm,
   onCancel,
 }: Props) {
+  const confirmClassName = confirmVariant === "danger" ? "button-delete" : "modal-confirm";
+
   useEffect(() => {
     if (!open) {
       return;
@@ -29,7 +37,7 @@ export function ConfirmModal({
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !disableActions) {
         onCancel();
       }
     };
@@ -38,14 +46,22 @@ export function ConfirmModal({
       window.removeEventListener("keydown", onKeyDown);
       document.body.style.overflow = previousOverflow;
     };
-  }, [open, onCancel]);
+  }, [open, onCancel, disableActions]);
 
   if (!open) {
     return null;
   }
 
   return (
-    <div className="modal-overlay" onClick={onCancel} aria-hidden="true">
+    <div
+      className="modal-overlay"
+      onClick={() => {
+        if (!disableActions) {
+          onCancel();
+        }
+      }}
+      aria-hidden="true"
+    >
       <div
         className="modal-panel"
         role="dialog"
@@ -58,15 +74,30 @@ export function ConfirmModal({
         <div className="modal-actions">
           {variant === "confirm" ? (
             <>
-              <button type="button" className="modal-cancel" onClick={onCancel}>
+              <button
+                type="button"
+                className="modal-cancel"
+                onClick={onCancel}
+                disabled={disableActions}
+              >
                 {cancelText}
               </button>
-              <button type="button" className="modal-confirm" onClick={() => void onConfirm()}>
+              <button
+                type="button"
+                className={confirmClassName}
+                onClick={() => void onConfirm()}
+                disabled={disableActions}
+              >
                 {confirmText}
               </button>
             </>
           ) : (
-            <button type="button" className="modal-confirm" onClick={() => void onConfirm()}>
+            <button
+              type="button"
+              className={confirmClassName}
+              onClick={() => void onConfirm()}
+              disabled={disableActions}
+            >
               {confirmText}
             </button>
           )}

@@ -1,0 +1,2 @@
+group_name_max_length: 50
+api_base_url_default: "http://localhost:8000"
