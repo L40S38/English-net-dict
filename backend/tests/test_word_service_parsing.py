@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
-from core.services.word_service import split_comma_items
+from core.services.word_service import _drop_forms_without_matching_pos, split_comma_items
 
 
 @pytest.mark.parametrize(
@@ -55,3 +57,41 @@ def test_split_comma_items_drops_empty_segments() -> None:
 
 def test_split_comma_items_empty_input_returns_empty_list() -> None:
     assert split_comma_items("") == []
+
+
+def test_drop_forms_keeps_comparative_superlative_for_adverb_only_word() -> None:
+    """Regression test: comparative/superlative (e.g. soon/sooner/soonest) exist for
+    adverbs, not just adjectives. An adverb-only word must not have them stripped."""
+    forms = {"comparative": "sooner", "superlative": "soonest"}
+    definitions = [SimpleNamespace(part_of_speech="adverb")]
+
+    result = _drop_forms_without_matching_pos(forms, definitions)
+
+    assert result == {"comparative": "sooner", "superlative": "soonest"}
+
+
+def test_drop_forms_keeps_comparative_superlative_for_adjective_only_word() -> None:
+    forms = {"comparative": "faster", "superlative": "fastest"}
+    definitions = [SimpleNamespace(part_of_speech="adjective")]
+
+    result = _drop_forms_without_matching_pos(forms, definitions)
+
+    assert result == {"comparative": "faster", "superlative": "fastest"}
+
+
+def test_drop_forms_removes_comparative_superlative_when_neither_adjective_nor_adverb() -> None:
+    forms = {"comparative": "deviceer", "superlative": "deviceest", "plural": "devices"}
+    definitions = [SimpleNamespace(part_of_speech="noun")]
+
+    result = _drop_forms_without_matching_pos(forms, definitions)
+
+    assert result == {"plural": "devices"}
+
+
+def test_drop_forms_removes_verb_forms_without_verb_definition() -> None:
+    forms = {"past_tense": "deviced", "plural": "devices"}
+    definitions = [SimpleNamespace(part_of_speech="noun")]
+
+    result = _drop_forms_without_matching_pos(forms, definitions)
+
+    assert result == {"plural": "devices"}

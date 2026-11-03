@@ -166,3 +166,82 @@ def test_execute_tool_failure_does_not_lose_prior_flushed_writes(
     # The failed related-word write itself must not have been persisted.
     db_session.refresh(target)
     assert target.related_words == []
+
+
+def test_register_related_word_opens_a_savepoint(db_session: Session, monkeypatch: pytest.MonkeyPatch) -> None:
+    """register_related_word is the only tool that writes to the DB, so it's the only
+    one that needs the begin_nested() SAVEPOINT (to isolate a failed write without
+    discarding the already-flushed user ChatMessage - see the test above)."""
+    target = Word(word="abandon")
+    db_session.add(target)
+    db_session.commit()
+
+    calls: list[str] = []
+    original_begin_nested = Session.begin_nested
+
+    def spy_begin_nested(self: Session):
+        calls.append("begin_nested")
+        return original_begin_nested(self)
+
+    monkeypatch.setattr(Session, "begin_nested", spy_begin_nested)
+
+    execute_tool(
+        db_session,
+        "register_related_word",
+        {"related_word": "forsake", "relation_type": "synonym"},
+        word_id=target.id,
+    )
+
+    assert calls == ["begin_nested"]
+
+
+def test_generate_chat_image_does_not_open_a_savepoint(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression test: generate_chat_image used to run inside execute_tool's
+    db.begin_nested() SAVEPOINT alongside every other tool, holding SQLite's write
+    lock for the duration of the slow, synchronous OpenAI image-generation call.
+    It touches no DB state, so it must run outside any SAVEPOINT."""
+    monkeypatch.setattr(chat_tools_module.settings, "openai_api_key", None)
+
+    calls: list[str] = []
+    original_begin_nested = Session.begin_nested
+
+    def spy_begin_nested(self: Session):
+        calls.append("begin_nested")
+        return original_begin_nested(self)
+
+    monkeypatch.setattr(Session, "begin_nested", spy_begin_nested)
+
+    result = json.loads(
+        execute_tool(db_session, "generate_chat_image", {"prompt": "a red apple"})
+    )
+
+    assert "error" in result
+    assert calls == []
+
+
+def test_search_web_does_not_open_a_savepoint(db_session: Session, monkeypatch: pytest.MonkeyPatch) -> None:
+    """search_web is network-bound but never touches the DB, so - like
+    generate_chat_image - it must not be wrapped in execute_tool's SAVEPOINT."""
+
+    def fake_search_web_general(queries: list[str]) -> list[dict]:
+        return [{"title": "t", "body": "b", "href": "https://example.com/search?q=rock%26roll"}]
+
+    monkeypatch.setattr(chat_tools_module, "search_web_general", fake_search_web_general)
+
+    calls: list[str] = []
+    original_begin_nested = Session.begin_nested
+
+    def spy_begin_nested(self: Session):
+        calls.append("begin_nested")
+        return original_begin_nested(self)
+
+    monkeypatch.setattr(Session, "begin_nested", spy_begin_nested)
+
+    result = json.loads(
+        execute_tool(db_session, "search_web", {"queries": ["rock & roll"], "search_type": "general"})
+    )
+
+    assert result["results"][0]["href"] == "https://example.com/search?q=rock%26roll"
+    assert calls == []

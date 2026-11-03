@@ -67,7 +67,7 @@ _FORM_NOISE_TOKENS = {"of", "from", "for", "to", "by", "and", "or", "the", "a", 
 
 class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
     source_name = "wiktionary"
-    _FETCH_MAX_RETRIES = 20
+    _FETCH_MAX_RETRIES = 6
     _FETCH_BASE_DELAY_429 = 5.0
     _FETCH_BASE_DELAY_OTHER = 3.0
 
@@ -742,6 +742,16 @@ class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
 
             section_count = 0
             current_index: int | None = None
+            # current_index が `##`（ネスト）由来の語義を指しているかどうか。`##:` 例文行の採用を
+            # このフラグで絞ることで、実 `#` 定義の下にある本物の `##` サブ語義（無視される）の例文が
+            # 親の `#` 定義に誤って紐付くのを防ぐ（そのサブ語義自体は pending_nested が False の間は
+            # マッチしないため、生の `##` 本文だけが捨てられ、`##:` 例文だけが漏れて親に付いていた）。
+            current_is_nested = False
+            # ラベルのみの `#` 行（例: `# {{lb|en|transitive}}`）に続けて、実際の語義が
+            # 一段深い `##` 項目として書かれるページがある（例: retain, be の Verb セクション）。
+            # そのまま `#` 行だけを見ると本文が空で 0 件になり、`##` 側は無条件に無視されて
+            # いたため、そのセクションの語義が丸ごと消えてしまっていた。
+            pending_nested = False
             for raw_line in block.splitlines():
                 line = raw_line.strip()
                 if not line:
@@ -762,12 +772,39 @@ class WiktionaryScraper(WiktionaryParserMixin, BaseScraper):
                             }
                         )
                         current_index = len(definitions) - 1
+                        current_is_nested = False
+                        section_count += 1
+                        pending_nested = False
+                    else:
+                        current_index = None
+                        pending_nested = True
+                    continue
+
+                nested_match = re.match(r"^##(?![:*#;])\s*(.+)$", line) if pending_nested else None
+                if nested_match:
+                    if section_count >= max_per_section or len(definitions) >= max_items:
+                        pending_nested = False
+                        continue
+                    meaning_en = cls._compact_wikitext(nested_match.group(1), max_chars=260)
+                    if meaning_en:
+                        definitions.append(
+                            {
+                                "part_of_speech": pos_key,
+                                "meaning_en": meaning_en,
+                                "example_en": "",
+                            }
+                        )
+                        current_index = len(definitions) - 1
+                        current_is_nested = True
                         section_count += 1
                     continue
 
                 if current_index is None:
                     continue
-                if not line.startswith("#:"):
+                if line.startswith("##:"):
+                    if not current_is_nested:
+                        continue
+                elif not line.startswith("#:"):
                     continue
                 if definitions[current_index]["example_en"]:
                     continue

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { Card, Muted, Row } from "./atom";
+import { getErrorMessage } from "../lib/errors";
 import { SHARED_API_BASE_URL_DEFAULT } from "../lib/sharedConfig";
 import type { GroupImage, WordImage } from "../types";
 
@@ -25,6 +26,7 @@ export function ImageViewer({
 }: ImageViewerProps) {
   const [prompt, setPrompt] = useState("");
   const [defaultPrompt, setDefaultPrompt] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
   const active = useMemo(() => images.find((image) => image.is_active), [images]);
   const baseUrl = import.meta.env.VITE_API_BASE_URL ?? SHARED_API_BASE_URL_DEFAULT;
   const imageUrl = active
@@ -48,6 +50,13 @@ export function ImageViewer({
     };
   }, [fetchDefaultPrompt]);
 
+  const handleGenerate = () => {
+    setErrorMessage("");
+    onGenerate(prompt || undefined).catch((err) =>
+      setErrorMessage(getErrorMessage(err, "画像の生成に失敗しました。")),
+    );
+  };
+
   return (
     <Card stack>
       <h3>{title}</h3>
@@ -66,7 +75,7 @@ export function ImageViewer({
         disabled={loading}
       />
       <Row>
-        <button onClick={() => onGenerate(prompt || undefined)} disabled={loading}>
+        <button onClick={handleGenerate} disabled={loading}>
           {loading ? "生成中..." : imageUrl ? "再生成" : "画像を生成"}
         </button>
         <button
@@ -77,6 +86,11 @@ export function ImageViewer({
           デフォルトに戻す
         </button>
       </Row>
+      {errorMessage && (
+        <p role="alert" style={{ color: "#b91c1c", margin: 0 }}>
+          {errorMessage}
+        </p>
+      )}
     </Card>
   );
 }

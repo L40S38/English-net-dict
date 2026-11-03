@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import logging
 import uuid
 from pathlib import Path
 
@@ -12,6 +13,8 @@ from core.models import GroupImage, Phrase, PhraseImage, Word, WordGroup, WordIm
 from core.services.wordnet_service import get_wordnet_snapshot
 from core.utils.prompt_loader import load_prompt
 from core.utils.text_helpers import slugify
+
+logger = logging.getLogger(__name__)
 
 
 def _clean_text(value: object) -> str:
@@ -124,12 +127,32 @@ def build_image_prompt(word: Word) -> str:
     )
 
 
-def _write_placeholder_png(path: Path) -> None:
-    # 1x1 transparent PNG
-    png_data = base64.b64decode(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAusB9Y5R16QAAAAASUVORK5CYII="
+def generate_image_bytes(prompt: str) -> bytes | None:
+    """Call OpenAI image generation and return the decoded PNG bytes, or None if no
+    image data was returned. Raises on API/network failure - callers decide the fallback."""
+    client = OpenAI(api_key=settings.openai_api_key)
+    result = client.images.generate(
+        model=settings.openai_image_model,
+        prompt=prompt,
+        size=settings.openai_image_size,
     )
-    path.write_bytes(png_data)
+    b64 = result.data[0].b64_json
+    return base64.b64decode(b64) if b64 else None
+
+
+def _write_generated_png(file_path: Path, prompt: str) -> None:
+    """Generate an image and save it to file_path. Raises RuntimeError on any failure so the
+    caller records nothing - never leave an invisible placeholder as the active image."""
+    if not settings.openai_api_key:
+        raise RuntimeError("OpenAI API key is not configured")
+    try:
+        image_bytes = generate_image_bytes(prompt)
+    except Exception as exc:
+        logger.exception("Image generation failed")
+        raise RuntimeError(f"Image generation failed: {exc}") from exc
+    if not image_bytes:
+        raise RuntimeError("Image generation returned no data")
+    file_path.write_bytes(image_bytes)
 
 
 def generate_word_image(db: Session, word: Word, user_prompt: str | None) -> WordImage:
@@ -139,23 +162,7 @@ def generate_word_image(db: Session, word: Word, user_prompt: str | None) -> Wor
     filename = f"{slugify(word.word)}-{uuid.uuid4().hex[:8]}.png"
     file_path = image_dir / filename
 
-    if settings.openai_api_key:
-        try:
-            client = OpenAI(api_key=settings.openai_api_key)
-            result = client.images.generate(
-                model=settings.openai_image_model,
-                prompt=prompt,
-                size=settings.openai_image_size,
-            )
-            b64 = result.data[0].b64_json
-            if b64:
-                file_path.write_bytes(base64.b64decode(b64))
-            else:
-                _write_placeholder_png(file_path)
-        except Exception:  # noqa: BLE001
-            _write_placeholder_png(file_path)
-    else:
-        _write_placeholder_png(file_path)
+    _write_generated_png(file_path, prompt)
 
     for img in word.images:
         img.is_active = False
@@ -221,23 +228,7 @@ def generate_group_image(db: Session, group: WordGroup, user_prompt: str | None)
     filename = f"group-{group.id}-{uuid.uuid4().hex[:8]}.png"
     file_path = image_dir / filename
 
-    if settings.openai_api_key:
-        try:
-            client = OpenAI(api_key=settings.openai_api_key)
-            result = client.images.generate(
-                model=settings.openai_image_model,
-                prompt=prompt,
-                size=settings.openai_image_size,
-            )
-            b64 = result.data[0].b64_json
-            if b64:
-                file_path.write_bytes(base64.b64decode(b64))
-            else:
-                _write_placeholder_png(file_path)
-        except Exception:  # noqa: BLE001
-            _write_placeholder_png(file_path)
-    else:
-        _write_placeholder_png(file_path)
+    _write_generated_png(file_path, prompt)
 
     for img in group.images:
         img.is_active = False
@@ -298,23 +289,7 @@ def generate_phrase_image(db: Session, phrase: Phrase, user_prompt: str | None) 
     filename = f"phrase-{slug}-{uuid.uuid4().hex[:8]}.png"
     file_path = image_dir / filename
 
-    if settings.openai_api_key:
-        try:
-            client = OpenAI(api_key=settings.openai_api_key)
-            result = client.images.generate(
-                model=settings.openai_image_model,
-                prompt=prompt,
-                size=settings.openai_image_size,
-            )
-            b64 = result.data[0].b64_json
-            if b64:
-                file_path.write_bytes(base64.b64decode(b64))
-            else:
-                _write_placeholder_png(file_path)
-        except Exception:  # noqa: BLE001
-            _write_placeholder_png(file_path)
-    else:
-        _write_placeholder_png(file_path)
+    _write_generated_png(file_path, prompt)
 
     for img in phrase.images:
         img.is_active = False

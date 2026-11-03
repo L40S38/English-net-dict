@@ -305,6 +305,7 @@ async def ingest_word_or_phrase(
     payload_cache: dict[str, dict],
     meaning_cache: dict[str, str | None],
     options: IngestOptions | None = None,
+    phrase_cache: dict[str, dict] | None = None,
 ) -> IngestResult:
     normalized = _normalize_text(raw_text)
     if not normalized:
@@ -333,7 +334,7 @@ async def ingest_word_or_phrase(
     existing_phrase = find_phrase_by_text(db, phrase_text)
     phrase_obj = get_or_create_phrase(db, phrase_text, phrase_meaning)
     if existing_phrase is None:
-        await enrich_phrase(db, phrase_obj, scraper=scraper, cache=meaning_cache)
+        await enrich_phrase(db, phrase_obj, scraper=scraper, cache=meaning_cache, phrase_cache=phrase_cache)
 
     results: list[Word] = []
     created_count = 0

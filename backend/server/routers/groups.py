@@ -324,7 +324,10 @@ def generate_group_image_route(
     group = _query_group(db, group_id)
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
-    image = generate_group_image(db, group, payload.prompt)
+    try:
+        image = generate_group_image(db, group, payload.prompt)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     db.commit()
     db.refresh(image)
     return GroupImageRead.model_validate(image)
